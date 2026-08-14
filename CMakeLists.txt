@@ -9,14 +9,22 @@ project(
 
 option(SPWKIT_BUILD_TESTS "Build SpWKit tests" ON)
 option(SPWKIT_BUILD_EXAMPLES "Build SpWKit examples" ON)
-option(SPWKIT_BUILD_SIMULATOR "Build the virtual SpaceWire simulator" OFF)
+option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backend" ON)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 
-add_library(spwkit STATIC
+set(SPWKIT_SOURCES
     src/core/spwkit.cpp
     src/core/port.cpp
     src/backends/loopback/loopback_backend.cpp
 )
+
+if(SPWKIT_BUILD_SIMULATOR)
+    list(APPEND SPWKIT_SOURCES
+        src/backends/virtual/simulator_backend.cpp
+    )
+endif()
+
+add_library(spwkit STATIC ${SPWKIT_SOURCES})
 
 add_library(SpWKit::spwkit ALIAS spwkit)
 
@@ -29,6 +37,10 @@ target_include_directories(spwkit
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+if(SPWKIT_BUILD_SIMULATOR)
+    target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_SIMULATOR=1)
+endif()
 
 set_target_properties(spwkit PROPERTIES
     CXX_EXTENSIONS OFF
@@ -44,7 +56,3 @@ if(SPWKIT_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
-
-# Simulator and tool targets are introduced after the public API and virtual
-# transport contracts are stabilized. The options are reserved now so build
-# configuration does not have to be renamed later.
