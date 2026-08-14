@@ -2,263 +2,160 @@
 
 **SpaceWire Development & Integration Toolkit**
 
-SpWKit is an open-source software project intended to provide a stable, implementation-independent API for working with SpaceWire links and packets across development, simulation, embedded, and hardware-backed environments.
-
-The central idea is deliberately simple:
+SpWKit provides one portable software-facing SpaceWire API across simulation, embedded systems, Linux drivers and future hardware-backed implementations.
 
 ```text
 Application
     |
     v
-+-----------------------------+
-|          SpWKit API         |
-| Port / Packet / Link / Time |
-+--------------+--------------+
-               |
-               | backend abstraction
-               |
-       +-------+---------+--------------+----------------+
-       |                 |              |                |
-       v                 v              v                v
- Local simulator    /dev/spw0      Bare metal       Vendor API
- backend            Linux driver   / RTOS backend   backend
-       |                 |              |
-       v                 v              v
- Virtual peer        AXI / DMA       MMIO / DMA
- link                    |              |
-                         +-------> FPGA SpaceWire IP
-                                      |
-                                      v
-                               Physical SpaceWire
+libspwkit public C ABI
+    |
+    +--> loopback reference backend
+    +--> process-local SpaceWire simulator
+    +--> future /dev/spwX backend
+    +--> future Ethernet virtual backend
+    +--> future bare-metal / RTOS backend
+    +--> future FPGA / vendor backend
 ```
 
-An application should be able to develop against a virtual SpaceWire port and later move to physical hardware without rewriting its SpaceWire-facing logic.
+The design goal is simple: application SpaceWire logic should not change just because the transport underneath moves from a simulator to a DMA-capable FPGA implementation.
 
-```text
-Development today
------------------
-Application -> SpWKit -> simulator endpoint A <=> endpoint B -> SpWKit -> Application
+## v0.1 status
 
-Future deployment
------------------
-Application -> SpWKit -> spw0 -> driver -> AXI/DMA -> FPGA -> SpaceWire
-```
+The v0.1 software baseline currently includes:
 
-## Why SpWKit?
+- stable-in-v0.1 public C ABI and opaque port handles;
+- packet send/receive with EOP and EEP preservation;
+- explicit link state and lifecycle control;
+- time codes;
+- capabilities and statistics;
+- deterministic loopback backend;
+- process-local two-peer virtual SpaceWire simulator;
+- reusable backend contract tests;
+- caller-owned no-heap port construction;
+- optional zero-copy ownership semantics;
+- CMake install/export and `find_package(SpWKit)` support;
+- C and C++ public examples;
+- cross-platform CI, sanitizers, no-heap verification and simulator CI.
 
-SpaceWire already has mature standards, commercial FPGA IP, hardware interfaces, vendor SDKs, HDL test environments, and network simulation tools. What is much less uniform is the software-facing integration layer between applications and those implementations.
-
-Existing solutions commonly fall into one or more of these categories:
-
-- FPGA/ASIC SpaceWire codec or router IP;
-- hardware-vendor-specific C/C++ APIs and drivers;
-- HDL/SystemC verification environments;
-- network and mission simulation tools;
-- protocol-specific implementations such as RMAP.
-
-SpWKit is intended to address a different problem: **provide one portable software contract from virtual development to deployed hardware**.
-
-Its long-term goals are therefore not to replace electrical or RTL simulation, nor to replace proven commercial SpaceWire IP. Instead, SpWKit aims to make the layers above the codec portable, testable, and reusable.
+Physical FPGA/HIL verification is deliberately deferred until suitable hardware is available. The same backend contract suite is intended to be reused when a physical backend exists.
 
 ## Virtual SpaceWire
 
-The first v0.1 virtual backend is now implemented as a process-local two-peer SpaceWire link. Applications select it through the normal `spw_port_config_t` API:
+Two simulator ports with the same `link_id` and opposite A/B endpoint identifiers form equal SpaceWire peers:
 
 ```text
-+---------------+                         +---------------+
-| Application A |                         | Application B |
-+-------+-------+                         +-------+-------+
-        |                                         |
-        v                                         v
-+-------+-------+                         +-------+-------+
-| libspwkit     |                         | libspwkit     |
-| endpoint A    |<==== virtual link ====> | endpoint B    |
-+---------------+        link_id          +---------------+
+Application A                               Application B
+     |                                           |
+ libspwkit                                   libspwkit
+ endpoint A <========== virtual link =========> endpoint B
+                         link_id
 ```
 
-Endpoints A and B are equal SpaceWire peers. They are deterministic pairing labels, not client/server roles.
+A/B are pairing labels, not server/client roles.
 
-The current local simulator supports:
+The process-local simulator supports bidirectional/full-duplex packets, EOP/EEP, time codes, bounded queues, immediate/finite/infinite waits, link start/stop/reset, disconnect/recovery, statistics and zero-copy ownership emulation.
 
-- bidirectional and concurrent packet transfer;
-- complete packet boundaries;
-- EOP and EEP termination;
-- start, stop, reset, disconnect, and recovery behavior;
-- time codes;
-- bounded queues;
-- immediate, finite, and infinite waits;
-- statistics;
-- deterministic peer disappearance/reconnection behavior.
+Distributed IPC/Ethernet virtual links and `/dev/vspwX` are later roadmap work.
 
-Future virtual transports may expose Linux devices such as `/dev/vspw0` or connect peers over real Ethernet:
+## Portable memory model
+
+Heap allocation is optional.
+
+Hosted applications may use:
+
+```c
+spw_port_open(&config, &port);
+```
+
+Bare-metal/RTOS-oriented code can use caller-owned storage:
+
+```c
+spw_port_workspace_requirements_t req;
+spw_port_workspace_requirements(&config, &req);
+spw_port_open_in_place(&config, workspace, workspace_size, &port);
+```
+
+`SPWKIT_ENABLE_HEAP=OFF` disables heap-backed open while preserving the in-place path.
+
+## No-throw policy
+
+The `spwkit` library target is built with C++ exceptions and RTTI disabled on supported toolchains. Recoverable failures are reported through `spw_result_t`; library code does not depend on exception handling.
+
+This is a project-wide portability property, not just a special no-heap CI configuration.
+
+## Zero-copy / future DMA
+
+The optional zero-copy API models ownership rather than hardware descriptors:
 
 ```text
-Linux / Embedded Node A                         Node B
-+----------------------+                +----------------------+
-| Application          |                | Application          |
-| SpWKit               |                | SpWKit               |
-| virtual backend      |<----Ethernet-->| virtual backend      |
-+----------------------+                +----------------------+
+TX: acquire -> fill -> submit -> backend owns -> reclaim -> reuse/release
+RX: backend receives -> acquire -> inspect -> release
 ```
 
-That later distributed layer is intended to enable containerized device-to-device tests, hardware-in-the-loop development, and embedded-target integration while preserving the same application-facing API.
+A simulator may emulate this with host memory. A future FPGA backend may map the same operations to coherent/pinned memory and descriptor rings internally. Physical addresses, AXI descriptors, Linux `dma_addr_t` and vendor handles do not appear in the portable ABI.
 
-## Simulation fidelity
+Scatter/gather is deferred beyond v0.1; one buffer currently represents one contiguous packet.
 
-SpWKit separates simulation fidelity from physical-layer verification.
+## Build
 
-### Packet/link mode
+```sh
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DSPWKIT_BUILD_TESTS=ON \
+  -DSPWKIT_BUILD_EXAMPLES=ON \
+  -DSPWKIT_BUILD_SIMULATOR=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
 
-The implemented v0.1 local simulator models:
+Install:
 
-- bidirectional/full-duplex packet transfer;
-- packet boundaries;
-- EOP and EEP termination;
-- software-visible link start, stop, reset, connect, disconnect, and state;
-- time codes;
-- bounded packet and time-code queues;
-- statistics;
-- deterministic disconnect/recovery.
+```sh
+cmake --install build --prefix /path/to/spwkit-install
+```
 
-Planned simulator extensions include configurable data rate and latency, explicit fault injection, and higher-fidelity flow-control behavior.
+Consumer CMake:
 
-### Behavioural link mode
+```cmake
+find_package(SpWKit 0.1 CONFIG REQUIRED)
+target_link_libraries(my_target PRIVATE SpWKit::spwkit)
+```
 
-A higher-fidelity mode may additionally model:
+CI builds a standalone installed-package consumer so exported package metadata cannot silently rot.
 
-- more detailed SpaceWire link-state timing;
-- finite receive credit;
-- flow-control effects;
-- queue pressure and congestion;
-- character-level error injection.
+## Examples
 
-### Out of scope for the software simulator
+- `examples/c_loopback.c`: hosted C API, capabilities, packets, EEP and time codes;
+- `examples/cpp_no_heap.cpp`: C++ application using caller-owned workspace;
+- `examples/installed`: standalone installed-package consumer.
 
-Electrical and RTL correctness remain separate verification concerns:
-
-- LVDS electrical behaviour;
-- Data-Strobe waveform accuracy;
-- analogue cable effects;
-- clock-domain crossing correctness;
-- cycle-accurate codec timing.
-
-Those belong in HDL simulation, FPGA verification, and physical interoperability testing.
-
-## Target platforms
-
-The intended backend matrix includes:
-
-| Environment | Virtual link | Physical SpaceWire |
-|---|---|---|
-| Linux | process-local now; `/dev/vspwX`/Ethernet planned | `/dev/spwX`, vendor APIs planned |
-| Bare metal | in-process/Ethernet planned | MMIO/AXI/DMA backend planned |
-| HardRT | virtual Ethernet backend planned | hardware backend planned |
-| FreeRTOS | planned | planned |
-| RTEMS | planned | planned |
-| Vendor hardware | n/a | adapter backend planned |
-
-The long-term portable core should not require POSIX, heap allocation, exceptions, RTTI, threads, or a filesystem. The current host-side v0.1 implementation still uses dynamic allocation for public port objects; the static/no-heap path is tracked separately.
+All examples use public headers only and require no physical hardware.
 
 ## Standards scope
 
-The primary normative reference for SpaceWire behaviour is:
+The primary design reference is **ECSS-E-ST-50-12C Rev.1, SpaceWire - Links, nodes, routers and networks (15 May 2019)**. Related ECSS SpaceWire protocol standards include protocol identification, RMAP and CCSDS packet transfer.
 
-- **ECSS-E-ST-50-12C Rev.1 — SpaceWire — Links, nodes, routers and networks (15 May 2019)**
-
-Related protocol standards include:
-
-- **ECSS-E-ST-50-51C — SpaceWire protocol identification**;
-- **ECSS-E-ST-50-52C — SpaceWire Remote Memory Access Protocol (RMAP)**;
-- **ECSS-E-ST-50-53C — SpaceWire CCSDS packet transfer protocol**.
-
-SpWKit currently targets these standards as design references. **The project must not claim ECSS conformance or certification until the implemented scope is backed by requirements traceability and verification evidence.** See [docs/compliance.md](docs/compliance.md).
-
-Official ECSS standards index: <https://ecss.nl/standards/active-standards/engineering/>
-
-## Architecture
-
-```text
-spwkit/
-├── include/spwkit/        Public portable C API
-├── src/core/              API dispatch and backend contract
-├── src/backends/
-│   ├── loopback/          Deterministic single-port reference backend
-│   ├── virtual/           Working process-local paired simulator
-│   ├── linux/             Planned
-│   ├── ethernet/          Planned
-│   ├── baremetal/         Planned
-│   └── hardrt/            Planned
-├── simulator/             Future simulator services such as vspwd
-├── tools/                 Diagnostics and management
-├── examples/
-├── tests/
-└── docs/
-```
-
-## API direction
-
-The public interface is built around a SpaceWire **port**, not around sockets, Ethernet, AXI registers, or a particular vendor device.
-
-The C ABI is the portability baseline:
-
-```c
-spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_SIMULATOR);
-spw_port_t* port = NULL;
-
-spw_port_open(&config, &port);
-spw_port_start(port);
-spw_port_send(port, &packet, SPW_TIMEOUT_IMMEDIATE);
-```
-
-Backends implement the same contract beneath that API:
-
-```text
-Port
-├── LoopbackBackend
-├── SimulatorBackend
-├── LinuxDeviceBackend     planned
-├── EthernetBackend        planned
-├── BareMetalBackend       planned
-├── HardRTBackend          planned
-└── VendorBackend          planned
-```
-
-An idiomatic C++ wrapper can be layered above the C ABI without changing backend implementations.
-
-## Project status
-
-**Pre-alpha / v0.1 implementation.**
-
-The public C ABI, core packet/link types, backend abstraction, loopback backend, backend configuration model, and process-local paired simulator are implemented. APIs are not stable yet.
-
-The v0.1 focus is now reusable contract tests, static/no-heap portability, public examples/documentation, and optional zero-copy ownership semantics. Physical FPGA/HIL validation is deliberately deferred until suitable hardware is available.
-
-See [docs/roadmap.md](docs/roadmap.md).
+SpWKit uses these standards as design references. The project does **not** claim formal ECSS conformance or certification until implemented behavior is backed by explicit requirements traceability and verification evidence.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
+- [Getting started](docs/getting-started.md)
 - [Public API contract](docs/api.md)
 - [Core public types](docs/types.md)
-- [Backend contract](docs/backend-contract.md)
 - [Port/backend configuration](docs/configuration.md)
+- [Memory ownership](docs/memory.md)
+- [Zero-copy buffers](docs/buffers.md)
+- [No-throw and portability contract](docs/portability.md)
+- [Backend contract](docs/backend-contract.md)
 - [Local virtual simulator](docs/simulator.md)
 - [Testing strategy](docs/testing.md)
-- [Definitions and terminology](docs/definitions.md)
+- [Architecture](docs/architecture.md)
 - [ECSS scope and compliance policy](docs/compliance.md)
-- [Current ecosystem and project positioning](docs/landscape.md)
 - [Roadmap](docs/roadmap.md)
 
 ## Licensing
 
-SpWKit software is licensed under the **Apache License 2.0**.
+SpWKit software is licensed under the Apache License 2.0. A future commercial FPGA/ASIC SpaceWire implementation may remain separate while implementing the same application-facing contract.
 
-The open-source software project is intentionally separable from any future commercial SpaceWire FPGA/ASIC IP. A hardware implementation may implement the same SpWKit-facing contract without being part of this repository.
-
-See [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-## Contributing
-
-SpWKit is intended as community infrastructure rather than a single-board demo. Contributions should preserve backend independence and avoid leaking simulator-, OS-, FPGA-, or vendor-specific assumptions into the portable API.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [LICENSE](LICENSE), [NOTICE](NOTICE) and [CONTRIBUTING.md](CONTRIBUTING.md).
