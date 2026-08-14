@@ -2,27 +2,35 @@
 
 SpWKit uses a C ABI as the portability baseline. The C++ interface is layered above that ABI and must not require backends to expose C++ implementation details.
 
-This document defines the v0.1 API contract boundary. Concrete packet layouts, result codes, link-state values, capability flags, statistics fields, and time-code representation are completed by the core-types work.
+This document defines the v0.1 API contract boundary. Concrete packet layouts, result codes, link-state values, capability flags, statistics fields, time-code representation, and optional zero-copy buffer semantics are completed by the core-types and buffer-API work.
 
 ## Design rule
 
-The API models software-visible SpaceWire concepts. It does not model sockets, Ethernet frames, AXI registers, DMA descriptors, file descriptors, or vendor handles.
+Applications interact with **SpWKit**, not directly with a simulator, Linux device, Ethernet transport, FPGA, DMA engine, RTOS primitive, or vendor SDK.
+
+The library translates the same public operations into the selected backend implementation:
 
 ```text
 Application
     |
     v
 +-----------------------------+
-|        public C ABI         |
+|        libspwkit API        |
 | spw_port_* / packet / state |
 +--------------+--------------+
                |
-               v
-+-----------------------------+
-| backend implementation      |
-| virtual / Linux / embedded  |
-+-----------------------------+
+               | backend contract
+               |
+   +-----------+-----------+----------------+----------------+
+   |                       |                |                |
+   v                       v                v                v
+Simulator              Linux device     Embedded        Vendor/HW
+backend                backend          backend         backend
+   |                       |                |                |
+virtual link           /dev/spwX        MMIO/DMA       vendor API
 ```
+
+The simulator is therefore an implementation of the same SpaceWire-facing contract, not an alternate application-facing API.
 
 ## ABI primitives
 
@@ -89,9 +97,44 @@ A packet is a complete software-visible SpaceWire packet. The public packet repr
 - payload length/capacity as applicable;
 - packet terminator (`EOP` or `EEP`).
 
-Packet ownership remains with the caller unless a future API explicitly documents another ownership model. A conforming backend must not silently convert EEP to EOP or merge/split software-visible packet boundaries.
+Packet ownership remains with the caller for the copied packet API. A conforming backend must not silently convert EEP to EOP or merge/split software-visible packet boundaries.
 
-The simulator transport may fragment a packet internally, and a hardware backend may use several DMA descriptors internally, but those details are below the public boundary.
+The simulator may fragment a packet internally, and a hardware backend may use one or more DMA descriptors internally, but those details remain below the public boundary.
+
+## Optional zero-copy buffer path
+
+High-throughput implementations may provide an optional buffer-oriented path in addition to copied `send`/`receive`.
+
+The public contract must model **buffer ownership transitions**, not DMA implementation details. Conceptually the supported lifecycle is expected to be:
+
+```text
+TX: acquire -> application fills -> submit -> backend owns -> reclaim
+RX: backend fills -> acquire -> application reads -> release
+```
+
+A future DMA-capable backend may map those buffers to pinned/coherent/DMA-capable memory. The simulator backend must be able to emulate the same ownership semantics using ordinary host memory so applications and contract tests can exercise the interface before physical hardware exists.
+
+The public ABI must not expose physical addresses, DMA descriptor types, AXI addresses, Linux `dma_addr_t`, or vendor handles.
+
+The copied packet API remains the mandatory baseline. Zero-copy is capability-gated and optional.
+
+## Simulator backend
+
+For v0.1, the simulator is the primary runtime reference backend.
+
+Applications still invoke only `libspwkit` operations. The selected simulator backend translates those calls to virtual link state, queues, packet transfer, time codes, faults, and optional zero-copy ownership behavior.
+
+This distinction is important:
+
+```text
+wrong:
+Application -> simulator API
+
+correct:
+Application -> libspwkit -> simulator backend
+```
+
+The same application-facing operations should later target a Linux device, RTOS implementation, or physical DMA-capable backend without changing the application's SpaceWire logic.
 
 ## Time codes
 
@@ -150,7 +193,7 @@ The following must never appear in mandatory common API signatures:
 - Ethernet MAC/IP addresses;
 - Linux `ioctl` request types;
 - AXI/MMIO addresses;
-- DMA descriptor types;
+- DMA descriptor or physical-address types;
 - RTOS task/semaphore handles;
 - vendor SDK handles.
 
@@ -171,8 +214,9 @@ Every mandatory backend is expected to run the shared contract suite. At minimum
 | time codes | transfer or explicit unsupported result |
 | statistics | counters update consistently where supported |
 | recovery | backend returns to a defined state after reset/disconnect scenarios |
+| zero-copy | ownership/acquire/submit/reclaim semantics where capability is advertised |
 
-The same behavioural tests should later execute against loopback, `vspw`, Ethernet, embedded, `/dev/spwX`, and HIL backends where the capability profile permits.
+For v0.1, these tests must run through `libspwkit` against loopback and the local simulator backend. The same behavioural tests should later execute against Ethernet, embedded, `/dev/spwX`, and HIL backends where the capability profile permits.
 
 ## Versioning
 
