@@ -2,6 +2,7 @@
 #ifndef SPWKIT_PORT_H
 #define SPWKIT_PORT_H
 
+#include "spwkit/config.h"
 #include "spwkit/types.h"
 
 #ifdef __cplusplus
