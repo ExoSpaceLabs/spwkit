@@ -9,6 +9,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <utility>
 
 namespace spwkit::detail {
 namespace {
@@ -58,7 +59,6 @@ void refresh_link_states(EndpointState& a, EndpointState& b) noexcept {
         b.state = SPW_LINK_RUN;
         return;
     }
-
     if (a.started && a.attached) {
         a.state = SPW_LINK_CONNECTING;
     }
@@ -72,19 +72,18 @@ bool peer_available(const EndpointState& peer) noexcept {
 }
 
 template <typename Predicate>
-bool wait_for_condition(std::condition_variable& cv,
+bool wait_for_condition(std::condition_variable& condition,
                         std::unique_lock<std::mutex>& lock,
                         spw_timeout_us_t timeout_us,
-                        Predicate&& predicate) {
+                        Predicate&& predicate) noexcept {
     if (predicate()) {
         return true;
     }
     if (timeout_us == SPW_TIMEOUT_IMMEDIATE) {
         return false;
     }
-
     if (timeout_us == SPW_TIMEOUT_INFINITE) {
-        cv.wait(lock, std::forward<Predicate>(predicate));
+        condition.wait(lock, std::forward<Predicate>(predicate));
         return true;
     }
 
@@ -92,9 +91,9 @@ bool wait_for_condition(std::condition_variable& cv,
     using rep = microseconds::rep;
     const auto max_rep = static_cast<std::uint64_t>(std::numeric_limits<rep>::max());
     const auto bounded = std::min<std::uint64_t>(timeout_us, max_rep);
-    return cv.wait_for(lock,
-                       microseconds(static_cast<rep>(bounded)),
-                       std::forward<Predicate>(predicate));
+    return condition.wait_for(lock,
+                              microseconds(static_cast<rep>(bounded)),
+                              std::forward<Predicate>(predicate));
 }
 
 } // namespace
@@ -108,10 +107,8 @@ struct VirtualLink {
 };
 
 namespace {
-
 std::mutex registry_mutex;
 std::array<VirtualLink, SimulatorBackend::max_local_links> registry{};
-
 } // namespace
 
 SimulatorBackend::SimulatorBackend(const spw_simulator_config_t& config) noexcept
@@ -136,7 +133,6 @@ spw_result_t SimulatorBackend::attach() noexcept {
     }
 
     std::lock_guard<std::mutex> registry_lock(registry_mutex);
-
     VirtualLink* target = nullptr;
     VirtualLink* free_slot = nullptr;
     for (auto& candidate : registry) {
@@ -187,8 +183,8 @@ void SimulatorBackend::detach() noexcept {
 
     EndpointState& local = link_->endpoints[endpoint_index_];
     EndpointState& peer = link_->endpoints[1u - endpoint_index_];
-
     reset_endpoint(local);
+
     if (peer.attached && peer.started) {
         peer.state = SPW_LINK_CONNECTING;
         ++peer.statistics.link_errors;
@@ -209,7 +205,6 @@ spw_result_t SimulatorBackend::start() noexcept {
     if (link_ == nullptr) {
         return SPW_ERR_INVALID_STATE;
     }
-
     std::lock_guard<std::mutex> lock(link_->mutex);
     EndpointState& local = link_->endpoints[endpoint_index_];
     if (!local.attached) {
@@ -227,7 +222,6 @@ spw_result_t SimulatorBackend::stop() noexcept {
     if (link_ == nullptr) {
         return SPW_ERR_INVALID_STATE;
     }
-
     std::lock_guard<std::mutex> lock(link_->mutex);
     EndpointState& local = link_->endpoints[endpoint_index_];
     EndpointState& peer = link_->endpoints[1u - endpoint_index_];
@@ -248,7 +242,6 @@ spw_result_t SimulatorBackend::reset() noexcept {
     if (link_ == nullptr) {
         return SPW_ERR_INVALID_STATE;
     }
-
     std::lock_guard<std::mutex> lock(link_->mutex);
     EndpointState& local = link_->endpoints[endpoint_index_];
     EndpointState& peer = link_->endpoints[1u - endpoint_index_];
@@ -271,7 +264,6 @@ spw_result_t SimulatorBackend::get_link_state(spw_link_state_t& state) const noe
     if (link_ == nullptr) {
         return SPW_ERR_INVALID_STATE;
     }
-
     std::lock_guard<std::mutex> lock(link_->mutex);
     const EndpointState& local = link_->endpoints[endpoint_index_];
     if (!local.attached) {
@@ -311,59 +303,55 @@ spw_result_t SimulatorBackend::send(const spw_packet_t& packet,
         return SPW_ERR_INVALID_PACKET;
     }
 
-    try {
-        std::unique_lock<std::mutex> lock(link_->mutex);
-        EndpointState& local = link_->endpoints[endpoint_index_];
-        EndpointState& peer = link_->endpoints[1u - endpoint_index_];
+    std::unique_lock<std::mutex> lock(link_->mutex);
+    EndpointState& local = link_->endpoints[endpoint_index_];
+    EndpointState& peer = link_->endpoints[1u - endpoint_index_];
 
-        if (!local.attached || !local.started) {
-            return SPW_ERR_INVALID_STATE;
-        }
-        if (!peer_available(peer)) {
-            return SPW_ERR_LINK_UNAVAILABLE;
-        }
-
-        const bool ready = wait_for_condition(
-            link_->condition, lock, timeout_us,
-            [&] {
-                return !local.started || !peer_available(peer) ||
-                       peer.packets.count < packet_queue_depth;
-            });
-        if (!ready) {
-            return timeout_us == SPW_TIMEOUT_IMMEDIATE
-                       ? SPW_ERR_RESOURCE_EXHAUSTED
-                       : SPW_ERR_TIMEOUT;
-        }
-        if (!local.started) {
-            return SPW_ERR_INVALID_STATE;
-        }
-        if (!peer_available(peer)) {
-            return SPW_ERR_LINK_UNAVAILABLE;
-        }
-        if (peer.packets.count == packet_queue_depth) {
-            return SPW_ERR_TIMEOUT;
-        }
-
-        PacketSlot& slot = peer.packets.slots[peer.packets.tail];
-        if (packet.length > 0u) {
-            std::memcpy(slot.data.data(), packet.data, packet.length);
-        }
-        slot.length = packet.length;
-        slot.terminator = packet.terminator;
-        peer.packets.tail = (peer.packets.tail + 1u) % packet_queue_depth;
-        ++peer.packets.count;
-
-        ++local.statistics.tx_packets;
-        local.statistics.tx_bytes += packet.length;
-        if (packet.terminator == SPW_TERMINATOR_EEP) {
-            ++local.statistics.eep_packets;
-        }
-
-        link_->condition.notify_all();
-        return SPW_OK;
-    } catch (...) {
-        return SPW_ERR_BACKEND;
+    if (!local.attached || !local.started) {
+        return SPW_ERR_INVALID_STATE;
     }
+    if (!peer_available(peer)) {
+        return SPW_ERR_LINK_UNAVAILABLE;
+    }
+
+    const bool ready = wait_for_condition(
+        link_->condition, lock, timeout_us,
+        [&] {
+            return !local.started || !peer_available(peer) ||
+                   peer.packets.count < packet_queue_depth;
+        });
+    if (!ready) {
+        return timeout_us == SPW_TIMEOUT_IMMEDIATE
+                   ? SPW_ERR_RESOURCE_EXHAUSTED
+                   : SPW_ERR_TIMEOUT;
+    }
+    if (!local.started) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    if (!peer_available(peer)) {
+        return SPW_ERR_LINK_UNAVAILABLE;
+    }
+    if (peer.packets.count == packet_queue_depth) {
+        return SPW_ERR_TIMEOUT;
+    }
+
+    PacketSlot& slot = peer.packets.slots[peer.packets.tail];
+    if (packet.length > 0u) {
+        std::memcpy(slot.data.data(), packet.data, packet.length);
+    }
+    slot.length = packet.length;
+    slot.terminator = packet.terminator;
+    peer.packets.tail = (peer.packets.tail + 1u) % packet_queue_depth;
+    ++peer.packets.count;
+
+    ++local.statistics.tx_packets;
+    local.statistics.tx_bytes += packet.length;
+    if (packet.terminator == SPW_TERMINATOR_EEP) {
+        ++local.statistics.eep_packets;
+    }
+
+    link_->condition.notify_all();
+    return SPW_OK;
 }
 
 spw_result_t SimulatorBackend::receive(spw_packet_t& packet,
@@ -372,55 +360,50 @@ spw_result_t SimulatorBackend::receive(spw_packet_t& packet,
         return SPW_ERR_INVALID_STATE;
     }
 
-    try {
-        std::unique_lock<std::mutex> lock(link_->mutex);
-        EndpointState& local = link_->endpoints[endpoint_index_];
-        EndpointState& peer = link_->endpoints[1u - endpoint_index_];
+    std::unique_lock<std::mutex> lock(link_->mutex);
+    EndpointState& local = link_->endpoints[endpoint_index_];
+    EndpointState& peer = link_->endpoints[1u - endpoint_index_];
 
-        if (!local.attached || !local.started) {
-            return SPW_ERR_INVALID_STATE;
-        }
-
-        const bool ready = wait_for_condition(
-            link_->condition, lock, timeout_us,
-            [&] {
-                return local.packets.count > 0u || !local.started ||
-                       !peer_available(peer);
-            });
-        if (!ready) {
-            return SPW_ERR_TIMEOUT;
-        }
-        if (!local.started) {
-            return SPW_ERR_INVALID_STATE;
-        }
-        if (local.packets.count == 0u) {
-            return !peer_available(peer) ? SPW_ERR_LINK_UNAVAILABLE : SPW_ERR_TIMEOUT;
-        }
-
-        const PacketSlot& slot = local.packets.slots[local.packets.head];
-        packet.length = slot.length;
-        packet.terminator = slot.terminator;
-
-        if (slot.length > packet.capacity) {
-            return SPW_ERR_BUFFER_TOO_SMALL;
-        }
-        if (slot.length > 0u && packet.data == nullptr) {
-            return SPW_ERR_INVALID_ARGUMENT;
-        }
-
-        if (slot.length > 0u) {
-            std::memcpy(packet.data, slot.data.data(), slot.length);
-        }
-        local.packets.head = (local.packets.head + 1u) % packet_queue_depth;
-        --local.packets.count;
-
-        ++local.statistics.rx_packets;
-        local.statistics.rx_bytes += slot.length;
-        link_->condition.notify_all();
-        return SPW_OK;
-    } catch (...) {
-        return SPW_ERR_BACKEND;
+    if (!local.attached || !local.started) {
+        return SPW_ERR_INVALID_STATE;
     }
+
+    const bool ready = wait_for_condition(
+        link_->condition, lock, timeout_us,
+        [&] {
+            return local.packets.count > 0u || !local.started ||
+                   !peer_available(peer);
+        });
+    if (!ready) {
+        return SPW_ERR_TIMEOUT;
+    }
+    if (!local.started) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    if (local.packets.count == 0u) {
+        return !peer_available(peer) ? SPW_ERR_LINK_UNAVAILABLE : SPW_ERR_TIMEOUT;
+    }
+
+    const PacketSlot& slot = local.packets.slots[local.packets.head];
+    packet.length = slot.length;
+    packet.terminator = slot.terminator;
+    if (slot.length > packet.capacity) {
+        return SPW_ERR_BUFFER_TOO_SMALL;
+    }
+    if (slot.length > 0u && packet.data == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+
+    if (slot.length > 0u) {
+        std::memcpy(packet.data, slot.data.data(), slot.length);
+    }
+    local.packets.head = (local.packets.head + 1u) % packet_queue_depth;
+    --local.packets.count;
+
+    ++local.statistics.rx_packets;
+    local.statistics.rx_bytes += slot.length;
+    link_->condition.notify_all();
+    return SPW_OK;
 }
 
 spw_result_t SimulatorBackend::send_time_code(const spw_time_code_t& time_code,
@@ -432,45 +415,40 @@ spw_result_t SimulatorBackend::send_time_code(const spw_time_code_t& time_code,
         return SPW_ERR_INVALID_ARGUMENT;
     }
 
-    try {
-        std::unique_lock<std::mutex> lock(link_->mutex);
-        EndpointState& local = link_->endpoints[endpoint_index_];
-        EndpointState& peer = link_->endpoints[1u - endpoint_index_];
-
-        if (!local.attached || !local.started) {
-            return SPW_ERR_INVALID_STATE;
-        }
-        if (!peer_available(peer)) {
-            return SPW_ERR_LINK_UNAVAILABLE;
-        }
-
-        const bool ready = wait_for_condition(
-            link_->condition, lock, timeout_us,
-            [&] {
-                return !local.started || !peer_available(peer) ||
-                       peer.time_codes.count < time_code_queue_depth;
-            });
-        if (!ready) {
-            return timeout_us == SPW_TIMEOUT_IMMEDIATE
-                       ? SPW_ERR_RESOURCE_EXHAUSTED
-                       : SPW_ERR_TIMEOUT;
-        }
-        if (!local.started) {
-            return SPW_ERR_INVALID_STATE;
-        }
-        if (!peer_available(peer)) {
-            return SPW_ERR_LINK_UNAVAILABLE;
-        }
-
-        peer.time_codes.slots[peer.time_codes.tail] = time_code;
-        peer.time_codes.tail = (peer.time_codes.tail + 1u) % time_code_queue_depth;
-        ++peer.time_codes.count;
-        ++local.statistics.tx_time_codes;
-        link_->condition.notify_all();
-        return SPW_OK;
-    } catch (...) {
-        return SPW_ERR_BACKEND;
+    std::unique_lock<std::mutex> lock(link_->mutex);
+    EndpointState& local = link_->endpoints[endpoint_index_];
+    EndpointState& peer = link_->endpoints[1u - endpoint_index_];
+    if (!local.attached || !local.started) {
+        return SPW_ERR_INVALID_STATE;
     }
+    if (!peer_available(peer)) {
+        return SPW_ERR_LINK_UNAVAILABLE;
+    }
+
+    const bool ready = wait_for_condition(
+        link_->condition, lock, timeout_us,
+        [&] {
+            return !local.started || !peer_available(peer) ||
+                   peer.time_codes.count < time_code_queue_depth;
+        });
+    if (!ready) {
+        return timeout_us == SPW_TIMEOUT_IMMEDIATE
+                   ? SPW_ERR_RESOURCE_EXHAUSTED
+                   : SPW_ERR_TIMEOUT;
+    }
+    if (!local.started) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    if (!peer_available(peer)) {
+        return SPW_ERR_LINK_UNAVAILABLE;
+    }
+
+    peer.time_codes.slots[peer.time_codes.tail] = time_code;
+    peer.time_codes.tail = (peer.time_codes.tail + 1u) % time_code_queue_depth;
+    ++peer.time_codes.count;
+    ++local.statistics.tx_time_codes;
+    link_->condition.notify_all();
+    return SPW_OK;
 }
 
 spw_result_t SimulatorBackend::receive_time_code(spw_time_code_t& time_code,
@@ -479,47 +457,41 @@ spw_result_t SimulatorBackend::receive_time_code(spw_time_code_t& time_code,
         return SPW_ERR_INVALID_STATE;
     }
 
-    try {
-        std::unique_lock<std::mutex> lock(link_->mutex);
-        EndpointState& local = link_->endpoints[endpoint_index_];
-        EndpointState& peer = link_->endpoints[1u - endpoint_index_];
-
-        if (!local.attached || !local.started) {
-            return SPW_ERR_INVALID_STATE;
-        }
-
-        const bool ready = wait_for_condition(
-            link_->condition, lock, timeout_us,
-            [&] {
-                return local.time_codes.count > 0u || !local.started ||
-                       !peer_available(peer);
-            });
-        if (!ready) {
-            return SPW_ERR_TIMEOUT;
-        }
-        if (!local.started) {
-            return SPW_ERR_INVALID_STATE;
-        }
-        if (local.time_codes.count == 0u) {
-            return !peer_available(peer) ? SPW_ERR_LINK_UNAVAILABLE : SPW_ERR_TIMEOUT;
-        }
-
-        time_code = local.time_codes.slots[local.time_codes.head];
-        local.time_codes.head = (local.time_codes.head + 1u) % time_code_queue_depth;
-        --local.time_codes.count;
-        ++local.statistics.rx_time_codes;
-        link_->condition.notify_all();
-        return SPW_OK;
-    } catch (...) {
-        return SPW_ERR_BACKEND;
+    std::unique_lock<std::mutex> lock(link_->mutex);
+    EndpointState& local = link_->endpoints[endpoint_index_];
+    EndpointState& peer = link_->endpoints[1u - endpoint_index_];
+    if (!local.attached || !local.started) {
+        return SPW_ERR_INVALID_STATE;
     }
+
+    const bool ready = wait_for_condition(
+        link_->condition, lock, timeout_us,
+        [&] {
+            return local.time_codes.count > 0u || !local.started ||
+                   !peer_available(peer);
+        });
+    if (!ready) {
+        return SPW_ERR_TIMEOUT;
+    }
+    if (!local.started) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    if (local.time_codes.count == 0u) {
+        return !peer_available(peer) ? SPW_ERR_LINK_UNAVAILABLE : SPW_ERR_TIMEOUT;
+    }
+
+    time_code = local.time_codes.slots[local.time_codes.head];
+    local.time_codes.head = (local.time_codes.head + 1u) % time_code_queue_depth;
+    --local.time_codes.count;
+    ++local.statistics.rx_time_codes;
+    link_->condition.notify_all();
+    return SPW_OK;
 }
 
 spw_result_t SimulatorBackend::get_statistics(spw_statistics_t& statistics) const noexcept {
     if (link_ == nullptr) {
         return SPW_ERR_INVALID_STATE;
     }
-
     std::lock_guard<std::mutex> lock(link_->mutex);
     const EndpointState& local = link_->endpoints[endpoint_index_];
     if (!local.attached) {
@@ -533,7 +505,6 @@ spw_result_t SimulatorBackend::clear_statistics() noexcept {
     if (link_ == nullptr) {
         return SPW_ERR_INVALID_STATE;
     }
-
     std::lock_guard<std::mutex> lock(link_->mutex);
     EndpointState& local = link_->endpoints[endpoint_index_];
     if (!local.attached) {
