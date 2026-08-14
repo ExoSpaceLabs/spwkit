@@ -10,22 +10,52 @@
 #include "backends/virtual/simulator_backend.hpp"
 #endif
 
+#include <cstddef>
+#include <cstdint>
 #include <new>
+
+#ifndef SPWKIT_ENABLE_HEAP
+#define SPWKIT_ENABLE_HEAP 1
+#endif
 
 struct spw_port {
     spwkit::detail::Backend* backend;
     void (*destroy_backend)(spwkit::detail::Backend*) noexcept;
+    void* workspace_base;
+    std::size_t workspace_alignment;
+    bool release_workspace;
 };
 
 namespace {
 
-void destroy_loopback(spwkit::detail::Backend* backend) noexcept {
-    delete static_cast<spwkit::detail::LoopbackBackend*>(backend);
+constexpr std::size_t align_up(std::size_t value, std::size_t alignment) noexcept {
+    return (value + alignment - 1u) & ~(alignment - 1u);
+}
+
+template <typename BackendType>
+constexpr spw_port_workspace_requirements_t requirements_for() noexcept {
+    constexpr std::size_t backend_alignment = alignof(BackendType);
+    constexpr std::size_t port_alignment = alignof(spw_port_t);
+    constexpr std::size_t required_alignment =
+        backend_alignment > port_alignment ? backend_alignment : port_alignment;
+    constexpr std::size_t backend_offset = align_up(sizeof(spw_port_t), backend_alignment);
+    return {backend_offset + sizeof(BackendType), required_alignment};
+}
+
+template <typename BackendType>
+BackendType* backend_address(void* workspace) noexcept {
+    auto* bytes = static_cast<std::uint8_t*>(workspace);
+    return reinterpret_cast<BackendType*>(
+        bytes + align_up(sizeof(spw_port_t), alignof(BackendType)));
+}
+
+void destroy_loopback_in_place(spwkit::detail::Backend* backend) noexcept {
+    static_cast<spwkit::detail::LoopbackBackend*>(backend)->~LoopbackBackend();
 }
 
 #ifdef SPWKIT_HAS_SIMULATOR
-void destroy_simulator(spwkit::detail::Backend* backend) noexcept {
-    delete static_cast<spwkit::detail::SimulatorBackend*>(backend);
+void destroy_simulator_in_place(spwkit::detail::Backend* backend) noexcept {
+    static_cast<spwkit::detail::SimulatorBackend*>(backend)->~SimulatorBackend();
 }
 #endif
 
@@ -69,32 +99,36 @@ spw_result_t validate_port(const spw_port_t* port) noexcept {
     return (port != nullptr && port->backend != nullptr) ? SPW_OK : SPW_ERR_INVALID_ARGUMENT;
 }
 
+bool is_aligned(const void* pointer, std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0u;
+}
+
 } // namespace
 
 extern "C" {
 
-spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_port) {
-    if (out_port == nullptr) {
+spw_result_t spw_port_workspace_requirements(
+    const spw_port_config_t* config,
+    spw_port_workspace_requirements_t* out_requirements) {
+    if (out_requirements == nullptr) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    *out_port = nullptr;
+    out_requirements->size = 0u;
+    out_requirements->alignment = 0u;
 
     const spw_result_t common = validate_common_config(config);
     if (common != SPW_OK) {
         return common;
     }
 
-    spwkit::detail::Backend* backend = nullptr;
-    void (*destroy_backend)(spwkit::detail::Backend*) noexcept = nullptr;
-
     switch (config->backend) {
     case SPW_BACKEND_LOOPBACK:
         if (config->backend_config != nullptr || config->backend_config_size != 0u) {
             return SPW_ERR_INVALID_ARGUMENT;
         }
-        backend = new (std::nothrow) spwkit::detail::LoopbackBackend();
-        destroy_backend = &destroy_loopback;
-        break;
+        *out_requirements = requirements_for<spwkit::detail::LoopbackBackend>();
+        return SPW_OK;
 
     case SPW_BACKEND_SIMULATOR: {
         const spw_result_t result = validate_simulator_config(config);
@@ -102,18 +136,68 @@ spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_por
             return result;
         }
 #ifdef SPWKIT_HAS_SIMULATOR
-        const auto* simulator = static_cast<const spw_simulator_config_t*>(config->backend_config);
-        auto* simulator_backend = new (std::nothrow) spwkit::detail::SimulatorBackend(*simulator);
-        if (simulator_backend == nullptr) {
-            return SPW_ERR_RESOURCE_EXHAUSTED;
-        }
-        const spw_result_t attach_result = simulator_backend->attach();
+        *out_requirements = requirements_for<spwkit::detail::SimulatorBackend>();
+        return SPW_OK;
+#else
+        return SPW_ERR_UNSUPPORTED;
+#endif
+    }
+
+    default:
+        return SPW_ERR_UNSUPPORTED;
+    }
+}
+
+spw_result_t spw_port_open_in_place(const spw_port_config_t* config,
+                                    void* workspace,
+                                    size_t workspace_size,
+                                    spw_port_t** out_port) {
+    if (out_port == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_port = nullptr;
+
+    spw_port_workspace_requirements_t requirements{};
+    const spw_result_t requirements_result =
+        spw_port_workspace_requirements(config, &requirements);
+    if (requirements_result != SPW_OK) {
+        return requirements_result;
+    }
+    if (workspace == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (!is_aligned(workspace, requirements.alignment)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (workspace_size < requirements.size) {
+        return SPW_ERR_BUFFER_TOO_SMALL;
+    }
+
+    spwkit::detail::Backend* backend = nullptr;
+    void (*destroy_backend)(spwkit::detail::Backend*) noexcept = nullptr;
+
+    switch (config->backend) {
+    case SPW_BACKEND_LOOPBACK: {
+        auto* loopback = backend_address<spwkit::detail::LoopbackBackend>(workspace);
+        backend = ::new (static_cast<void*>(loopback)) spwkit::detail::LoopbackBackend();
+        destroy_backend = &destroy_loopback_in_place;
+        break;
+    }
+
+    case SPW_BACKEND_SIMULATOR: {
+#ifdef SPWKIT_HAS_SIMULATOR
+        const auto simulator_config =
+            *static_cast<const spw_simulator_config_t*>(config->backend_config);
+        auto* simulator = backend_address<spwkit::detail::SimulatorBackend>(workspace);
+        simulator = ::new (static_cast<void*>(simulator))
+            spwkit::detail::SimulatorBackend(simulator_config);
+        const spw_result_t attach_result = simulator->attach();
         if (attach_result != SPW_OK) {
-            delete simulator_backend;
+            simulator->~SimulatorBackend();
             return attach_result;
         }
-        backend = simulator_backend;
-        destroy_backend = &destroy_simulator;
+        backend = simulator;
+        destroy_backend = &destroy_simulator_in_place;
         break;
 #else
         return SPW_ERR_UNSUPPORTED;
@@ -124,27 +208,83 @@ spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_por
         return SPW_ERR_UNSUPPORTED;
     }
 
-    if (backend == nullptr) {
-        return SPW_ERR_RESOURCE_EXHAUSTED;
-    }
-
-    spw_port_t* port = new (std::nothrow) spw_port_t{backend, destroy_backend};
-    if (port == nullptr) {
-        destroy_backend(backend);
-        return SPW_ERR_RESOURCE_EXHAUSTED;
-    }
+    auto* port = ::new (workspace) spw_port_t{
+        backend,
+        destroy_backend,
+        workspace,
+        requirements.alignment,
+        false,
+    };
 
     *out_port = port;
     return SPW_OK;
+}
+
+spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_port) {
+    if (out_port == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_port = nullptr;
+
+    spw_port_workspace_requirements_t requirements{};
+    const spw_result_t result = spw_port_workspace_requirements(config, &requirements);
+    if (result != SPW_OK) {
+        return result;
+    }
+
+#if SPWKIT_ENABLE_HEAP
+    void* workspace = ::operator new(
+        requirements.size,
+        static_cast<std::align_val_t>(requirements.alignment),
+        std::nothrow);
+    if (workspace == nullptr) {
+        return SPW_ERR_RESOURCE_EXHAUSTED;
+    }
+
+    spw_port_t* port = nullptr;
+    const spw_result_t open_result =
+        spw_port_open_in_place(config, workspace, requirements.size, &port);
+    if (open_result != SPW_OK) {
+        ::operator delete(workspace,
+                          static_cast<std::align_val_t>(requirements.alignment));
+        return open_result;
+    }
+
+    port->release_workspace = true;
+    *out_port = port;
+    return SPW_OK;
+#else
+    (void)requirements;
+    return SPW_ERR_UNSUPPORTED;
+#endif
 }
 
 spw_result_t spw_port_close(spw_port_t* port) {
     if (validate_port(port) != SPW_OK) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    port->destroy_backend(port->backend);
+
+    void* workspace = port->workspace_base;
+    const std::size_t workspace_alignment = port->workspace_alignment;
+    const bool release_workspace = port->release_workspace;
+    auto* backend = port->backend;
+    auto destroy_backend = port->destroy_backend;
+
     port->backend = nullptr;
-    delete port;
+    destroy_backend(backend);
+    port->~spw_port();
+
+#if SPWKIT_ENABLE_HEAP
+    if (release_workspace) {
+        ::operator delete(workspace,
+                          static_cast<std::align_val_t>(workspace_alignment));
+    }
+#else
+    (void)workspace;
+    (void)workspace_alignment;
+    (void)release_workspace;
+#endif
+
     return SPW_OK;
 }
 
