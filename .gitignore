@@ -1,0 +1,32 @@
+# CMake
+/build/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+
+# Compilers
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+
+# IDEs
+.idea/
+.vscode/
+
+# Editor / OS
+*.swp
+*.swo
+.DS_Store
+
+# Coverage / analysis
+coverage/
+*.gcda
+*.gcno
+*.gcov
