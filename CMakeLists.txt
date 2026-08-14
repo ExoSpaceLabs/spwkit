@@ -16,6 +16,17 @@ option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backe
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 
+# Apply the same exception/RTTI policy to library code and any internal C++
+# test that directly instantiates implementation classes. Public consumers are
+# not forced to use these flags.
+function(spwkit_apply_no_throw_policy target_name)
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /EHs-c- /GR-)
+    else()
+        target_compile_options(${target_name} PRIVATE -fno-exceptions -fno-rtti)
+    endif()
+endfunction()
+
 set(SPWKIT_SOURCES
     src/core/spwkit.cpp
     src/core/port.cpp
@@ -42,13 +53,7 @@ target_include_directories(spwkit
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# SpWKit library code is intentionally exception-free and RTTI-free. This is
-# a hard portability property, not merely a special embedded build profile.
-if(MSVC)
-    target_compile_options(spwkit PRIVATE /EHs-c- /GR-)
-else()
-    target_compile_options(spwkit PRIVATE -fno-exceptions -fno-rtti)
-endif()
+spwkit_apply_no_throw_policy(spwkit)
 
 if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_SIMULATOR=1)
