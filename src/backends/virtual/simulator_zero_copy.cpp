@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <utility>
 
 namespace spwkit::detail {
 namespace {
