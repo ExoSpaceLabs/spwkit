@@ -22,6 +22,7 @@ set(SPWKIT_SOURCES
 if(SPWKIT_BUILD_SIMULATOR)
     list(APPEND SPWKIT_SOURCES
         src/backends/virtual/simulator_backend.cpp
+        src/backends/virtual/simulator_zero_copy.cpp
     )
 endif()
 
