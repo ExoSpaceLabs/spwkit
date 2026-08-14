@@ -81,15 +81,23 @@ For `spw_port_receive`:
 - on success, `length` is the complete received payload length;
 - `terminator` is set to the received packet terminator.
 
-A backend must never silently truncate a packet. If the next complete packet is larger than `capacity`, the backend returns `SPW_ERR_BUFFER_TOO_SMALL` and reports the required packet length in `length`. The packet remains a single software-visible packet.
+A backend must never silently truncate a packet. If the next complete packet is larger than `capacity`:
 
-Detailed queue retention/retry semantics for an undersized receive buffer are tracked separately and must be identical for the simulator and future hardware backends.
+1. the backend returns `SPW_ERR_BUFFER_TOO_SMALL`;
+2. `length` reports the complete required payload size;
+3. `terminator` reports the packet's EOP/EEP value;
+4. caller payload storage is not partially overwritten;
+5. the complete packet remains queued and may be retried with adequate storage.
+
+If a non-empty packet is queued and the caller provides `data == NULL`, receive returns `SPW_ERR_INVALID_ARGUMENT` and retains the packet for a valid retry.
+
+Exact-fit, maximum-size, one-byte-oversize, zero-length, undersized-buffer retention, null-storage retention and queue-boundary behavior are part of the v0.1 automated edge suite.
 
 Zero-length packets are valid at the API level and still carry an EOP or EEP terminator.
 
 ## Link state
 
-The public link-state type maps the ECSS-oriented SpaceWire exchange-state model:
+The public link-state type provides the ECSS-oriented SpaceWire exchange-state vocabulary:
 
 ```text
 SPW_LINK_ERROR_RESET = 0
@@ -100,9 +108,24 @@ SPW_LINK_CONNECTING  = 4
 SPW_LINK_RUN         = 5
 ```
 
-The simulator is expected to model these states directly. Hardware/vendor backends may internally have different state reporting but must map into the common representation.
+The values are fixed-width and explicitly numbered because they are part of the C ABI.
 
-The public values are fixed-width and explicitly numbered because they are part of the C ABI.
+A backend maps its observable state into this common vocabulary. It is **not required to manufacture intermediate states that its software model cannot meaningfully observe**. For example, the v0.1 process-local simulator exposes these stable application-visible transitions:
+
+```text
+open/reset              -> ERROR_RESET
+stop                    -> READY
+start without peer      -> CONNECTING
+both peers started      -> RUN
+peer stop/reset/close   -> surviving started peer CONNECTING
+peer restart/reopen     -> RUN
+```
+
+`ERROR_WAIT` and `STARTED` remain valid common states for backends whose controller/driver can observe those ECSS exchange-state phases. The process-local simulator does not synthesize transient timing states merely to make every enum value appear.
+
+Hardware/vendor drivers with a coarser or differently named internal state machine must map to the closest semantically correct public value and must not expose vendor-specific state identifiers through the common API.
+
+The v0.1 simulator edge suite verifies repeated start/stop/reset, missing-peer behavior, duplicate endpoint rejection, peer stop/reset/close, reconnect/reopen and preservation of the surviving port handle.
 
 ## Time code
 
@@ -115,9 +138,9 @@ uint8_t control_flags;
 
 `time_count` is constrained to 0..63.
 
-SpaceWire time-codes carry a six-bit time count in the least-significant bits and two control bits in the most-significant bits. For ordinary v0.1 time-code operation, `control_flags` is expected to be zero. Broader ECSS-E-ST-50-12C Rev.1 broadcast-code functionality is intentionally reserved for a later extension.
+SpaceWire time-codes carry a six-bit time count in the least-significant bits and two control bits in the most-significant bits. For ordinary v0.1 time-code operation, `control_flags` must be zero. Broader ECSS-E-ST-50-12C Rev.1 broadcast-code functionality is intentionally reserved for a later extension.
 
-The simulator must preserve the same time-code values seen by the application. It may not invent host timestamps as a substitute for SpaceWire time-code semantics.
+The simulator preserves the same time-code values seen by the application. It does not invent host timestamps as a substitute for SpaceWire time-code semantics.
 
 ## Capabilities
 
@@ -144,7 +167,7 @@ Capabilities also report implementation/resource constraints:
 
 A zero value for a resource limit means "not specified/unbounded by the common layer" unless a backend contract defines a tighter interpretation.
 
-The simulator should advertise capabilities it actually implements. It must not report a capability merely because the public API contains the corresponding operation.
+A backend advertises only capabilities it actually implements. The shared contract test treats advertised optional behavior as mandatory for that backend, including zero-copy ownership semantics.
 
 ## Statistics
 
@@ -163,6 +186,6 @@ The counters are diagnostic and verification-facing. Additional hardware-specifi
 
 The copied `spw_packet_t` API is mandatory.
 
-Optional zero-copy operation is a second transfer path that uses backend-managed or caller-managed buffers with explicit ownership transitions. It does not change the SpaceWire packet, terminator, link-state, or time-code semantics defined here.
+Optional zero-copy operation is a second transfer path that uses backend-managed buffers with explicit ownership transitions. It does not change the SpaceWire packet, terminator, link-state, or time-code semantics defined here.
 
-In v0.1 the simulator will emulate those ownership transitions using ordinary host memory. A future hardware backend may map the same operations onto DMA-capable memory without exposing DMA descriptors or physical addresses to applications.
+In v0.1 the simulator emulates those ownership transitions using ordinary aligned host memory. A future hardware backend may map the same operations onto DMA-capable memory without exposing DMA descriptors or physical addresses to applications.
