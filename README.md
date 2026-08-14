@@ -20,12 +20,12 @@ Application
        +-------+---------+--------------+----------------+
        |                 |              |                |
        v                 v              v                v
-  /dev/vspw0        /dev/spw0      Bare metal       Vendor API
-  simulator         Linux driver   / RTOS backend   backend
+ Local simulator    /dev/spw0      Bare metal       Vendor API
+ backend            Linux driver   / RTOS backend   backend
        |                 |              |
        v                 v              v
- Virtual link        AXI / DMA       MMIO / DMA
- over Ethernet           |              |
+ Virtual peer        AXI / DMA       MMIO / DMA
+ link                    |              |
                          +-------> FPGA SpaceWire IP
                                       |
                                       v
@@ -35,12 +35,12 @@ Application
 An application should be able to develop against a virtual SpaceWire port and later move to physical hardware without rewriting its SpaceWire-facing logic.
 
 ```text
-Development
------------
-Application -> SpWKit -> vspw0 -> virtual link -> vspw0 -> SpWKit -> Application
+Development today
+-----------------
+Application -> SpWKit -> simulator endpoint A <=> endpoint B -> SpWKit -> Application
 
-Deployment
-----------
+Future deployment
+-----------------
 Application -> SpWKit -> spw0 -> driver -> AXI/DMA -> FPGA -> SpaceWire
 ```
 
@@ -62,67 +62,73 @@ Its long-term goals are therefore not to replace electrical or RTL simulation, n
 
 ## Virtual SpaceWire
 
-SpWKit's simulator is intended to expose virtual SpaceWire ports such as:
-
-```text
-/dev/vspw0
-/dev/vspw1
-```
-
-A virtual port should model the software-observable semantics of SpaceWire rather than attempt analogue or cycle-accurate electrical simulation.
-
-The target philosophy is similar to Linux `vcan`: preserve the application contract and protocol-visible behaviour while abstracting the physical implementation.
-
-A virtual link may be local:
+The first v0.1 virtual backend is now implemented as a process-local two-peer SpaceWire link. Applications select it through the normal `spw_port_config_t` API:
 
 ```text
 +---------------+                         +---------------+
 | Application A |                         | Application B |
 +-------+-------+                         +-------+-------+
         |                                         |
-     vspw0 <=========== virtual link ==========> vspw1
+        v                                         v
++-------+-------+                         +-------+-------+
+| libspwkit     |                         | libspwkit     |
+| endpoint A    |<==== virtual link ====> | endpoint B    |
++---------------+        link_id          +---------------+
 ```
 
-or distributed over real Ethernet:
+Endpoints A and B are equal SpaceWire peers. They are deterministic pairing labels, not client/server roles.
+
+The current local simulator supports:
+
+- bidirectional and concurrent packet transfer;
+- complete packet boundaries;
+- EOP and EEP termination;
+- start, stop, reset, disconnect, and recovery behavior;
+- time codes;
+- bounded queues;
+- immediate, finite, and infinite waits;
+- statistics;
+- deterministic peer disappearance/reconnection behavior.
+
+Future virtual transports may expose Linux devices such as `/dev/vspw0` or connect peers over real Ethernet:
 
 ```text
 Linux / Embedded Node A                         Node B
 +----------------------+                +----------------------+
 | Application          |                | Application          |
 | SpWKit               |                | SpWKit               |
-| vspw0                |<----Ethernet-->| vspw0                |
+| virtual backend      |<----Ethernet-->| virtual backend      |
 +----------------------+                +----------------------+
 ```
 
-This enables distributed simulation, hardware-in-the-loop development, containerized test networks, and embedded-target integration before physical SpaceWire hardware is available.
+That later distributed layer is intended to enable containerized device-to-device tests, hardware-in-the-loop development, and embedded-target integration while preserving the same application-facing API.
 
 ## Simulation fidelity
 
 SpWKit separates simulation fidelity from physical-layer verification.
 
-### Packet mode
+### Packet/link mode
 
-The default simulator should model:
+The implemented v0.1 local simulator models:
 
-- bidirectional packet transfer;
-- arbitrary packet sizes;
+- bidirectional/full-duplex packet transfer;
 - packet boundaries;
 - EOP and EEP termination;
-- link start, stop, reset, and state;
+- software-visible link start, stop, reset, connect, disconnect, and state;
 - time codes;
-- bounded queues;
-- configurable data rate and latency;
+- bounded packet and time-code queues;
 - statistics;
-- deterministic fault injection.
+- deterministic disconnect/recovery.
+
+Planned simulator extensions include configurable data rate and latency, explicit fault injection, and higher-fidelity flow-control behavior.
 
 ### Behavioural link mode
 
-An optional higher-fidelity mode may additionally model:
+A higher-fidelity mode may additionally model:
 
-- SpaceWire link-state transitions;
+- more detailed SpaceWire link-state timing;
 - finite receive credit;
 - flow-control effects;
-- disconnect detection;
 - queue pressure and congestion;
 - character-level error injection.
 
@@ -144,14 +150,14 @@ The intended backend matrix includes:
 
 | Environment | Virtual link | Physical SpaceWire |
 |---|---|---|
-| Linux | `/dev/vspwX`, local/Ethernet | `/dev/spwX`, vendor APIs |
-| Bare metal | in-process/Ethernet virtual port | MMIO/AXI/DMA backend |
-| HardRT | virtual Ethernet backend | hardware backend |
+| Linux | process-local now; `/dev/vspwX`/Ethernet planned | `/dev/spwX`, vendor APIs planned |
+| Bare metal | in-process/Ethernet planned | MMIO/AXI/DMA backend planned |
+| HardRT | virtual Ethernet backend planned | hardware backend planned |
 | FreeRTOS | planned | planned |
 | RTEMS | planned | planned |
-| Vendor hardware | n/a | adapter backend |
+| Vendor hardware | n/a | adapter backend planned |
 
-The portable core should not require POSIX, heap allocation, exceptions, RTTI, threads, or a filesystem.
+The long-term portable core should not require POSIX, heap allocation, exceptions, RTTI, threads, or a filesystem. The current host-side v0.1 implementation still uses dynamic allocation for public port objects; the static/no-heap path is tracked separately.
 
 ## Standards scope
 
@@ -169,23 +175,21 @@ SpWKit currently targets these standards as design references. **The project mus
 
 Official ECSS standards index: <https://ecss.nl/standards/active-standards/engineering/>
 
-## Planned architecture
+## Architecture
 
 ```text
 spwkit/
-├── include/spwkit/        Public portable API
-├── src/core/              OS-independent implementation
-├── src/backends/          Platform and transport backends
-│   ├── linux/
-│   ├── virtual/
-│   ├── ethernet/
-│   ├── baremetal/
-│   └── hardrt/
-├── simulator/             Virtual SpaceWire implementation
-│   └── vspwd/
+├── include/spwkit/        Public portable C API
+├── src/core/              API dispatch and backend contract
+├── src/backends/
+│   ├── loopback/          Deterministic single-port reference backend
+│   ├── virtual/           Working process-local paired simulator
+│   ├── linux/             Planned
+│   ├── ethernet/          Planned
+│   ├── baremetal/         Planned
+│   └── hardrt/            Planned
+├── simulator/             Future simulator services such as vspwd
 ├── tools/                 Diagnostics and management
-│   ├── spwctl/
-│   └── spwmon/
 ├── examples/
 ├── tests/
 └── docs/
@@ -193,43 +197,53 @@ spwkit/
 
 ## API direction
 
-The public interface will be built around a SpaceWire **port**, not around sockets, Ethernet, AXI registers, or a particular vendor device.
+The public interface is built around a SpaceWire **port**, not around sockets, Ethernet, AXI registers, or a particular vendor device.
 
-Conceptually:
+The C ABI is the portability baseline:
 
-```cpp
-auto port = spwkit::open(config);
+```c
+spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_SIMULATOR);
+spw_port_t* port = NULL;
 
-port.start();
-port.send(packet);
-auto received = port.receive();
+spw_port_open(&config, &port);
+spw_port_start(port);
+spw_port_send(port, &packet, SPW_TIMEOUT_IMMEDIATE);
 ```
 
-Backends provide the implementation:
+Backends implement the same contract beneath that API:
 
 ```text
 Port
-├── VirtualBackend
-├── LinuxDeviceBackend
-├── EthernetBackend
-├── BareMetalBackend
-├── HardRTBackend
-└── VendorBackend
+├── LoopbackBackend
+├── SimulatorBackend
+├── LinuxDeviceBackend     planned
+├── EthernetBackend        planned
+├── BareMetalBackend       planned
+├── HardRTBackend          planned
+└── VendorBackend          planned
 ```
 
-A C ABI is planned as the portability baseline, with an idiomatic C++ wrapper above it.
+An idiomatic C++ wrapper can be layered above the C ABI without changing backend implementations.
 
 ## Project status
 
-**Pre-alpha / architecture bootstrap.**
+**Pre-alpha / v0.1 implementation.**
 
-The repository is currently defining interfaces, terminology, compliance boundaries, simulator semantics, and the initial portable core. APIs are not stable yet.
+The public C ABI, core packet/link types, backend abstraction, loopback backend, backend configuration model, and process-local paired simulator are implemented. APIs are not stable yet.
+
+The v0.1 focus is now reusable contract tests, static/no-heap portability, public examples/documentation, and optional zero-copy ownership semantics. Physical FPGA/HIL validation is deliberately deferred until suitable hardware is available.
 
 See [docs/roadmap.md](docs/roadmap.md).
 
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Public API contract](docs/api.md)
+- [Core public types](docs/types.md)
+- [Backend contract](docs/backend-contract.md)
+- [Port/backend configuration](docs/configuration.md)
+- [Local virtual simulator](docs/simulator.md)
+- [Testing strategy](docs/testing.md)
 - [Definitions and terminology](docs/definitions.md)
 - [ECSS scope and compliance policy](docs/compliance.md)
 - [Current ecosystem and project positioning](docs/landscape.md)
