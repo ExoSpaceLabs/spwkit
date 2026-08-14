@@ -23,20 +23,12 @@ add_executable(spwkit_public_edge_cases_test public_edge_cases.c)
 target_link_libraries(spwkit_public_edge_cases_test PRIVATE SpWKit::spwkit)
 set_target_properties(spwkit_public_edge_cases_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
-# Shared backend-independent behavioral contract. Backend adapters contain only
-# setup/teardown topology; all observable behavior is asserted in this library.
-add_library(spwkit_backend_contract_suite STATIC
-    contract/contract_suite.cpp
-)
+add_library(spwkit_backend_contract_suite STATIC contract/contract_suite.cpp)
 target_link_libraries(spwkit_backend_contract_suite PUBLIC SpWKit::spwkit)
-target_include_directories(spwkit_backend_contract_suite PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/contract
-)
+target_include_directories(spwkit_backend_contract_suite PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/contract)
 target_compile_features(spwkit_backend_contract_suite PUBLIC cxx_std_17)
 
-add_executable(spwkit_loopback_contract_test
-    contract/loopback_contract.cpp
-)
+add_executable(spwkit_loopback_contract_test contract/loopback_contract.cpp)
 target_link_libraries(spwkit_loopback_contract_test PRIVATE spwkit_backend_contract_suite)
 target_compile_features(spwkit_loopback_contract_test PRIVATE cxx_std_17)
 
@@ -48,7 +40,6 @@ endif()
 
 if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit_public_port_test PRIVATE SPWKIT_TEST_SIMULATOR_ENABLED=1)
-
     find_package(Threads REQUIRED)
     add_executable(spwkit_simulator_link_test simulator_link.cpp)
     target_link_libraries(spwkit_simulator_link_test PRIVATE SpWKit::spwkit Threads::Threads)
@@ -58,33 +49,23 @@ if(SPWKIT_BUILD_SIMULATOR)
     target_link_libraries(spwkit_simulator_edge_cases_test PRIVATE SpWKit::spwkit)
     target_compile_features(spwkit_simulator_edge_cases_test PRIVATE cxx_std_17)
 
-    add_executable(spwkit_simulator_contract_test
-        contract/simulator_contract.cpp
-    )
+    add_executable(spwkit_simulator_contract_test contract/simulator_contract.cpp)
     target_link_libraries(spwkit_simulator_contract_test PRIVATE spwkit_backend_contract_suite)
     target_compile_features(spwkit_simulator_contract_test PRIVATE cxx_std_17)
 endif()
 
-add_test(NAME api_headers_c_compile
-         COMMAND ${CMAKE_COMMAND} -E echo "C API headers compiled successfully")
+add_test(NAME api_headers_c_compile COMMAND ${CMAKE_COMMAND} -E echo "C API headers compiled successfully")
 set_tests_properties(api_headers_c_compile PROPERTIES LABELS "unit;contract")
-
-add_test(NAME api_headers_cpp_compile
-         COMMAND ${CMAKE_COMMAND} -E echo "C++ API headers compiled successfully")
+add_test(NAME api_headers_cpp_compile COMMAND ${CMAKE_COMMAND} -E echo "C++ API headers compiled successfully")
 set_tests_properties(api_headers_cpp_compile PROPERTIES LABELS "unit;contract")
-
 add_test(NAME core_public_types COMMAND spwkit_core_types_test)
 set_tests_properties(core_public_types PROPERTIES LABELS "unit;contract")
-
 add_test(NAME loopback_backend_unit COMMAND spwkit_loopback_backend_test)
 set_tests_properties(loopback_backend_unit PROPERTIES LABELS "unit")
-
 add_test(NAME public_port_dispatch COMMAND spwkit_public_port_test)
 set_tests_properties(public_port_dispatch PROPERTIES LABELS "unit;contract")
-
 add_test(NAME public_api_edge_cases COMMAND spwkit_public_edge_cases_test)
 set_tests_properties(public_api_edge_cases PROPERTIES LABELS "unit;contract;edge")
-
 add_test(NAME backend_contract_loopback COMMAND spwkit_loopback_contract_test)
 set_tests_properties(backend_contract_loopback PROPERTIES LABELS "contract")
 
@@ -103,10 +84,12 @@ endif()
 if(SPWKIT_BUILD_SIMULATOR)
     add_test(NAME simulator_local_peer_link COMMAND spwkit_simulator_link_test)
     set_tests_properties(simulator_local_peer_link PROPERTIES LABELS "simulator;integration")
-
     add_test(NAME simulator_edge_cases COMMAND spwkit_simulator_edge_cases_test)
     set_tests_properties(simulator_edge_cases PROPERTIES LABELS "simulator;integration;edge;contract")
-
     add_test(NAME backend_contract_simulator COMMAND spwkit_simulator_contract_test)
     set_tests_properties(backend_contract_simulator PROPERTIES LABELS "simulator;integration;contract")
+    if(SPWKIT_BUILD_EXAMPLES)
+        add_test(NAME example_c_simulator_zero_copy COMMAND spwkit_example_c_simulator_zero_copy)
+        set_tests_properties(example_c_simulator_zero_copy PROPERTIES LABELS "example;simulator;contract")
+    endif()
 endif()
