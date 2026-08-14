@@ -14,6 +14,7 @@ option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 
 add_library(spwkit STATIC
     src/core/spwkit.cpp
+    src/backends/loopback/loopback_backend.cpp
 )
 
 add_library(SpWKit::spwkit ALIAS spwkit)
@@ -24,6 +25,8 @@ target_include_directories(spwkit
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 set_target_properties(spwkit PROPERTIES
