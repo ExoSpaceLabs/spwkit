@@ -3,6 +3,8 @@
 
 #include <spwkit/types.h>
 
+#include <cstddef>
+
 namespace spwkit::detail {
 
 /**
@@ -35,6 +37,39 @@ public:
 
     virtual spw_result_t get_statistics(spw_statistics_t& statistics) const noexcept = 0;
     virtual spw_result_t clear_statistics() noexcept = 0;
+
+    /* Optional ownership-oriented packet path. */
+    virtual spw_result_t acquire_tx_buffer(std::size_t,
+                                           spw_timeout_us_t,
+                                           spw_buffer_t*& out_buffer) noexcept {
+        out_buffer = nullptr;
+        return SPW_ERR_UNSUPPORTED;
+    }
+
+    virtual spw_result_t submit_tx_buffer(spw_buffer_t&,
+                                          spw_timeout_us_t) noexcept {
+        return SPW_ERR_UNSUPPORTED;
+    }
+
+    virtual spw_result_t reclaim_tx_buffer(spw_timeout_us_t,
+                                           spw_buffer_t*& out_buffer) noexcept {
+        out_buffer = nullptr;
+        return SPW_ERR_UNSUPPORTED;
+    }
+
+    virtual spw_result_t release_tx_buffer(spw_buffer_t&) noexcept {
+        return SPW_ERR_UNSUPPORTED;
+    }
+
+    virtual spw_result_t acquire_rx_buffer(spw_timeout_us_t,
+                                           spw_buffer_t*& out_buffer) noexcept {
+        out_buffer = nullptr;
+        return SPW_ERR_UNSUPPORTED;
+    }
+
+    virtual spw_result_t release_rx_buffer(spw_buffer_t&) noexcept {
+        return SPW_ERR_UNSUPPORTED;
+    }
 };
 
 } // namespace spwkit::detail
