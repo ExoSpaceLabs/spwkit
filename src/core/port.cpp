@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+#include <spwkit/buffer.h>
 #include <spwkit/port.h>
 #include <spwkit/simulator.h>
 
 #include "backends/loopback/loopback_backend.hpp"
 #include "core/backend.hpp"
+#include "core/buffer.hpp"
 
 #ifdef SPWKIT_HAS_SIMULATOR
 #include "backends/virtual/simulator_backend.hpp"
@@ -102,6 +104,16 @@ spw_result_t validate_port(const spw_port_t* port) noexcept {
 bool is_aligned(const void* pointer, std::size_t alignment) noexcept {
     return pointer != nullptr &&
            (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0u;
+}
+
+bool valid_terminator(spw_terminator_t terminator) noexcept {
+    return terminator == SPW_TERMINATOR_EOP || terminator == SPW_TERMINATOR_EEP;
+}
+
+bool application_owned(const spw_buffer_t* buffer) noexcept {
+    return buffer != nullptr &&
+           static_cast<const spw_buffer*>(buffer)->state ==
+               spwkit::detail::BufferState::application;
 }
 
 } // namespace
@@ -312,7 +324,11 @@ spw_result_t spw_port_get_capabilities(const spw_port_t* port,
     if (validate_port(port) != SPW_OK || out_capabilities == nullptr) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    return port->backend->get_capabilities(*out_capabilities);
+    const spw_result_t result = port->backend->get_capabilities(*out_capabilities);
+    if (result == SPW_OK && port->backend->supports_zero_copy()) {
+        out_capabilities->bits |= SPW_CAP_ZERO_COPY;
+    }
+    return result;
 }
 
 spw_result_t spw_port_send(spw_port_t* port,
@@ -331,6 +347,109 @@ spw_result_t spw_port_receive(spw_port_t* port,
         return SPW_ERR_INVALID_ARGUMENT;
     }
     return port->backend->receive(*packet, timeout_us);
+}
+
+spw_result_t spw_buffer_get_view(const spw_buffer_t* buffer,
+                                 spw_buffer_view_t* out_view) {
+    if (!application_owned(buffer) || out_view == nullptr) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    const auto* internal = static_cast<const spw_buffer*>(buffer);
+    out_view->data = internal->data;
+    out_view->length = internal->length;
+    out_view->capacity = internal->capacity;
+    out_view->terminator = internal->terminator;
+    return SPW_OK;
+}
+
+spw_result_t spw_buffer_set_packet(spw_buffer_t* buffer,
+                                   size_t length,
+                                   spw_terminator_t terminator) {
+    if (!application_owned(buffer)) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    auto* internal = static_cast<spw_buffer*>(buffer);
+    if (internal->direction != spwkit::detail::BufferDirection::tx) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    if (length > internal->capacity || !valid_terminator(terminator)) {
+        return SPW_ERR_INVALID_PACKET;
+    }
+    internal->length = length;
+    internal->terminator = terminator;
+    return SPW_OK;
+}
+
+spw_result_t spw_port_acquire_tx_buffer(spw_port_t* port,
+                                        size_t min_capacity,
+                                        spw_timeout_us_t timeout_us,
+                                        spw_buffer_t** out_buffer) {
+    if (validate_port(port) != SPW_OK || out_buffer == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_buffer = nullptr;
+    return port->backend->acquire_tx_buffer(min_capacity, timeout_us, *out_buffer);
+}
+
+spw_result_t spw_port_submit_tx_buffer(spw_port_t* port,
+                                       spw_buffer_t** inout_buffer,
+                                       spw_timeout_us_t timeout_us) {
+    if (validate_port(port) != SPW_OK || inout_buffer == nullptr ||
+        *inout_buffer == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    const spw_result_t result =
+        port->backend->submit_tx_buffer(**inout_buffer, timeout_us);
+    if (result == SPW_OK) {
+        *inout_buffer = nullptr;
+    }
+    return result;
+}
+
+spw_result_t spw_port_reclaim_tx_buffer(spw_port_t* port,
+                                        spw_timeout_us_t timeout_us,
+                                        spw_buffer_t** out_buffer) {
+    if (validate_port(port) != SPW_OK || out_buffer == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_buffer = nullptr;
+    return port->backend->reclaim_tx_buffer(timeout_us, *out_buffer);
+}
+
+spw_result_t spw_port_release_tx_buffer(spw_port_t* port,
+                                        spw_buffer_t** inout_buffer) {
+    if (validate_port(port) != SPW_OK || inout_buffer == nullptr ||
+        *inout_buffer == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    const spw_result_t result = port->backend->release_tx_buffer(**inout_buffer);
+    if (result == SPW_OK) {
+        *inout_buffer = nullptr;
+    }
+    return result;
+}
+
+spw_result_t spw_port_acquire_rx_buffer(spw_port_t* port,
+                                        spw_timeout_us_t timeout_us,
+                                        spw_buffer_t** out_buffer) {
+    if (validate_port(port) != SPW_OK || out_buffer == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_buffer = nullptr;
+    return port->backend->acquire_rx_buffer(timeout_us, *out_buffer);
+}
+
+spw_result_t spw_port_release_rx_buffer(spw_port_t* port,
+                                        spw_buffer_t** inout_buffer) {
+    if (validate_port(port) != SPW_OK || inout_buffer == nullptr ||
+        *inout_buffer == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    const spw_result_t result = port->backend->release_rx_buffer(**inout_buffer);
+    if (result == SPW_OK) {
+        *inout_buffer = nullptr;
+    }
+    return result;
 }
 
 spw_result_t spw_port_send_time_code(spw_port_t* port,
