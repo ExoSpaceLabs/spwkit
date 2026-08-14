@@ -8,6 +8,8 @@
 #include <string.h>
 
 #define TEST_STORAGE_SIZE 8192u
+#define WORKSPACE_STORAGE_SIZE 65536u
+#define WORKSPACE_ALIGNMENT_SLACK 256u
 
 int main(void) {
     spw_port_workspace_requirements_t requirements = {123u, 456u};
@@ -41,20 +43,33 @@ int main(void) {
     assert(spw_port_workspace_requirements(&config, &requirements) == SPW_OK);
     assert(requirements.size > 0u);
     assert(requirements.alignment > 0u);
+    assert((requirements.alignment & (requirements.alignment - 1u)) == 0u);
+    assert(requirements.alignment <= WORKSPACE_ALIGNMENT_SLACK);
 
-    _Alignas(max_align_t) uint8_t workspace[65536u];
-    assert(requirements.size <= sizeof(workspace));
-    assert(requirements.alignment <= _Alignof(max_align_t));
+    /*
+     * Align from the requirement reported by SpWKit instead of assuming the C
+     * implementation exposes max_align_t. This also verifies that the returned
+     * alignment is directly usable by a plain C caller on every CI toolchain.
+     */
+    uint8_t workspace_storage[WORKSPACE_STORAGE_SIZE + WORKSPACE_ALIGNMENT_SLACK];
+    const uintptr_t raw_address = (uintptr_t)workspace_storage;
+    const uintptr_t aligned_address =
+        (raw_address + requirements.alignment - 1u) &
+        ~(uintptr_t)(requirements.alignment - 1u);
+    uint8_t* workspace = (uint8_t*)aligned_address;
+    const size_t workspace_size =
+        sizeof(workspace_storage) - (size_t)(aligned_address - raw_address);
+    assert(requirements.size <= workspace_size);
 
-    assert(spw_port_open_in_place(&config, NULL, sizeof(workspace), &port) == SPW_ERR_INVALID_ARGUMENT);
-    assert(spw_port_open_in_place(&config, workspace, sizeof(workspace), NULL) == SPW_ERR_INVALID_ARGUMENT);
+    assert(spw_port_open_in_place(&config, NULL, workspace_size, &port) == SPW_ERR_INVALID_ARGUMENT);
+    assert(spw_port_open_in_place(&config, workspace, workspace_size, NULL) == SPW_ERR_INVALID_ARGUMENT);
     assert(spw_port_open_in_place(&config, workspace, requirements.size - 1u, &port) == SPW_ERR_BUFFER_TOO_SMALL);
     if (requirements.alignment > 1u) {
         assert(spw_port_open_in_place(&config, workspace + 1u,
-                                      sizeof(workspace) - 1u, &port) == SPW_ERR_INVALID_ARGUMENT);
+                                      workspace_size - 1u, &port) == SPW_ERR_INVALID_ARGUMENT);
     }
 
-    assert(spw_port_open_in_place(&config, workspace, sizeof(workspace), &port) == SPW_OK);
+    assert(spw_port_open_in_place(&config, workspace, workspace_size, &port) == SPW_OK);
     assert(port != NULL);
 
     spw_link_state_t state = 0xffu;
@@ -98,14 +113,12 @@ int main(void) {
                                     caps.max_packet_size + 1u, SPW_TERMINATOR_EOP};
     assert(spw_port_send(port, &invalid_packet, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_INVALID_PACKET);
 
-    /* Zero-length packets are valid and retain packet boundaries/terminator. */
     spw_packet_t zero_tx = {NULL, 0u, 0u, SPW_TERMINATOR_EEP};
     spw_packet_t zero_rx = {NULL, 0u, 0u, SPW_TERMINATOR_EOP};
     assert(spw_port_send(port, &zero_tx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     assert(spw_port_receive(port, &zero_rx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     assert(zero_rx.length == 0u && zero_rx.terminator == SPW_TERMINATOR_EEP);
 
-    /* Exact maximum size is accepted; one byte above was rejected above. */
     static uint8_t max_tx[TEST_STORAGE_SIZE];
     static uint8_t max_rx[TEST_STORAGE_SIZE];
     for (size_t i = 0u; i < caps.max_packet_size; ++i) {
@@ -120,7 +133,6 @@ int main(void) {
     assert(max_received.terminator == SPW_TERMINATOR_EOP);
     assert(memcmp(max_tx, max_rx, caps.max_packet_size) == 0);
 
-    /* BUFFER_TOO_SMALL reports metadata and does not consume/truncate packet. */
     uint8_t three[] = {1u, 2u, 3u};
     spw_packet_t three_tx = {three, 3u, 3u, SPW_TERMINATOR_EEP};
     assert(spw_port_send(port, &three_tx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
@@ -135,14 +147,12 @@ int main(void) {
     assert(spw_port_receive(port, &exact_rx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     assert(memcmp(exact, three, sizeof(three)) == 0);
 
-    /* RX with NULL storage is invalid for a non-empty queued packet and retains it. */
     assert(spw_port_send(port, &three_tx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     spw_packet_t null_rx = {NULL, 0u, 3u, SPW_TERMINATOR_EOP};
     assert(spw_port_receive(port, &null_rx, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_INVALID_ARGUMENT);
     exact_rx.length = 0u;
     assert(spw_port_receive(port, &exact_rx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
 
-    /* Queue capacity is deterministic and recovers after drain. */
     assert(caps.rx_queue_depth > 0u && caps.rx_queue_depth <= 1024u);
     for (size_t i = 0u; i < caps.rx_queue_depth; ++i) {
         assert(spw_port_send(port, &packet, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
@@ -155,7 +165,6 @@ int main(void) {
     }
     assert(spw_port_receive(port, &packet, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_TIMEOUT);
 
-    /* Time-code boundaries and bounded queue. */
     spw_time_code_t tc = {63u, 0u};
     assert(spw_port_send_time_code(port, &tc, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     spw_time_code_t tc_rx = {0u, 0u};
