@@ -2,6 +2,7 @@
 
 #include "contract_suite.hpp"
 
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 
