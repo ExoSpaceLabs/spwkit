@@ -14,6 +14,7 @@ option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 
 add_library(spwkit STATIC
     src/core/spwkit.cpp
+    src/core/port.cpp
     src/backends/loopback/loopback_backend.cpp
 )
 
