@@ -73,7 +73,7 @@ public:
 
 private:
     struct TxBufferSlot {
-        std::array<std::uint8_t, max_packet_size> storage{};
+        alignas(std::max_align_t) std::array<std::uint8_t, max_packet_size> storage{};
         spw_buffer descriptor{};
     };
 
@@ -87,7 +87,7 @@ private:
     std::size_t endpoint_index_{0};
     VirtualLink* link_{nullptr};
     std::array<TxBufferSlot, packet_queue_depth> tx_buffers_{};
-    std::array<std::uint8_t, max_packet_size> rx_storage_{};
+    alignas(std::max_align_t) std::array<std::uint8_t, max_packet_size> rx_storage_{};
     spw_buffer rx_buffer_{};
     bool zero_copy_initialized_{false};
     bool rx_buffer_acquired_{false};
