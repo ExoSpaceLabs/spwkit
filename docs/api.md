@@ -2,7 +2,7 @@
 
 SpWKit uses a C ABI as the portability baseline. The C++ interface is layered above that ABI and must not require backends to expose C++ implementation details.
 
-This document defines the v0.1 API contract boundary. Concrete packet layouts, result codes, link-state values, capability flags, statistics fields, time-code representation, and optional zero-copy buffer semantics are completed by the core-types and buffer-API work.
+This document defines the v0.1 API contract boundary.
 
 ## Design rule
 
@@ -34,11 +34,11 @@ The simulator is therefore an implementation of the same SpaceWire-facing contra
 
 ## ABI primitives
 
-`spw_result_t` uses a fixed-width signed 32-bit representation. Public result constants will therefore not depend on compiler enum width.
+`spw_result_t` uses a fixed-width signed 32-bit representation. Public result constants therefore do not depend on compiler enum width.
 
 `spw_timeout_us_t` is an unsigned 64-bit timeout expressed in microseconds. The API intentionally does not expose `timespec`, operating-system ticks, or scheduler-specific timeout types.
 
-`spw_port_t` is opaque. Applications must not depend on its size or fields.
+`spw_port_t` and `spw_buffer_t` are opaque. Applications must not depend on their size or fields.
 
 ## Port lifecycle
 
@@ -46,15 +46,14 @@ The mandatory lifecycle operations are:
 
 ```text
 spw_port_open
+spw_port_open_in_place
 spw_port_close
 spw_port_start
 spw_port_stop
 spw_port_reset
 ```
 
-`open` creates or attaches to one configured SpaceWire port implementation. The configuration object selects or supplies a backend without exposing backend-specific types through the common operations.
-
-`close` releases resources owned by the port instance. The concrete memory/allocation policy is backend-dependent, but the portable core must provide a path that does not require heap allocation.
+`open` creates or attaches to one configured SpaceWire port implementation. `spw_port_open_in_place()` provides the mandatory allocation-free construction path using caller-owned workspace. The hosted `spw_port_open()` convenience path may allocate and can be disabled at build time.
 
 `start`, `stop`, and `reset` represent software-visible SpaceWire link control. A backend may internally translate them to simulator state changes, driver calls, MMIO writes, or vendor API operations.
 
@@ -62,15 +61,13 @@ spw_port_reset
 
 `spw_port_get_link_state` reports the software-visible link state through `spw_link_state_t`.
 
-The concrete state representation will be defined separately, but all backends must map their implementation state into the common SpaceWire-oriented model rather than return operating-system or hardware-vendor states directly.
+All backends map implementation state into the common SpaceWire-oriented model rather than returning operating-system or hardware-vendor states directly.
 
 ## Capabilities
 
-`spw_port_get_capabilities` allows a backend to declare optional functionality.
+`spw_port_get_capabilities` declares optional functionality and bounded resources. Contract tests use capabilities to determine which optional behaviours are applicable.
 
-This prevents the public API from requiring every backend to fake support for features it cannot provide. Contract tests use capabilities to determine which optional behaviours are applicable.
-
-Examples of capability areas include:
+Capability areas include:
 
 - time-code support;
 - EEP support;
@@ -78,11 +75,11 @@ Examples of capability areas include:
 - configurable rate;
 - statistics/counters;
 - deterministic fault injection;
-- zero-copy operation.
+- zero-copy ownership-oriented packet transfer.
 
-Capability constants and representation are defined by the core-types layer.
+`max_packet_size`, queue-depth values, and `buffer_alignment` describe backend limits relevant to packet and zero-copy operation.
 
-## Packet transfer
+## Copied packet transfer
 
 The mandatory packet operations are:
 
@@ -91,40 +88,65 @@ spw_port_send
 spw_port_receive
 ```
 
-A packet is a complete software-visible SpaceWire packet. The public packet representation must carry, directly or indirectly:
+A packet is a complete software-visible SpaceWire packet carrying caller storage, payload length/capacity, and EOP/EEP termination.
 
-- caller-provided data storage;
-- payload length/capacity as applicable;
-- packet terminator (`EOP` or `EEP`).
+Packet ownership remains with the caller for the copied API. A conforming backend must not silently convert EEP to EOP or merge/split software-visible packet boundaries.
 
-Packet ownership remains with the caller for the copied packet API. A conforming backend must not silently convert EEP to EOP or merge/split software-visible packet boundaries.
-
-The simulator may fragment a packet internally, and a hardware backend may use one or more DMA descriptors internally, but those details remain below the public boundary.
+The simulator may fragment or copy internally, and a hardware backend may use one or more DMA descriptors internally, but those details remain below the public boundary.
 
 ## Optional zero-copy buffer path
 
-High-throughput implementations may provide an optional buffer-oriented path in addition to copied `send`/`receive`.
+Backends advertising `SPW_CAP_ZERO_COPY` expose the ownership-oriented operations declared in `spwkit/buffer.h`.
 
-The public contract must model **buffer ownership transitions**, not DMA implementation details. Conceptually the supported lifecycle is expected to be:
+TX lifecycle:
 
 ```text
-TX: acquire -> application fills -> submit -> backend owns -> reclaim
-RX: backend fills -> acquire -> application reads -> release
+acquire -> application fills -> submit -> backend owns -> reclaim
+                                                ^             |
+                                                |             v
+                                                +--- reuse/release
 ```
 
-A future DMA-capable backend may map those buffers to pinned/coherent/DMA-capable memory. The simulator backend must be able to emulate the same ownership semantics using ordinary host memory so applications and contract tests can exercise the interface before physical hardware exists.
+RX lifecycle:
 
-The public ABI must not expose physical addresses, DMA descriptor types, AXI addresses, Linux `dma_addr_t`, or vendor handles.
+```text
+backend receives -> acquire -> application inspects -> release
+```
 
-The copied packet API remains the mandatory baseline. Zero-copy is capability-gated and optional.
+The concrete public operation family is:
+
+```text
+spw_port_acquire_tx_buffer
+spw_buffer_get_view
+spw_buffer_set_packet
+spw_port_submit_tx_buffer
+spw_port_reclaim_tx_buffer
+spw_port_release_tx_buffer
+
+spw_port_acquire_rx_buffer
+spw_buffer_get_view
+spw_port_release_rx_buffer
+```
+
+Successful submit/release operations clear the caller's buffer pointer to make ownership transfer explicit. Failed operations do not steal application ownership.
+
+The public contract models **buffer ownership transitions**, not DMA implementation details. A future DMA-capable backend may map these handles to pinned/coherent memory or descriptor rings. The simulator emulates the same ownership contract using fixed host memory.
+
+Physical addresses, DMA descriptor types, AXI addresses, Linux `dma_addr_t`, file descriptors, and vendor handles are not exposed by the portable ABI.
+
+The copied packet API remains the mandatory baseline regardless of zero-copy capability.
+
+See `docs/buffers.md` for the complete ownership, alignment, exhaustion, simulator-emulation, and future-DMA mapping rules.
+
+## Scatter/gather
+
+Scatter/gather packet buffers are deferred for v0.1. One `spw_buffer_t` represents one contiguous packet payload. A future scatter/gather extension must be capability-gated and define segment ownership explicitly rather than changing the meaning of the v0.1 buffer object.
 
 ## Simulator backend
 
 For v0.1, the simulator is the primary runtime reference backend.
 
-Applications still invoke only `libspwkit` operations. The selected simulator backend translates those calls to virtual link state, queues, packet transfer, time codes, faults, and optional zero-copy ownership behavior.
-
-This distinction is important:
+Applications invoke only `libspwkit` operations. The selected simulator backend translates those calls to virtual link state, queues, packet transfer, time codes, and zero-copy ownership emulation.
 
 ```text
 wrong:
@@ -134,7 +156,7 @@ correct:
 Application -> libspwkit -> simulator backend
 ```
 
-The same application-facing operations should later target a Linux device, RTOS implementation, or physical DMA-capable backend without changing the application's SpaceWire logic.
+The same application-facing operations can later target a Linux device, RTOS implementation, or physical DMA-capable backend without changing application SpaceWire logic.
 
 ## Time codes
 
@@ -145,7 +167,7 @@ spw_port_send_time_code
 spw_port_receive_time_code
 ```
 
-Backends that do not support time codes report the corresponding unsupported-operation result. Backends must advertise time-code capability consistently with their behaviour.
+Backends that do not support time codes report the corresponding unsupported-operation result and must not advertise the capability.
 
 ## Statistics
 
@@ -156,31 +178,19 @@ spw_port_get_statistics
 spw_port_clear_statistics
 ```
 
-Statistics are backend-independent counters intended for diagnostics and verification. Backend-specific counters may later be available through extension APIs, but they must not contaminate the common structure.
+Statistics are backend-independent counters intended for diagnostics and verification. Backend-specific counters may later be available through extension APIs without contaminating the common structure.
 
 ## Blocking and timeouts
 
-Packet and time-code operations accept a timeout expressed in microseconds.
+Packet, time-code, and buffer acquisition/completion operations use timeouts expressed in microseconds.
 
-The API does not require POSIX blocking semantics. Implementations may use polling, interrupts, RTOS events, Linux wait queues, simulator scheduling, or vendor mechanisms.
+The API does not require POSIX blocking semantics. Implementations may use polling, interrupts, RTOS events, Linux wait queues, simulator scheduling, condition variables, or vendor mechanisms.
 
-The core-types work will define common timeout constants for immediate/non-blocking operation and, if retained, an explicit infinite wait value.
+`SPW_TIMEOUT_IMMEDIATE` requests non-blocking behaviour and `SPW_TIMEOUT_INFINITE` requests an unbounded wait where supported.
 
 ## Error model
 
-Every public operation returns `spw_result_t`.
-
-The concrete result set must distinguish at least:
-
-- success;
-- invalid argument/configuration;
-- invalid state;
-- timeout/would-block;
-- unsupported operation;
-- queue/resource exhaustion;
-- link unavailable/disconnected;
-- packet/storage too small or invalid;
-- backend/internal error.
+Every public operation returns `spw_result_t`. The result set distinguishes success, invalid arguments/state, timeout, unsupported operation, resource exhaustion, link unavailability, buffer-size errors, invalid packets, and backend/internal failures.
 
 Backends may retain additional diagnostic information internally, but common application behaviour must be expressible through the portable result model.
 
@@ -201,27 +211,12 @@ Such values belong to backend-specific configuration or extension APIs.
 
 ## Contract-test mapping
 
-Every mandatory backend is expected to run the shared contract suite. At minimum the suite will verify:
+Every mandatory backend is expected to run the shared contract suite. At minimum it verifies lifecycle, link state, capabilities, copied packet boundaries, EOP/EEP, timeout behaviour, time codes/statistics where supported, reset/recovery, and zero-copy ownership when `SPW_CAP_ZERO_COPY` is advertised.
 
-| API area | Required behaviour |
-|---|---|
-| lifecycle | open/close and valid start/stop/reset transitions |
-| link state | state can be queried and reflects lifecycle changes |
-| capabilities | stable and internally consistent capability reporting |
-| packets | bidirectional transfer with boundaries preserved |
-| terminators | EOP/EEP preserved where applicable |
-| timeout | bounded waiting/non-blocking behaviour is deterministic |
-| time codes | transfer or explicit unsupported result |
-| statistics | counters update consistently where supported |
-| recovery | backend returns to a defined state after reset/disconnect scenarios |
-| zero-copy | ownership/acquire/submit/reclaim semantics where capability is advertised |
-
-For v0.1, these tests must run through `libspwkit` against loopback and the local simulator backend. The same behavioural tests should later execute against Ethernet, embedded, `/dev/spwX`, and HIL backends where the capability profile permits.
+For v0.1, the suite runs through `libspwkit` against loopback and the local simulator backend. The same behavioural tests should later execute against Ethernet, embedded, `/dev/spwX`, and HIL backends where the capability profile permits.
 
 ## Versioning
 
 The public ABI carries explicit major/minor/patch version macros.
 
 Before v1.0, incompatible API changes are permitted but must update documentation and tests together. After v1.0, ABI-breaking changes require a major version change.
-
-The package version and API/ABI version may eventually be managed separately if backend/tool releases need to evolve without changing the public ABI.
