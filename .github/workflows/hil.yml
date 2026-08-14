@@ -1,0 +1,70 @@
+name: Hardware-in-the-loop
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Self-hosted runner target label
+        required: true
+        type: choice
+        options:
+          - amd-soc
+      profile:
+        description: Hardware verification profile
+        required: true
+        type: choice
+        options:
+          - fpga-loopback
+          - two-node
+          - virtual-physical-gateway
+      hardware_ready:
+        description: Confirm that the labelled hardware runner and bench are ready
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  not-ready:
+    if: ${{ !inputs.hardware_ready }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Explain gate
+        run: |
+          echo "HIL was not started because hardware_ready=false."
+          echo "Set hardware_ready=true only when the self-hosted lab runner is available."
+
+  hil:
+    if: ${{ inputs.hardware_ready }}
+    runs-on: [self-hosted, linux, spw-hil, "${{ inputs.target }}"]
+    timeout-minutes: 45
+    concurrency:
+      group: spw-hil-${{ inputs.target }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify HIL harness
+        shell: bash
+        run: |
+          if [[ ! -x tests/hil/run_hil.sh ]]; then
+            echo "::error::tests/hil/run_hil.sh is not implemented or executable."
+            exit 1
+          fi
+
+      - name: Run HIL profile
+        shell: bash
+        run: tests/hil/run_hil.sh --target "${{ inputs.target }}" --profile "${{ inputs.profile }}"
+
+      - name: Upload HIL evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hil-${{ inputs.target }}-${{ inputs.profile }}-${{ github.run_id }}
+          path: artifacts/hil
+          if-no-files-found: ignore
+          retention-days: 30
