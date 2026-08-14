@@ -36,6 +36,12 @@ add_executable(spwkit_loopback_contract_test
 target_link_libraries(spwkit_loopback_contract_test PRIVATE spwkit_backend_contract_suite)
 target_compile_features(spwkit_loopback_contract_test PRIVATE cxx_std_17)
 
+if(NOT SPWKIT_ENABLE_HEAP)
+    add_executable(spwkit_no_heap_test no_heap.cpp)
+    target_link_libraries(spwkit_no_heap_test PRIVATE SpWKit::spwkit)
+    target_compile_features(spwkit_no_heap_test PRIVATE cxx_std_17)
+endif()
+
 if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit_public_port_test PRIVATE SPWKIT_TEST_SIMULATOR_ENABLED=1)
 
@@ -70,6 +76,11 @@ set_tests_properties(public_port_dispatch PROPERTIES LABELS "unit;contract")
 
 add_test(NAME backend_contract_loopback COMMAND spwkit_loopback_contract_test)
 set_tests_properties(backend_contract_loopback PROPERTIES LABELS "contract")
+
+if(NOT SPWKIT_ENABLE_HEAP)
+    add_test(NAME core_no_heap_path COMMAND spwkit_no_heap_test)
+    set_tests_properties(core_no_heap_path PROPERTIES LABELS "noheap;contract")
+endif()
 
 if(SPWKIT_BUILD_SIMULATOR)
     add_test(NAME simulator_local_peer_link COMMAND spwkit_simulator_link_test)
