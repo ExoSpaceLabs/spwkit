@@ -42,6 +42,7 @@ public:
 
     spw_result_t get_link_state(spw_link_state_t& state) const noexcept override;
     spw_result_t get_capabilities(spw_capabilities_t& capabilities) const noexcept override;
+    bool supports_zero_copy() const noexcept override { return true; }
 
     spw_result_t send(const spw_packet_t& packet,
                       spw_timeout_us_t timeout_us) noexcept override;
@@ -76,7 +77,6 @@ private:
 
     void detach() noexcept;
     void initialize_zero_copy_buffers() noexcept;
-    void reset_zero_copy_buffers() noexcept;
 
     static bool valid_terminator(spw_terminator_t terminator) noexcept;
     static bool valid_time_code(const spw_time_code_t& time_code) noexcept;
@@ -85,7 +85,9 @@ private:
     std::size_t endpoint_index_{0};
     VirtualLink* link_{nullptr};
     std::array<TxBufferSlot, packet_queue_depth> tx_buffers_{};
+    std::array<std::uint8_t, max_packet_size> rx_storage_{};
     spw_buffer rx_buffer_{};
+    bool zero_copy_initialized_{false};
     bool rx_buffer_acquired_{false};
 };
 
