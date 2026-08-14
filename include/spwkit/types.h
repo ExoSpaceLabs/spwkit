@@ -74,6 +74,21 @@ struct spw_packet {
 };
 
 /*
+ * Application-visible view of an opaque zero-copy buffer.
+ *
+ * TX buffers are writable while application-owned. RX buffers are read-only by
+ * contract even though C represents the pointer as uint8_t* for one common ABI
+ * shape. The pointer remains valid only while the application owns the opaque
+ * spw_buffer_t handle.
+ */
+struct spw_buffer_view {
+    uint8_t* data;
+    size_t length;
+    size_t capacity;
+    spw_terminator_t terminator;
+};
+
+/*
  * SpaceWire time-code representation.
  * time_count uses the least-significant six-bit value range 0..63.
  * control_flags holds the two control bits. For ordinary time-codes v0.1
