@@ -44,6 +44,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Reject explicit exception syntax
+        shell: bash
+        run: |
+          if git grep -nE '\b(throw|try|catch)\b' -- '*.cpp' '*.hpp'; then
+            echo "SpWKit library/test C++ sources must remain exception-free."
+            exit 1
+          fi
+
       - name: Configure
         shell: bash
         env:
@@ -63,6 +71,23 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Install package
+        shell: bash
+        run: cmake --install build --config Release --prefix "$PWD/install"
+
+      - name: Configure installed consumer
+        shell: bash
+        run: >-
+          cmake -S examples/installed -B build-installed-consumer
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$PWD/install"
+
+      - name: Build installed consumer
+        run: cmake --build build-installed-consumer --config Release --parallel
+
+      - name: Test installed consumer
+        run: ctest --test-dir build-installed-consumer -C Release --output-on-failure --no-tests=error
 
   sanitizers:
     name: Linux ASan + UBSan
@@ -109,7 +134,6 @@ jobs:
           -DSPWKIT_BUILD_SIMULATOR=OFF
           -DSPWKIT_BUILD_TOOLS=OFF
           -DSPWKIT_ENABLE_HEAP=OFF
-          -DCMAKE_CXX_FLAGS="-fno-exceptions -fno-rtti"
 
       - name: Build no-heap profile
         run: cmake --build build-noheap --parallel
