@@ -6,6 +6,10 @@
 #include "backends/loopback/loopback_backend.hpp"
 #include "core/backend.hpp"
 
+#ifdef SPWKIT_HAS_SIMULATOR
+#include "backends/virtual/simulator_backend.hpp"
+#endif
+
 #include <new>
 
 struct spw_port {
@@ -18,6 +22,12 @@ namespace {
 void destroy_loopback(spwkit::detail::Backend* backend) noexcept {
     delete static_cast<spwkit::detail::LoopbackBackend*>(backend);
 }
+
+#ifdef SPWKIT_HAS_SIMULATOR
+void destroy_simulator(spwkit::detail::Backend* backend) noexcept {
+    delete static_cast<spwkit::detail::SimulatorBackend*>(backend);
+}
+#endif
 
 spw_result_t validate_common_config(const spw_port_config_t* config) noexcept {
     if (config == nullptr) {
@@ -91,9 +101,23 @@ spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_por
         if (result != SPW_OK) {
             return result;
         }
-        // The public selection/configuration contract is complete. The concrete
-        // two-peer simulator backend is implemented by issue #4.
+#ifdef SPWKIT_HAS_SIMULATOR
+        const auto* simulator = static_cast<const spw_simulator_config_t*>(config->backend_config);
+        auto* simulator_backend = new (std::nothrow) spwkit::detail::SimulatorBackend(*simulator);
+        if (simulator_backend == nullptr) {
+            return SPW_ERR_RESOURCE_EXHAUSTED;
+        }
+        const spw_result_t attach_result = simulator_backend->attach();
+        if (attach_result != SPW_OK) {
+            delete simulator_backend;
+            return attach_result;
+        }
+        backend = simulator_backend;
+        destroy_backend = &destroy_simulator;
+        break;
+#else
         return SPW_ERR_UNSUPPORTED;
+#endif
     }
 
     default:
