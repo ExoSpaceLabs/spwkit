@@ -24,6 +24,7 @@ public:
 
     virtual spw_result_t get_link_state(spw_link_state_t& state) const noexcept = 0;
     virtual spw_result_t get_capabilities(spw_capabilities_t& capabilities) const noexcept = 0;
+    virtual bool supports_zero_copy() const noexcept { return false; }
 
     virtual spw_result_t send(const spw_packet_t& packet,
                               spw_timeout_us_t timeout_us) noexcept = 0;
