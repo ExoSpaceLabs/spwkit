@@ -18,12 +18,14 @@ typedef int32_t spw_result_t;
 /** Timeout value expressed in microseconds. */
 typedef uint64_t spw_timeout_us_t;
 
-/* Public handles are opaque. Their representation belongs to the backend. */
+/* Public handles are opaque. Their representation belongs to libspwkit. */
 typedef struct spw_port spw_port_t;
+typedef struct spw_buffer spw_buffer_t;
 
 /* Public configuration/value structures are defined by the public type layer. */
 typedef struct spw_port_config spw_port_config_t;
 typedef struct spw_packet spw_packet_t;
+typedef struct spw_buffer_view spw_buffer_view_t;
 typedef struct spw_capabilities spw_capabilities_t;
 typedef struct spw_statistics spw_statistics_t;
 typedef struct spw_time_code spw_time_code_t;
