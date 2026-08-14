@@ -25,12 +25,18 @@ cmake --install build --prefix /path/to/spwkit-install
 Consumer project:
 
 ```cmake
+cmake_minimum_required(VERSION 3.20)
+project(my_spw_application LANGUAGES C CXX)
+
 find_package(SpWKit 0.1 CONFIG REQUIRED)
 add_executable(my_app main.c)
 target_link_libraries(my_app PRIVATE SpWKit::spwkit)
+set_target_properties(my_app PROPERTIES LINKER_LANGUAGE CXX)
 ```
 
-CI builds `examples/installed` against an installed package to ensure consumers do not accidentally depend on source-private headers.
+Application source can remain pure C and uses only the C ABI. The v0.1 distributed library is a **static archive implemented in C++**, so the final executable must be linked by a C++-capable toolchain to supply the implementation runtime. This does not expose C++ types in the public ABI. A future shared-library or pure-C implementation strategy may remove that build-system requirement without changing application source.
+
+CI builds `examples/installed` against an installed package to ensure consumers do not accidentally depend on source-private headers or unpublished CMake state.
 
 ## Open a port
 
@@ -191,6 +197,7 @@ Finite timeout values are expressed in microseconds.
 
 - `examples/c_loopback.c`: hosted C API, capabilities, copied packets, EEP and time codes;
 - `examples/cpp_no_heap.cpp`: C++ consumer using caller-owned workspace;
+- `examples/c_simulator_zero_copy.c`: paired simulator endpoints and the zero-copy ownership lifecycle;
 - `examples/installed`: standalone `find_package(SpWKit)` consumer used by CI.
 
 All examples use public headers only and require no physical SpaceWire hardware.
