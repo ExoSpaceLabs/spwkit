@@ -1,0 +1,72 @@
+name: Embedded
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "include/**"
+      - "src/core/**"
+      - "src/backends/baremetal/**"
+      - "src/backends/hardrt/**"
+      - "cmake/toolchains/**"
+      - "tests/embedded/**"
+      - ".github/workflows/embedded.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "include/**"
+      - "src/core/**"
+      - "src/backends/baremetal/**"
+      - "src/backends/hardrt/**"
+      - "cmake/toolchains/**"
+      - "tests/embedded/**"
+      - ".github/workflows/embedded.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: embedded-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - baremetal
+          - hardrt
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check target toolchain
+        id: toolchain
+        shell: bash
+        run: |
+          file="cmake/toolchains/${{ matrix.target }}.cmake"
+          if [[ -f "$file" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "### Embedded ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "Not active yet: $file does not exist." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Configure
+        if: steps.toolchain.outputs.available == 'true'
+        run: >-
+          cmake -S . -B build-${{ matrix.target }}
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/${{ matrix.target }}.cmake
+          -DSPWKIT_BUILD_TESTS=OFF
+          -DSPWKIT_BUILD_EXAMPLES=OFF
+          -DSPWKIT_BUILD_SIMULATOR=OFF
+          -DSPWKIT_BUILD_TOOLS=OFF
+
+      - name: Cross-build
+        if: steps.toolchain.outputs.available == 'true'
+        run: cmake --build build-${{ matrix.target }} --parallel
