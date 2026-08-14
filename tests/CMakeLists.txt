@@ -10,6 +10,11 @@ add_executable(spwkit_core_types_test core_types.c)
 target_link_libraries(spwkit_core_types_test PRIVATE SpWKit::spwkit)
 set_target_properties(spwkit_core_types_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
+add_executable(spwkit_loopback_backend_test loopback_backend.cpp)
+target_link_libraries(spwkit_loopback_backend_test PRIVATE SpWKit::spwkit)
+target_include_directories(spwkit_loopback_backend_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_compile_features(spwkit_loopback_backend_test PRIVATE cxx_std_17)
+
 add_test(NAME api_headers_c_compile
          COMMAND ${CMAKE_COMMAND} -E echo "C API headers compiled successfully")
 set_tests_properties(api_headers_c_compile PROPERTIES LABELS "unit;contract")
@@ -20,3 +25,6 @@ set_tests_properties(api_headers_cpp_compile PROPERTIES LABELS "unit;contract")
 
 add_test(NAME core_public_types COMMAND spwkit_core_types_test)
 set_tests_properties(core_public_types PROPERTIES LABELS "unit;contract")
+
+add_test(NAME loopback_backend_contract COMMAND spwkit_loopback_backend_test)
+set_tests_properties(loopback_backend_contract PROPERTIES LABELS "unit;contract")
