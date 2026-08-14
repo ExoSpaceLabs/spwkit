@@ -46,9 +46,15 @@ int main(void) {
     config.backend_config_size = sizeof(simulator);
     port = NULL;
 
-    /* #4 replaces this expected result once the two-peer simulator exists. */
+#ifdef SPWKIT_TEST_SIMULATOR_ENABLED
+    assert(spw_port_open(&config, &port) == SPW_OK);
+    assert(port != NULL);
+    assert(spw_port_close(port) == SPW_OK);
+    port = NULL;
+#else
     assert(spw_port_open(&config, &port) == SPW_ERR_UNSUPPORTED);
     assert(port == NULL);
+#endif
 
     simulator.endpoint = 9u;
     assert(spw_port_open(&config, &port) == SPW_ERR_INVALID_ARGUMENT);
