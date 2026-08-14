@@ -27,6 +27,7 @@ typedef struct spw_packet spw_packet_t;
 typedef struct spw_capabilities spw_capabilities_t;
 typedef struct spw_statistics spw_statistics_t;
 typedef struct spw_time_code spw_time_code_t;
+typedef struct spw_port_workspace_requirements spw_port_workspace_requirements_t;
 
 #ifdef __cplusplus
 } /* extern "C" */
