@@ -1,0 +1,71 @@
+name: Simulator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "simulator/**"
+      - "src/backends/virtual/**"
+      - "src/core/**"
+      - "include/**"
+      - "tests/**"
+      - ".github/workflows/simulator.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "simulator/**"
+      - "src/backends/virtual/**"
+      - "src/core/**"
+      - "include/**"
+      - "tests/**"
+      - ".github/workflows/simulator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check simulator harness
+        id: harness
+        shell: bash
+        run: |
+          if [[ -f simulator/vspwd/CMakeLists.txt ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Simulator harness is not implemented yet; this workflow is staged only."
+            echo "### Simulator CI" >> "$GITHUB_STEP_SUMMARY"
+            echo "Not active yet: simulator/vspwd/CMakeLists.txt does not exist." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Configure simulator
+        if: steps.harness.outputs.available == 'true'
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_SIMULATOR=ON
+          -DSPWKIT_BUILD_TOOLS=ON
+
+      - name: Build simulator
+        if: steps.harness.outputs.available == 'true'
+        run: cmake --build build --parallel
+
+      - name: Run simulator tests
+        if: steps.harness.outputs.available == 'true'
+        run: >-
+          ctest --test-dir build
+          -L simulator
+          --output-on-failure
+          --no-tests=error
