@@ -7,8 +7,10 @@
 #include <spwkit/simulator.h>
 
 #include <array>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 
 namespace spwkit::detail {
 
@@ -89,6 +91,8 @@ private:
     spw_buffer rx_buffer_{};
     bool zero_copy_initialized_{false};
     bool rx_buffer_acquired_{false};
+    std::mutex zero_copy_mutex_{};
+    std::condition_variable zero_copy_condition_{};
 };
 
 } // namespace spwkit::detail
