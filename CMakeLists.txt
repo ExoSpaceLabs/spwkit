@@ -11,6 +11,7 @@ option(SPWKIT_BUILD_TESTS "Build SpWKit tests" ON)
 option(SPWKIT_BUILD_EXAMPLES "Build SpWKit examples" ON)
 option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backend" ON)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
+option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 
 set(SPWKIT_SOURCES
     src/core/spwkit.cpp
@@ -40,6 +41,12 @@ target_include_directories(spwkit
 
 if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_SIMULATOR=1)
+endif()
+
+if(SPWKIT_ENABLE_HEAP)
+    target_compile_definitions(spwkit PRIVATE SPWKIT_ENABLE_HEAP=1)
+else()
+    target_compile_definitions(spwkit PRIVATE SPWKIT_ENABLE_HEAP=0)
 endif()
 
 set_target_properties(spwkit PROPERTIES
