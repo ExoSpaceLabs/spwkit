@@ -14,6 +14,7 @@ add_executable(spwkit_loopback_backend_test loopback_backend.cpp)
 target_link_libraries(spwkit_loopback_backend_test PRIVATE SpWKit::spwkit)
 target_include_directories(spwkit_loopback_backend_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_features(spwkit_loopback_backend_test PRIVATE cxx_std_17)
+spwkit_apply_no_throw_policy(spwkit_loopback_backend_test)
 
 add_executable(spwkit_public_port_test public_port.c)
 target_link_libraries(spwkit_public_port_test PRIVATE SpWKit::spwkit)
