@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(spwkit_installed_consumer LANGUAGES C)
 
+include(CTest)
 find_package(SpWKit 0.1 CONFIG REQUIRED)
 
 add_executable(spwkit_installed_consumer main.c)
@@ -9,3 +10,5 @@ set_target_properties(spwkit_installed_consumer PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED YES
 )
+
+add_test(NAME installed_package_consumer COMMAND spwkit_installed_consumer)
