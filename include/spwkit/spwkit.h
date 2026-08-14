@@ -6,6 +6,7 @@
 #include "spwkit/config.h"
 #include "spwkit/types.h"
 #include "spwkit/port.h"
+#include "spwkit/buffer.h"
 #include "spwkit/simulator.h"
 
 #endif /* SPWKIT_SPWKIT_H */
