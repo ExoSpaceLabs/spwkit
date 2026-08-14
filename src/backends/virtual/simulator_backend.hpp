@@ -2,9 +2,11 @@
 #pragma once
 
 #include "core/backend.hpp"
+#include "core/buffer.hpp"
 
 #include <spwkit/simulator.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -54,8 +56,27 @@ public:
     spw_result_t get_statistics(spw_statistics_t& statistics) const noexcept override;
     spw_result_t clear_statistics() noexcept override;
 
+    spw_result_t acquire_tx_buffer(std::size_t min_capacity,
+                                   spw_timeout_us_t timeout_us,
+                                   spw_buffer_t*& out_buffer) noexcept override;
+    spw_result_t submit_tx_buffer(spw_buffer_t& buffer,
+                                  spw_timeout_us_t timeout_us) noexcept override;
+    spw_result_t reclaim_tx_buffer(spw_timeout_us_t timeout_us,
+                                   spw_buffer_t*& out_buffer) noexcept override;
+    spw_result_t release_tx_buffer(spw_buffer_t& buffer) noexcept override;
+    spw_result_t acquire_rx_buffer(spw_timeout_us_t timeout_us,
+                                   spw_buffer_t*& out_buffer) noexcept override;
+    spw_result_t release_rx_buffer(spw_buffer_t& buffer) noexcept override;
+
 private:
+    struct TxBufferSlot {
+        std::array<std::uint8_t, max_packet_size> storage{};
+        spw_buffer descriptor{};
+    };
+
     void detach() noexcept;
+    void initialize_zero_copy_buffers() noexcept;
+    void reset_zero_copy_buffers() noexcept;
 
     static bool valid_terminator(spw_terminator_t terminator) noexcept;
     static bool valid_time_code(const spw_time_code_t& time_code) noexcept;
@@ -63,6 +84,9 @@ private:
     std::uint64_t link_id_{0};
     std::size_t endpoint_index_{0};
     VirtualLink* link_{nullptr};
+    std::array<TxBufferSlot, packet_queue_depth> tx_buffers_{};
+    spw_buffer rx_buffer_{};
+    bool rx_buffer_acquired_{false};
 };
 
 } // namespace spwkit::detail
