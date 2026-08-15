@@ -84,9 +84,18 @@ int main() {
     assert(retry_in.length == retry_payload.size());
     assert(std::memcmp(retry_payload.data(), retry_rx.data(), retry_payload.size()) == 0);
 
-    std::array<std::uint8_t, 5> duplicate_rx{};
-    spw_packet_t duplicate_in{duplicate_rx.data(), 0u, duplicate_rx.size(), SPW_TERMINATOR_EOP};
-    assert(spw_port_receive(b, &duplicate_in, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_TIMEOUT);
+    /*
+     * A keepalive may sit between the original DATA and its retransmission.
+     * Service several immediate receives so the retransmitted DATA itself is
+     * consumed by the transport layer. None may surface as a second packet.
+     */
+    for (unsigned attempt = 0u; attempt < 4u; ++attempt) {
+        std::array<std::uint8_t, 5> duplicate_rx{};
+        spw_packet_t duplicate_in{duplicate_rx.data(), 0u, duplicate_rx.size(),
+                                  SPW_TERMINATOR_EOP};
+        assert(spw_port_receive(b, &duplicate_in, SPW_TIMEOUT_IMMEDIATE) ==
+               SPW_ERR_TIMEOUT);
+    }
 
     const std::array<std::uint8_t, 5> reply{{1u, 2u, 3u, 4u, 5u}};
     spw_packet_t reply_packet{const_cast<std::uint8_t*>(reply.data()), reply.size(),
