@@ -191,6 +191,11 @@ void UdpBackend::clear_recent_messages() noexcept {
     recent_message_count_ = 0u;
 }
 
+void UdpBackend::clear_retired_sessions() noexcept {
+    retired_session_head_ = 0u;
+    retired_session_count_ = 0u;
+}
+
 spw_result_t UdpBackend::start() noexcept {
     if (socket_fd_ < 0) {
         return SPW_ERR_INVALID_STATE;
@@ -199,6 +204,7 @@ spw_result_t UdpBackend::start() noexcept {
     clear_reassembly();
     clear_pending_tx();
     clear_recent_messages();
+    clear_retired_sessions();
     pending_packet_valid_ = false;
     time_code_head_ = 0u;
     time_code_count_ = 0u;
@@ -223,6 +229,7 @@ spw_result_t UdpBackend::stop() noexcept {
     clear_reassembly();
     clear_pending_tx();
     clear_recent_messages();
+    clear_retired_sessions();
     pending_packet_valid_ = false;
     time_code_head_ = 0u;
     time_code_count_ = 0u;
@@ -239,6 +246,7 @@ spw_result_t UdpBackend::reset() noexcept {
     clear_reassembly();
     clear_pending_tx();
     clear_recent_messages();
+    clear_retired_sessions();
     pending_packet_valid_ = false;
     time_code_head_ = 0u;
     time_code_count_ = 0u;
@@ -346,6 +354,7 @@ spw_result_t UdpBackend::send_ack(std::uint32_t message_id) noexcept {
     header.type = MessageType::Ack;
     header.payload_size = static_cast<std::uint16_t>(kAckPayloadSize);
     header.link_id = config_.link_id;
+    header.session_id = local_session_id_;
     header.sequence = take_nonzero(next_sequence_);
     header.message_id = message_id;
     header.total_size = static_cast<std::uint32_t>(kAckPayloadSize);
@@ -363,19 +372,15 @@ spw_result_t UdpBackend::send_ack(std::uint32_t message_id) noexcept {
 spw_result_t UdpBackend::send_keepalive(spw_timeout_us_t timeout_us) noexcept {
     Header header{};
     header.type = MessageType::Keepalive;
-    header.payload_size = static_cast<std::uint16_t>(kKeepalivePayloadSize);
     header.link_id = config_.link_id;
+    header.session_id = local_session_id_;
     header.sequence = take_nonzero(next_sequence_);
-    header.total_size = static_cast<std::uint32_t>(kKeepalivePayloadSize);
-    if (!encode_header(header, control_datagram_.data(), control_datagram_.size()) ||
-        !encode_keepalive_payload(local_session_id_,
-                                  control_datagram_.data() + kHeaderSize,
-                                  kKeepalivePayloadSize)) {
+    if (!encode_header(header, control_datagram_.data(), control_datagram_.size())) {
         return SPW_ERR_BACKEND;
     }
 
     const spw_result_t result = send_datagram(control_datagram_.data(),
-                                               kHeaderSize + kKeepalivePayloadSize,
+                                               kHeaderSize,
                                                timeout_us);
     if (result == SPW_OK) {
         last_keepalive_tx_ = Clock::now();
@@ -394,6 +399,34 @@ void UdpBackend::maybe_send_keepalive() noexcept {
     if (last_keepalive_tx_ == TimePoint{} || Clock::now() - last_keepalive_tx_ >= interval) {
         (void)send_keepalive(SPW_TIMEOUT_IMMEDIATE);
     }
+}
+
+bool UdpBackend::is_retired_session(std::uint64_t session_id) const noexcept {
+    if (session_id == 0u) {
+        return false;
+    }
+    for (std::size_t i = 0u; i < retired_session_count_; ++i) {
+        const std::size_t index = (retired_session_head_ + i) % retired_session_depth;
+        if (retired_sessions_[index] == session_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void UdpBackend::remember_retired_session(std::uint64_t session_id) noexcept {
+    if (session_id == 0u || is_retired_session(session_id)) {
+        return;
+    }
+    if (retired_session_count_ < retired_session_depth) {
+        const std::size_t index =
+            (retired_session_head_ + retired_session_count_) % retired_session_depth;
+        retired_sessions_[index] = session_id;
+        retired_session_count_++;
+        return;
+    }
+    retired_sessions_[retired_session_head_] = session_id;
+    retired_session_head_ = (retired_session_head_ + 1u) % retired_session_depth;
 }
 
 bool UdpBackend::recently_delivered(MessageType type,
@@ -427,23 +460,27 @@ void UdpBackend::remember_delivered(MessageType type,
     recent_message_head_ = (recent_message_head_ + 1u) % recent_message_depth;
 }
 
-void UdpBackend::reset_remote_session(std::uint64_t session_id) noexcept {
-    if (remote_session_id_ == 0u) {
-        remote_session_id_ = session_id;
-        note_peer_activity();
-        return;
+bool UdpBackend::reset_remote_session(std::uint64_t session_id) noexcept {
+    if (session_id == 0u || is_retired_session(session_id)) {
+        return false;
     }
-    if (remote_session_id_ != session_id) {
-        remote_session_id_ = session_id;
-        clear_reassembly();
-        clear_recent_messages();
-        if (pending_tx_kind_ != PendingTxKind::None) {
-            pending_tx_retries_ = 0u;
-            pending_tx_failed_ = false;
-            pending_tx_last_send_ = {};
-        }
+    if (remote_session_id_ == session_id) {
+        note_peer_activity();
+        return true;
+    }
+    if (remote_session_id_ != 0u) {
+        remember_retired_session(remote_session_id_);
+    }
+    remote_session_id_ = session_id;
+    clear_reassembly();
+    clear_recent_messages();
+    if (pending_tx_kind_ != PendingTxKind::None) {
+        pending_tx_retries_ = 0u;
+        pending_tx_failed_ = false;
+        pending_tx_last_send_ = {};
     }
     note_peer_activity();
+    return true;
 }
 
 spw_result_t UdpBackend::transmit_pending(spw_timeout_us_t timeout_us) noexcept {
@@ -457,6 +494,7 @@ spw_result_t UdpBackend::transmit_pending(spw_timeout_us_t timeout_us) noexcept 
         header.flags = FlagAckRequired;
         header.payload_size = static_cast<std::uint16_t>(kTimeCodePayloadSize);
         header.link_id = config_.link_id;
+        header.session_id = local_session_id_;
         header.sequence = take_nonzero(next_sequence_);
         header.message_id = pending_tx_message_id_;
         header.total_size = static_cast<std::uint32_t>(kTimeCodePayloadSize);
@@ -496,6 +534,7 @@ spw_result_t UdpBackend::transmit_pending(spw_timeout_us_t timeout_us) noexcept 
         }
         header.payload_size = static_cast<std::uint16_t>(payload_size);
         header.link_id = config_.link_id;
+        header.session_id = local_session_id_;
         header.sequence = take_nonzero(next_sequence_);
         header.message_id = pending_tx_message_id_;
         header.fragment_offset = static_cast<std::uint32_t>(offset);
@@ -583,14 +622,8 @@ spw_result_t UdpBackend::process_ack(const Header& header,
     return SPW_OK;
 }
 
-spw_result_t UdpBackend::process_keepalive(const Header& header,
-                                           const std::uint8_t* payload) noexcept {
-    std::uint64_t session_id = 0u;
-    if (!decode_keepalive_payload(payload, header.payload_size, session_id)) {
-        statistics_.dropped_packets++;
-        return SPW_OK;
-    }
-    reset_remote_session(session_id);
+spw_result_t UdpBackend::process_keepalive(const Header& header) noexcept {
+    (void)reset_remote_session(header.session_id);
     return SPW_OK;
 }
 
@@ -748,8 +781,14 @@ spw_result_t UdpBackend::pump_one(spw_timeout_us_t timeout_us) noexcept {
         return SPW_OK;
     }
 
-    note_peer_activity();
     const auto* payload = rx_datagram_.data() + kHeaderSize;
+    if (header.type == MessageType::Keepalive) {
+        return process_keepalive(header);
+    }
+    if (remote_session_id_ == 0u || header.session_id != remote_session_id_) {
+        return SPW_OK;
+    }
+    note_peer_activity();
     switch (header.type) {
         case MessageType::Data:
             if (header.total_size > max_packet_size) {
@@ -760,7 +799,7 @@ spw_result_t UdpBackend::pump_one(spw_timeout_us_t timeout_us) noexcept {
         case MessageType::TimeCode:
             return process_time_code(header, payload);
         case MessageType::Keepalive:
-            return process_keepalive(header, payload);
+            return SPW_OK;
         case MessageType::Ack:
             return process_ack(header, payload);
         case MessageType::LinkControl:
