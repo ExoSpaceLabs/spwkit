@@ -24,7 +24,7 @@ The design goal is simple: application SpaceWire logic should not change just be
 
 ### v0.1.0 baseline
 
-The completed v0.1 software baseline includes:
+`v0.1.0` is tagged at the completed portable-core boundary. It includes:
 
 - stable-in-v0.1 public C ABI and opaque port handles;
 - packet send/receive with EOP and EEP preservation;
@@ -44,17 +44,21 @@ Physical FPGA/HIL verification is deliberately deferred until suitable hardware 
 
 ### Current `main`: v0.2 development
 
-`main` has moved beyond the v0.1 baseline and now contains the first distributed virtual SpaceWire implementation:
+Development has moved to package version 0.2.0 and the distributed virtual SpaceWire backend now includes:
 
-- versioned VSPW-TP v1 framing;
-- POSIX UDP backend selected through the normal `spw_port_*` API;
+- versioned VSPW-TP v1 framing with a fixed 32-byte header;
+- POSIX IPv4 UDP backend selected through the normal `spw_port_*` API;
 - bounded fragmentation/reassembly;
 - EOP/EEP and time-code transport;
-- deterministic 1 MiB backend packet/reassembly limit;
+- deterministic 1 MiB backend packet/reassembly/reliable-TX bound;
 - default 1200-byte UDP fragment payload;
-- active device-to-device CI exercising real UDP transfer.
+- logical-message ACK and bounded complete-message retransmission;
+- duplicate logical-message suppression;
+- keepalive/session identity, peer timeout and restart recovery;
+- configured source address/port validation;
+- active device-to-device CI exercising real UDP transfer and recovery behavior.
 
-ACK/retransmission, keepalive/disconnect detection, richer distributed link control, configurable latency/rate and deterministic transport fault injection remain v0.2 work.
+Arbitrary fragment reordering support, configurable latency/rate, deterministic fault injection, stronger multi-process/container examples and capture/Wireshark tooling remain v0.2 work.
 
 ## Virtual SpaceWire
 
@@ -76,7 +80,7 @@ The process-local simulator supports bidirectional/full-duplex packets, EOP/EEP,
 
 ### Distributed UDP backend
 
-Two applications can also communicate over VSPW-TP/UDP while retaining the same public SpaceWire API:
+Two applications can communicate over VSPW-TP/UDP while retaining the same public SpaceWire API:
 
 ```text
 Application A                         Application B
@@ -89,6 +93,8 @@ Application A                         Application B
 ```
 
 UDP is an internal transport. Packet boundaries, EOP/EEP and time codes remain SpaceWire-facing semantics and are not replaced by datagram boundaries.
+
+Reliability is logical-message based. The backend retains at most one unacknowledged DATA/TIME_CODE event, retries it cooperatively after the configured ACK timeout, suppresses duplicate logical delivery, and uses transport keepalives/session IDs for peer liveness and restart recovery. No mandatory background thread is required.
 
 `/dev/vspwX` remains later roadmap work.
 
@@ -138,7 +144,8 @@ cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -DSPWKIT_BUILD_TESTS=ON \
   -DSPWKIT_BUILD_EXAMPLES=ON \
-  -DSPWKIT_BUILD_SIMULATOR=ON
+  -DSPWKIT_BUILD_SIMULATOR=ON \
+  -DSPWKIT_BUILD_UDP=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
@@ -149,12 +156,14 @@ Install:
 cmake --install build --prefix /path/to/spwkit-install
 ```
 
-Consumer CMake:
+Consumer CMake for current v0.2 development:
 
 ```cmake
-find_package(SpWKit 0.1 CONFIG REQUIRED)
+find_package(SpWKit 0.2 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE SpWKit::spwkit)
 ```
+
+Consumers pinned to the `v0.1.0` tag should request `SpWKit 0.1` instead.
 
 CI builds a standalone installed-package consumer so exported package metadata cannot silently rot.
 
