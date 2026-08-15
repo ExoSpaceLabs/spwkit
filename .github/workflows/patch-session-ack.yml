@@ -31,97 +31,24 @@ jobs:
 
           cpp = Path('src/backends/ethernet/udp_backend.cpp')
           text = cpp.read_text()
-          text = replace_one(
-              text,
-              '''spw_result_t UdpBackend::send_ack(std::uint32_t message_id) noexcept {
-    if (message_id == 0u) {
-        return SPW_ERR_INVALID_ARGUMENT;
-    }
+          old = "spw_result_t UdpBackend::send_ack(std::uint32_t message_id) noexcept {\n    if (message_id == 0u) {\n        return SPW_ERR_INVALID_ARGUMENT;\n    }\n\n    Header header{};\n    header.type = MessageType::Ack;\n    header.link_id = config_.link_id;\n    header.sequence = take_nonzero(next_sequence_);\n    header.message_id = message_id;\n    if (!encode_header(header, control_datagram_.data(), control_datagram_.size())) {\n        return SPW_ERR_BACKEND;\n    }\n    return send_datagram(control_datagram_.data(), kHeaderSize, SPW_TIMEOUT_IMMEDIATE);\n}"
+          new = "spw_result_t UdpBackend::send_ack(std::uint32_t message_id) noexcept {\n    if (message_id == 0u) {\n        return SPW_ERR_INVALID_ARGUMENT;\n    }\n    if (remote_session_id_ == 0u) {\n        return SPW_ERR_INVALID_STATE;\n    }\n\n    Header header{};\n    header.type = MessageType::Ack;\n    header.payload_size = static_cast<std::uint16_t>(kAckPayloadSize);\n    header.link_id = config_.link_id;\n    header.sequence = take_nonzero(next_sequence_);\n    header.message_id = message_id;\n    header.total_size = static_cast<std::uint32_t>(kAckPayloadSize);\n    if (!encode_header(header, control_datagram_.data(), control_datagram_.size()) ||\n        !encode_ack_payload(remote_session_id_,\n                            control_datagram_.data() + kHeaderSize,\n                            kAckPayloadSize)) {\n        return SPW_ERR_BACKEND;\n    }\n    return send_datagram(control_datagram_.data(),\n                         kHeaderSize + kAckPayloadSize,\n                         SPW_TIMEOUT_IMMEDIATE);\n}"
+          text = replace_one(text, old, new, 'send ACK')
 
-    Header header{};
-    header.type = MessageType::Ack;
-    header.link_id = config_.link_id;
-    header.sequence = take_nonzero(next_sequence_);
-    header.message_id = message_id;
-    if (!encode_header(header, control_datagram_.data(), control_datagram_.size())) {
-        return SPW_ERR_BACKEND;
-    }
-    return send_datagram(control_datagram_.data(), kHeaderSize, SPW_TIMEOUT_IMMEDIATE);
-}''',
-              '''spw_result_t UdpBackend::send_ack(std::uint32_t message_id) noexcept {
-    if (message_id == 0u) {
-        return SPW_ERR_INVALID_ARGUMENT;
-    }
-    if (remote_session_id_ == 0u) {
-        return SPW_ERR_INVALID_STATE;
-    }
+          old = "spw_result_t UdpBackend::process_ack(const Header& header) noexcept {\n    if (pending_tx_kind_ != PendingTxKind::None &&\n        header.message_id == pending_tx_message_id_) {\n        clear_pending_tx();\n    }\n    return SPW_OK;\n}"
+          new = "spw_result_t UdpBackend::process_ack(const Header& header,\n                                     const std::uint8_t* payload) noexcept {\n    std::uint64_t acknowledged_session_id = 0u;\n    if (!decode_ack_payload(payload, header.payload_size, acknowledged_session_id)) {\n        statistics_.dropped_packets++;\n        return SPW_OK;\n    }\n    if (acknowledged_session_id != local_session_id_) {\n        return SPW_OK;\n    }\n    if (pending_tx_kind_ != PendingTxKind::None &&\n        header.message_id == pending_tx_message_id_) {\n        clear_pending_tx();\n    }\n    return SPW_OK;\n}"
+          text = replace_one(text, old, new, 'process ACK')
 
-    Header header{};
-    header.type = MessageType::Ack;
-    header.payload_size = static_cast<std::uint16_t>(kAckPayloadSize);
-    header.link_id = config_.link_id;
-    header.sequence = take_nonzero(next_sequence_);
-    header.message_id = message_id;
-    header.total_size = static_cast<std::uint32_t>(kAckPayloadSize);
-    if (!encode_header(header, control_datagram_.data(), control_datagram_.size()) ||
-        !encode_ack_payload(remote_session_id_,
-                            control_datagram_.data() + kHeaderSize,
-                            kAckPayloadSize)) {
-        return SPW_ERR_BACKEND;
-    }
-    return send_datagram(control_datagram_.data(),
-                         kHeaderSize + kAckPayloadSize,
-                         SPW_TIMEOUT_IMMEDIATE);
-}''',
-              'send ACK')
-          text = replace_one(
-              text,
-              '''spw_result_t UdpBackend::process_ack(const Header& header) noexcept {
-    if (pending_tx_kind_ != PendingTxKind::None &&
-        header.message_id == pending_tx_message_id_) {
-        clear_pending_tx();
-    }
-    return SPW_OK;
-}''',
-              '''spw_result_t UdpBackend::process_ack(const Header& header,
-                                     const std::uint8_t* payload) noexcept {
-    std::uint64_t acknowledged_session_id = 0u;
-    if (!decode_ack_payload(payload, header.payload_size, acknowledged_session_id)) {
-        statistics_.dropped_packets++;
-        return SPW_OK;
-    }
-    if (acknowledged_session_id != local_session_id_) {
-        return SPW_OK;
-    }
-    if (pending_tx_kind_ != PendingTxKind::None &&
-        header.message_id == pending_tx_message_id_) {
-        clear_pending_tx();
-    }
-    return SPW_OK;
-}''',
-              'process ACK')
-          text = replace_one(
-              text,
-              '''        case MessageType::Ack:
-            return process_ack(header);''',
-              '''        case MessageType::Ack:
-            return process_ack(header, payload);''',
-              'ACK dispatch')
+          old = "        case MessageType::Ack:\n            return process_ack(header);"
+          new = "        case MessageType::Ack:\n            return process_ack(header, payload);"
+          text = replace_one(text, old, new, 'ACK dispatch')
           cpp.write_text(text)
 
           port = Path('src/core/port.cpp')
           text = port.read_text()
-          text = replace_one(
-              text,
-              '''    if (udp->remote_port == 0u || udp->link_id == 0u ||
-        udp->fragment_payload_size < 256u || udp->reserved != 0u ||
-        udp->local_address[0] == '\\0' || udp->remote_address[0] == '\\0') {''',
-              '''    if (udp->remote_port == 0u || udp->link_id == 0u ||
-        udp->fragment_payload_size < 256u || udp->max_retries == 0u ||
-        udp->ack_timeout_ms == 0u || udp->keepalive_interval_ms == 0u ||
-        udp->peer_timeout_ms <= udp->keepalive_interval_ms || udp->reserved != 0u ||
-        udp->local_address[0] == '\\0' || udp->remote_address[0] == '\\0') {''',
-              'UDP public config validation')
+          old = "    if (udp->remote_port == 0u || udp->link_id == 0u ||\n        udp->fragment_payload_size < 256u || udp->reserved != 0u ||\n        udp->local_address[0] == '\\0' || udp->remote_address[0] == '\\0') {"
+          new = "    if (udp->remote_port == 0u || udp->link_id == 0u ||\n        udp->fragment_payload_size < 256u || udp->max_retries == 0u ||\n        udp->ack_timeout_ms == 0u || udp->keepalive_interval_ms == 0u ||\n        udp->peer_timeout_ms <= udp->keepalive_interval_ms || udp->reserved != 0u ||\n        udp->local_address[0] == '\\0' || udp->remote_address[0] == '\\0') {"
+          text = replace_one(text, old, new, 'UDP public config validation')
           port.write_text(text)
           PY
 
