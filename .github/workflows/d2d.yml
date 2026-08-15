@@ -4,18 +4,20 @@ on:
   push:
     branches: [main]
     paths:
+      - "include/spwkit/udp.h"
       - "src/backends/ethernet/**"
-      - "src/backends/virtual/**"
-      - "simulator/**"
-      - "tests/d2d/**"
+      - "src/core/port.cpp"
+      - "tests/udp_backend.cpp"
+      - "tests/CMakeLists.txt"
       - ".github/workflows/d2d.yml"
   pull_request:
     branches: [main]
     paths:
+      - "include/spwkit/udp.h"
       - "src/backends/ethernet/**"
-      - "src/backends/virtual/**"
-      - "simulator/**"
-      - "tests/d2d/**"
+      - "src/core/port.cpp"
+      - "tests/udp_backend.cpp"
+      - "tests/CMakeLists.txt"
       - ".github/workflows/d2d.yml"
   workflow_dispatch:
 
@@ -27,50 +29,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  docker-d2d:
+  udp-d2d:
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Check D2D harness
-        id: harness
-        shell: bash
-        run: |
-          if [[ -f tests/d2d/compose.yaml ]]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Docker D2D harness is not implemented yet; this workflow is staged only."
-            echo "### Device-to-device CI" >> "$GITHUB_STEP_SUMMARY"
-            echo "Not active yet: tests/d2d/compose.yaml does not exist." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Validate Compose topology
-        if: steps.harness.outputs.available == 'true'
-        run: docker compose -f tests/d2d/compose.yaml config
-
-      - name: Run D2D integration
-        if: steps.harness.outputs.available == 'true'
+      - name: Configure
         run: >-
-          docker compose -f tests/d2d/compose.yaml
-          up --build --abort-on-container-exit --exit-code-from verifier
+          cmake -S . -B build-d2d
+          -DCMAKE_BUILD_TYPE=Release
+          -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_EXAMPLES=OFF
+          -DSPWKIT_BUILD_SIMULATOR=ON
+          -DSPWKIT_BUILD_UDP=ON
+          -DSPWKIT_ENABLE_HEAP=ON
 
-      - name: Collect D2D logs
-        if: always() && steps.harness.outputs.available == 'true'
-        run: |
-          mkdir -p artifacts/d2d
-          docker compose -f tests/d2d/compose.yaml logs --no-color > artifacts/d2d/compose.log || true
+      - name: Build
+        run: cmake --build build-d2d --parallel
 
-      - name: Tear down
-        if: always() && steps.harness.outputs.available == 'true'
-        run: docker compose -f tests/d2d/compose.yaml down --volumes --remove-orphans
-
-      - name: Upload failure logs
-        if: failure() && steps.harness.outputs.available == 'true'
-        uses: actions/upload-artifact@v7
-        with:
-          name: d2d-logs
-          path: artifacts/d2d
-          if-no-files-found: ignore
+      - name: Run distributed transport tests
+        run: ctest --test-dir build-d2d --output-on-failure -L d2d

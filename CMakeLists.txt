@@ -13,6 +13,7 @@ include(CMakePackageConfigHelpers)
 option(SPWKIT_BUILD_TESTS "Build SpWKit tests" ON)
 option(SPWKIT_BUILD_EXAMPLES "Build SpWKit examples" ON)
 option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backend" ON)
+option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend" ON)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 
@@ -31,12 +32,19 @@ set(SPWKIT_SOURCES
     src/core/spwkit.cpp
     src/core/port.cpp
     src/backends/loopback/loopback_backend.cpp
+    src/backends/ethernet/vspw_tp.cpp
 )
 
 if(SPWKIT_BUILD_SIMULATOR)
     list(APPEND SPWKIT_SOURCES
         src/backends/virtual/simulator_backend.cpp
         src/backends/virtual/simulator_zero_copy.cpp
+    )
+endif()
+
+if(SPWKIT_BUILD_UDP AND UNIX)
+    list(APPEND SPWKIT_SOURCES
+        src/backends/ethernet/udp_backend.cpp
     )
 endif()
 
@@ -57,6 +65,10 @@ spwkit_apply_no_throw_policy(spwkit)
 
 if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_SIMULATOR=1)
+endif()
+
+if(SPWKIT_BUILD_UDP AND UNIX)
+    target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_UDP=1)
 endif()
 
 if(SPWKIT_ENABLE_HEAP)
