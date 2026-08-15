@@ -1,8 +1,8 @@
 # Testing and CI strategy
 
-SpWKit verifies one observable public contract across every backend. Unit tests cover implementation details; contract tests cover application-visible semantics; simulator tests cover paired-link behavior; later HIL will run the same contract against physical hardware.
+SpWKit verifies one observable public contract across every backend. Unit tests cover implementation details; contract tests cover application-visible semantics; simulator tests cover paired-link behavior; distributed tests cover VSPW-TP/UDP behavior; later HIL will run the same contract against physical hardware.
 
-## Active v0.1 gates
+## Active host gates
 
 The always-on host CI verifies:
 
@@ -19,7 +19,11 @@ The always-on host CI verifies:
 
 CI also rejects explicit `throw`, `try`, and `catch` syntax in C++ sources. Recoverable library failures must remain result-code based.
 
-The dedicated Simulator workflow builds with the simulator enabled and runs simulator-labelled and public contract tests.
+The dedicated Simulator workflow builds with the local simulator enabled and runs simulator-labelled and public contract tests.
+
+The Device-to-device workflow is now active. It configures/builds the repository on Linux and runs the real VSPW-TP/UDP integration test rather than a staged placeholder.
+
+The Embedded workflow currently validates the target/toolchain harness where available; missing cross toolchains are reported and the corresponding build steps remain staged rather than being misrepresented as runtime embedded verification.
 
 ## Test labels
 
@@ -33,28 +37,32 @@ example
 simulator
 integration
 noheap
+transport
+d2d
 ```
 
-Later phases additionally use `d2d`, `embedded`, `hil`, and `compliance`.
+Future physical/standards work may additionally use `embedded`, `hil`, and `compliance` as runtime evidence categories.
 
 ## Shared backend contract
 
 The reusable public backend contract verifies, as applicable:
 
 - lifecycle and observable link state;
-- bidirectional packet transfer;
+- packet transfer;
 - EOP/EEP preservation;
 - zero-length and large packets;
 - receive-capacity failure without packet truncation/consumption;
 - immediate and finite timeout behavior;
-- bounded queues and recovery after drain;
+- bounded resources and recovery;
 - time codes when advertised;
 - statistics when advertised;
 - zero-copy ownership when advertised.
 
 Capabilities gate genuinely optional features. A backend that advertises `SPW_CAP_ZERO_COPY` must execute the zero-copy ownership contract; it cannot silently skip it.
 
-## Edge-case suite
+The loopback and local simulator execute the shared contract directly today. Distributed-backend coverage currently combines common public semantics with transport-specific integration tests and should continue converging on the reusable backend contract as v0.2 matures.
+
+## v0.1 edge-case suite
 
 The v0.1 edge tests intentionally exercise failure paths and exact boundaries rather than only nominal transfer.
 
@@ -97,7 +105,21 @@ Simulator-specific edges additionally include:
 - peer stop, reset, close, reopen and surviving-handle recovery;
 - all 16 local simulator link slots plus deterministic 17th-link exhaustion.
 
-This list is the current v0.1 boundary set, not a claim that arbitrary future backend-specific failure modes are already exhaustively known. New backends must extend the shared suite when they introduce new capabilities or resource constraints.
+## v0.2 distributed transport tests
+
+The current UDP integration test creates two localhost ports entirely through the public API and verifies:
+
+- VSPW-TP framing through the actual backend;
+- a 5 KiB EEP packet fragmented into 512-byte UDP payloads;
+- reassembly before the packet becomes application-visible;
+- payload and EEP preservation;
+- `SPW_ERR_BUFFER_TOO_SMALL` retry without consuming the completed packet;
+- reverse-direction packet traffic;
+- time-code round trip.
+
+The VSPW-TP codec also has golden-vector and malformed-frame tests covering magic/version/type/header/flag/fragment validation.
+
+Additional v0.2 tests are required as ACK/retransmission, loss/reordering handling, liveness, latency/rate and fault injection are implemented.
 
 ## Determinism rules
 
@@ -112,7 +134,7 @@ This list is the current v0.1 boundary set, not a claim that arbitrary future ba
 
 The no-heap profile builds with `SPWKIT_ENABLE_HEAP=OFF`. A dedicated test replaces global C++ allocation operations with counters and verifies zero allocations across mandatory in-place open/start/I/O/statistics/close/workspace-reuse operations.
 
-The process-local simulator is a hosted runtime reference backend, not the bare-metal allocation reference.
+The process-local simulator and POSIX UDP backend are hosted runtime backends, not the bare-metal allocation reference.
 
 ## Installed-package verification
 
@@ -125,16 +147,14 @@ target_link_libraries(app PRIVATE SpWKit::spwkit)
 
 This catches broken exports, missing installed headers and accidental dependencies on source-private paths.
 
-## Future D2D, embedded and HIL layers
-
-Distributed virtual SpaceWire will be tested with independent processes/network namespaces, preferably Docker Compose, once the Ethernet/IPC backend exists.
+## Embedded and HIL layers
 
 Bare-metal and RTOS work has two levels:
 
 1. cross-build/portability checks on hosted CI;
 2. runtime target tests on real targets.
 
-Physical SpaceWire/FPGA HIL is intentionally deferred for v0.1 because a suitable FPGA test platform is not currently available. When hardware exists, it must reuse the same public backend contract and add hardware-specific checks for driver probe, AXI/MMIO, DMA, interrupts, physical link startup, EOP/EEP, time codes, disconnect/recovery and sustained traffic.
+Physical SpaceWire/FPGA HIL is intentionally deferred because a suitable FPGA test platform is not currently available. When hardware exists, it must reuse the same public backend contract and add hardware-specific checks for driver probe, AXI/MMIO, DMA, interrupts, physical link startup, EOP/EEP, time codes, disconnect/recovery and sustained traffic.
 
 ## ECSS evidence
 
