@@ -31,6 +31,7 @@ set(SPWKIT_SOURCES
     src/core/spwkit.cpp
     src/core/port.cpp
     src/backends/loopback/loopback_backend.cpp
+    src/backends/ethernet/vspw_tp.cpp
 )
 
 if(SPWKIT_BUILD_SIMULATOR)
