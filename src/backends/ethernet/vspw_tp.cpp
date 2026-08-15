@@ -16,6 +16,11 @@ void write_u32(std::uint8_t* dst, std::uint32_t value) noexcept {
     dst[3] = static_cast<std::uint8_t>(value & 0xffu);
 }
 
+void write_u64(std::uint8_t* dst, std::uint64_t value) noexcept {
+    write_u32(dst, static_cast<std::uint32_t>(value >> 32u));
+    write_u32(dst + 4u, static_cast<std::uint32_t>(value & 0xffffffffu));
+}
+
 std::uint16_t read_u16(const std::uint8_t* src) noexcept {
     return static_cast<std::uint16_t>((static_cast<std::uint16_t>(src[0]) << 8u) |
                                       static_cast<std::uint16_t>(src[1]));
@@ -26,6 +31,11 @@ std::uint32_t read_u32(const std::uint8_t* src) noexcept {
            (static_cast<std::uint32_t>(src[1]) << 16u) |
            (static_cast<std::uint32_t>(src[2]) << 8u) |
            static_cast<std::uint32_t>(src[3]);
+}
+
+std::uint64_t read_u64(const std::uint8_t* src) noexcept {
+    return (static_cast<std::uint64_t>(read_u32(src)) << 32u) |
+           static_cast<std::uint64_t>(read_u32(src + 4u));
 }
 
 bool has_flag(std::uint8_t flags, Flag flag) noexcept {
@@ -45,6 +55,11 @@ bool validate_flags(const Header& header) noexcept {
 
     if (header.type != MessageType::Data &&
         (has_flag(header.flags, FlagEop) || has_flag(header.flags, FlagEep))) {
+        return false;
+    }
+
+    if (has_flag(header.flags, FlagAckRequired) &&
+        header.type != MessageType::Data && header.type != MessageType::TimeCode) {
         return false;
     }
 
@@ -91,6 +106,52 @@ bool validate_fragment(const Header& header) noexcept {
     return true;
 }
 
+bool validate_message_shape(const Header& header) noexcept {
+    switch (header.type) {
+        case MessageType::Data:
+            return true;
+        case MessageType::TimeCode:
+            return header.payload_size == kTimeCodePayloadSize &&
+                   header.total_size == kTimeCodePayloadSize;
+        case MessageType::Keepalive:
+            return header.payload_size == 0u && header.total_size == 0u &&
+                   header.message_id == 0u;
+        case MessageType::Ack:
+            return header.payload_size == kAckPayloadSize &&
+                   header.total_size == kAckPayloadSize &&
+                   header.message_id != 0u;
+        case MessageType::LinkControl:
+            return true;
+    }
+    return false;
+}
+
+bool encode_nonzero_u64(std::uint64_t value,
+                        std::uint8_t* destination,
+                        std::size_t destination_size,
+                        std::size_t required_size) noexcept {
+    if (destination == nullptr || destination_size < required_size || value == 0u) {
+        return false;
+    }
+    write_u64(destination, value);
+    return true;
+}
+
+bool decode_nonzero_u64(const std::uint8_t* source,
+                        std::size_t source_size,
+                        std::size_t required_size,
+                        std::uint64_t& value) noexcept {
+    if (source == nullptr || source_size != required_size) {
+        return false;
+    }
+    const std::uint64_t decoded = read_u64(source);
+    if (decoded == 0u) {
+        return false;
+    }
+    value = decoded;
+    return true;
+}
+
 } // namespace
 
 bool is_known_type(MessageType type) noexcept {
@@ -110,8 +171,10 @@ bool validate(const Header& header) noexcept {
            header.version_minor <= kVersionMinor &&
            is_known_type(header.type) &&
            header.header_size == kHeaderSize &&
+           header.session_id != 0u &&
            validate_flags(header) &&
-           validate_fragment(header);
+           validate_fragment(header) &&
+           validate_message_shape(header);
 }
 
 bool encode_header(const Header& header,
@@ -129,10 +192,11 @@ bool encode_header(const Header& header,
     write_u16(destination + 8u, header.header_size);
     write_u16(destination + 10u, header.payload_size);
     write_u32(destination + 12u, header.link_id);
-    write_u32(destination + 16u, header.sequence);
-    write_u32(destination + 20u, header.message_id);
-    write_u32(destination + 24u, header.fragment_offset);
-    write_u32(destination + 28u, header.total_size);
+    write_u64(destination + 16u, header.session_id);
+    write_u32(destination + 24u, header.sequence);
+    write_u32(destination + 28u, header.message_id);
+    write_u32(destination + 32u, header.fragment_offset);
+    write_u32(destination + 36u, header.total_size);
     return true;
 }
 
@@ -154,10 +218,11 @@ DecodeResult decode_header(const std::uint8_t* source,
     header.header_size = read_u16(source + 8u);
     header.payload_size = read_u16(source + 10u);
     header.link_id = read_u32(source + 12u);
-    header.sequence = read_u32(source + 16u);
-    header.message_id = read_u32(source + 20u);
-    header.fragment_offset = read_u32(source + 24u);
-    header.total_size = read_u32(source + 28u);
+    header.session_id = read_u64(source + 16u);
+    header.sequence = read_u32(source + 24u);
+    header.message_id = read_u32(source + 28u);
+    header.fragment_offset = read_u32(source + 32u);
+    header.total_size = read_u32(source + 36u);
 
     if (header.version_major != kVersionMajor || header.version_minor > kVersionMinor) {
         return DecodeResult::UnsupportedVersion;
@@ -172,15 +237,32 @@ DecodeResult decode_header(const std::uint8_t* source,
         source_size < kHeaderSize + header.payload_size) {
         return DecodeResult::InvalidPayloadSize;
     }
+    if (header.session_id == 0u) {
+        return DecodeResult::InvalidSession;
+    }
     if (!validate_flags(header)) {
         return DecodeResult::InvalidFlags;
     }
-    if (!validate_fragment(header)) {
+    if (!validate_fragment(header) || !validate_message_shape(header)) {
         return DecodeResult::InvalidFragment;
     }
 
     out_header = header;
     return DecodeResult::Ok;
+}
+
+bool encode_ack_payload(std::uint64_t acknowledged_session_id,
+                        std::uint8_t* destination,
+                        std::size_t destination_size) noexcept {
+    return encode_nonzero_u64(acknowledged_session_id, destination, destination_size,
+                              kAckPayloadSize);
+}
+
+bool decode_ack_payload(const std::uint8_t* source,
+                        std::size_t source_size,
+                        std::uint64_t& acknowledged_session_id) noexcept {
+    return decode_nonzero_u64(source, source_size, kAckPayloadSize,
+                              acknowledged_session_id);
 }
 
 } // namespace spwkit::ethernet::vspw_tp

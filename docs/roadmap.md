@@ -18,30 +18,37 @@ Delivered:
 - C/C++ examples;
 - Linux GCC/Clang, macOS Clang, Windows MSVC, ASan/UBSan, no-heap and simulator CI.
 
-Physical FPGA/HIL validation is deliberately outside the v0.1 release boundary because suitable hardware is not currently available.
+`v0.1.0` is tagged at the completed portable-core boundary. Physical FPGA/HIL validation is deliberately outside that release because suitable hardware is not currently available.
 
 ## v0.2.0 — Distributed virtual SpaceWire — in progress
 
-Implemented on current `main`:
+Implemented in v0.2 development:
 
-- versioned VSPW-TP v1 wire format;
-- POSIX UDP backend selected through `spw_port_*`;
+- versioned VSPW-TP v1 wire format with a 40-byte header carrying the sender session ID;
+- POSIX IPv4 UDP backend selected through `spw_port_*`;
 - packet fragmentation/reassembly independent of Ethernet MTU;
 - EOP/EEP preservation across fragments;
 - time-code transport;
-- bounded receive/reassembly storage;
-- active device-to-device UDP CI.
+- bounded 1 MiB receive/reassembly and reliable-TX storage;
+- logical-message ACK semantics for DATA/TIME_CODE;
+- bounded complete-message retransmission after ACK timeout;
+- duplicate logical-message suppression and ACK replay;
+- 64-bit sender session identity on every frame plus KEEPALIVE-driven session transitions;
+- configured peer address/port validation;
+- peer timeout mapping to public link state/errors;
+- peer restart/session recovery;
+- active device-to-device UDP CI including forced retry/dedup/recovery coverage;
+- development package version advanced to 0.2.0.
 
 Remaining v0.2 work:
 
-- ACK/retransmission and duplicate handling where transport reliability requires it;
-- peer keepalive and disconnect detection;
-- transport sequence/loss/reordering policy;
+- improve fragmented reassembly policy for arbitrary transport reordering rather than relying on retry of a contiguous retransmission;
 - configurable virtual link rate and latency;
 - deterministic SpaceWire-side and transport-side fault injection;
-- Linux-to-Linux distributed examples;
+- Linux-to-Linux distributed process/container examples and stronger namespace isolation tests;
 - Wireshark dissector or capture tooling;
-- broaden the shared backend contract where distributed semantics require additional assertions.
+- broaden the shared backend contract for distributed backend semantics;
+- decide whether Winsock support belongs in v0.2 or a later portability slice.
 
 The public SpaceWire API remains unchanged: applications do not call UDP or VSPW-TP directly.
 

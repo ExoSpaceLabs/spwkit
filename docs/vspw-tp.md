@@ -7,14 +7,18 @@ Applications continue to call `libspwkit`. A distributed backend translates pack
 ## Design rules
 
 - network byte order is used for all multi-byte integers;
-- the v1 fixed header is 32 bytes;
+- the v1 fixed header is 40 bytes;
+- every frame carries the non-zero 64-bit session ID of its sender;
 - one VSPW-TP message belongs to one virtual `link_id`;
-- `message_id` identifies one logical SpaceWire-side event across fragments;
-- `sequence` orders transport messages and supports later duplicate/loss handling;
+- `message_id` identifies one logical SpaceWire-side event across fragments and retries;
+- `sequence` identifies individual transport datagrams for ordering/diagnostics;
+- retransmission may use new sequence values while retaining the same logical `message_id` and sender session;
 - fragments are never visible through the public SpaceWire API;
 - EOP and EEP belong to the logical SpaceWire packet, not to UDP datagrams;
 - transport packet loss is not itself a simulated SpaceWire error;
 - public SpWKit headers do not expose UDP socket or VSPW-TP wire structures.
+
+The session field is part of every frame rather than only KEEPALIVE. This is necessary to distinguish current traffic from delayed datagrams belonging to a previous peer process after restart.
 
 ## Header
 
@@ -25,13 +29,14 @@ Applications continue to call `libspwkit`. A distributed backend translates pack
 | 5 | 1 | version minor | `0` |
 | 6 | 1 | message type | see below |
 | 7 | 1 | flags | see below |
-| 8 | 2 | header size | `32` for v1 |
+| 8 | 2 | header size | `40` for v1 |
 | 10 | 2 | payload size | bytes following this header in this datagram |
 | 12 | 4 | link id | virtual link identifier |
-| 16 | 4 | sequence | transport sequence number |
-| 20 | 4 | message id | logical event/packet identifier |
-| 24 | 4 | fragment offset | byte offset into logical payload |
-| 28 | 4 | total size | complete logical payload size |
+| 16 | 8 | session id | non-zero sender transport session |
+| 24 | 4 | sequence | transport datagram sequence number |
+| 28 | 4 | message id | logical event/packet identifier |
+| 32 | 4 | fragment offset | byte offset into logical payload |
+| 36 | 4 | total size | complete logical payload size |
 
 ## Message types
 
@@ -40,12 +45,65 @@ Applications continue to call `libspwkit`. A distributed backend translates pack
 | 1 | DATA | SpaceWire packet payload |
 | 2 | TIME_CODE | SpaceWire time-code event |
 | 3 | LINK_CONTROL | reserved distributed link-control event |
-| 4 | KEEPALIVE | reserved peer-liveness transport event |
-| 5 | ACK | reserved transport acknowledgement |
+| 4 | KEEPALIVE | peer/session liveness transport event |
+| 5 | ACK | session-bound logical-message acknowledgement |
 
 Unknown message types are rejected in v1.
 
-TIME_CODE v1.0 uses a two-byte payload: `{time_count, control_flags}`. The remaining control-message bodies stay reserved until their state-machine semantics are implemented.
+### DATA
+
+DATA carries one SpaceWire packet. Fragmented DATA messages retain one `message_id` and sender `session_id` across every fragment and retransmission of that logical packet.
+
+For an unfragmented DATA message, both fragment flags are clear, `fragment_offset` is zero and `payload_size == total_size`.
+
+For a fragmented DATA message, the first fragment has `FRAGMENT_START` and offset zero. The final fragment has `FRAGMENT_END` and ends exactly at `total_size`. Intermediate fragments have neither boundary flag. Reassembly completes before a packet is surfaced to the application.
+
+The current UDP reassembler accepts one logical fragmented packet at a time and requires contiguous fragment offsets. Reordered/missing fragments therefore prevent acknowledgement; the sender later retransmits the complete logical message. Reordering is a transport recovery event, not an application-visible EEP.
+
+### TIME_CODE
+
+TIME_CODE v1.0 uses a two-byte payload:
+
+```text
+{ time_count, control_flags }
+```
+
+Reliable TIME_CODE events use `ACK_REQUIRED` and a non-zero logical `message_id` in the same way as DATA.
+
+### ACK
+
+The ACK frame header identifies the ACK sender's current session. Its payload carries exactly one 64-bit non-zero **acknowledged sender session ID** in network byte order:
+
+- `payload_size == 8`;
+- `total_size == 8`;
+- `message_id` identifies the logical DATA/TIME_CODE event being acknowledged;
+- `header.session_id` identifies the peer sending the ACK;
+- the 8-byte payload identifies the session that originally sent the acknowledged event;
+- ACK itself never carries `ACK_REQUIRED`.
+
+Acknowledgement is **logical-message based**, not per-fragment. A fragmented packet is acknowledged only after complete reassembly has been accepted into the backend receive queue.
+
+The sender accepts an ACK only when:
+
+1. the ACK header belongs to the currently established remote session;
+2. the logical `message_id` matches its pending event; and
+3. the ACK payload matches its own current local session ID.
+
+That prevents delayed ACKs from old peer or local sessions from completing a new reliable transfer after restart/message-ID reuse.
+
+The receiver remembers a bounded history of delivered logical message IDs for the current remote session. If an ACK is lost and the sender retransmits the same logical message, the receiver re-sends the ACK without surfacing the packet/time-code a second time.
+
+### KEEPALIVE
+
+KEEPALIVE is header-only in v1. Its `session_id` field advertises the sender's current transport session. `payload_size`, `total_size`, and `message_id` are zero.
+
+KEEPALIVE is the only frame allowed to establish or replace the current remote session. Once established, DATA, TIME_CODE, ACK, and other control traffic are accepted only when their header `session_id` matches that current peer session.
+
+When a new peer session is accepted, the backend clears partial reassembly and duplicate-history state for the prior session while preserving already completed application-visible receive data. A bounded retired-session history prevents delayed KEEPALIVEs from immediately reverting the peer to a recently superseded session. Frames from retired or otherwise non-current sessions are ignored and do not refresh peer liveness.
+
+This also handles UDP reordering around restart: DATA from a new session that arrives before its KEEPALIVE is ignored rather than delivered ambiguously; after the KEEPALIVE establishes the session, normal reliable retransmission delivers it once.
+
+The UDP backend additionally validates source IPv4 address and source UDP port against the configured peer. `link_id` alone is not treated as peer identity.
 
 ## Flags
 
@@ -53,32 +111,60 @@ TIME_CODE v1.0 uses a two-byte payload: `{time_count, control_flags}`. The remai
 |---:|---|---|
 | 0 | EOP | DATA packet terminates with EOP |
 | 1 | EEP | DATA packet terminates with EEP |
-| 2 | FRAGMENT_START | first fragment of a fragmented DATA message |
-| 3 | FRAGMENT_END | last fragment of a fragmented DATA message |
-| 4 | ACK_REQUIRED | sender requests transport acknowledgement |
+| 2 | FRAGMENT_START | first fragment of fragmented DATA |
+| 3 | FRAGMENT_END | final fragment of fragmented DATA |
+| 4 | ACK_REQUIRED | DATA/TIME_CODE requires logical acknowledgement |
 
-EOP and EEP are mutually exclusive. They are only legal for DATA messages.
+EOP and EEP are mutually exclusive and legal only for DATA. `ACK_REQUIRED` is currently legal only for DATA and TIME_CODE.
 
-For an unfragmented DATA message, both fragment flags are clear, `fragment_offset` is zero and `payload_size == total_size`.
+## Reliability model
 
-For a fragmented DATA message, all fragments share `link_id` and `message_id`. The first fragment has `FRAGMENT_START` and offset zero. The final fragment has `FRAGMENT_END` and ends exactly at `total_size`. Intermediate fragments have neither fragment-boundary flag. Reassembly completes before a packet is surfaced to the application.
+The v0.2 UDP backend uses bounded cooperative reliability rather than a mandatory background thread.
+
+For one port:
+
+1. at most one logical outbound DATA/TIME_CODE event is retained as the reliable TX slot;
+2. the first transmission uses normal VSPW-TP fragmentation;
+3. successful `spw_port_send*` means the event was accepted by the backend and transmitted, not that the remote application consumed it;
+4. the peer ACKs the logical `message_id` after accepting it, with both frames bound to transport sessions;
+5. while normal SpWKit API calls service the backend, an unacknowledged message is retransmitted after `ack_timeout_ms`;
+6. retries are bounded by `max_retries`;
+7. retry exhaustion maps to `SPW_LINK_ERROR_WAIT`, increments link-error/drop statistics once for that failed logical event, and returns `SPW_ERR_LINK_UNAVAILABLE` from service-dependent operations;
+8. a later valid current-session keepalive/traffic may recover the link without re-opening the public port.
+
+This model deliberately avoids requiring a second thread merely to make two peers work. Blocking receive/wait operations and link-state polling also service keepalive/ACK/retry traffic. Their internal wake interval is bounded by the next keepalive or ACK timeout so retransmission is not delayed behind a longer receive wait.
+
+## Liveness
+
+Each started UDP backend chooses a new non-zero local session ID and advertises it through KEEPALIVE while stamping the same ID on all other frames. `keepalive_interval_ms` controls periodic advertisement while API calls are servicing the transport. `peer_timeout_ms` controls when lack of valid current-session traffic from the configured peer is mapped to `SPW_LINK_ERROR_WAIT`.
+
+There is no hidden mandatory background worker in v0.2. If an application performs no SpWKit calls at all, transport timers do not execute in the background. This is intentional for portability to bare-metal/RTOS adapters. Applications that need continuous liveness observation can poll link state or keep a blocking receive/service loop active.
 
 ## Bounds
 
 The protocol codec defines:
 
 - maximum UDP payload: 65,507 bytes;
-- fixed VSPW-TP header: 32 bytes;
-- maximum single fragment payload: 65,475 bytes;
+- fixed VSPW-TP header: 40 bytes;
+- maximum single fragment payload: 65,467 bytes;
 - maximum logical packet represented by the protocol: 16 MiB.
 
-The initial UDP backend deliberately advertises a smaller 1 MiB maximum packet size so reassembly storage remains bounded and deterministic. Its default fragment payload is 1200 bytes to avoid relying on IP fragmentation. `spw_udp_config_t` may request another supported fragment size.
-
-The v0.2 initial reassembler accepts one logical packet at a time and requires contiguous offsets for that packet. Sequence and message identity are already present in the wire format so later duplicate/loss/reordering handling can evolve without changing the public SpaceWire API or the v1 header.
+The UDP backend deliberately advertises a smaller 1 MiB maximum packet size so TX retention and reassembly storage remain bounded and deterministic. Its default fragment payload is 1200 bytes to avoid relying on IP fragmentation.
 
 ## UDP backend configuration
 
-`SPW_BACKEND_UDP` is selected through the normal `spw_port_config_t`. `spw_udp_config_t` supplies local/remote numeric IPv4 addresses, local/remote UDP ports, the virtual `link_id`, and fragment payload size. Both endpoints are peers; there is no application-visible server/client role.
+`SPW_BACKEND_UDP` is selected through the normal `spw_port_config_t`. `spw_udp_config_t` supplies:
+
+- local/remote numeric IPv4 addresses;
+- local/remote UDP ports;
+- virtual `link_id`;
+- fragment payload size;
+- ACK timeout;
+- maximum retransmissions;
+- keepalive interval;
+- peer timeout.
+
+Both endpoints are peers; there is no application-visible server/client role.
 
 ```text
 Application A                        Application B
@@ -90,15 +176,15 @@ SPW_BACKEND_UDP                     SPW_BACKEND_UDP
     +----------- VSPW-TP/UDP ------------+
 ```
 
-The backend currently implements packet transfer, EOP/EEP, time codes, statistics, timeouts, fragmentation, and reassembly. Completed packets retain the normal no-truncation rule: if caller receive capacity is too small, `SPW_ERR_BUFFER_TOO_SMALL` reports the required length without consuming the completed packet.
-
-UDP loss/reordering is not silently reclassified as a simulated SpaceWire error. ACK, keepalive, disconnect detection and richer distributed link control remain explicit transport-layer work rather than accidental packet-API behavior.
+Completed packets retain the normal no-truncation rule: if caller receive capacity is too small, `SPW_ERR_BUFFER_TOO_SMALL` reports the required length without consuming the completed packet.
 
 ## Version compatibility
 
 A v1.0 decoder accepts only major version 1 and minor versions less than or equal to the version it implements. Since the current implementation is 1.0, this currently means exactly 1.0.
 
 A different major version is rejected. Future minor versions may only add behavior that an older decoder can safely ignore; otherwise a major-version change is required.
+
+The earlier 32-byte VSPW-TP draft existed only on unreleased v0.2 development history. The session-aware 40-byte format is the v1 format intended for the v0.2 release.
 
 ## Validation
 
@@ -108,14 +194,31 @@ A receiver rejects a message before using its payload when any of the following 
 - version is unsupported;
 - message type is unknown;
 - header size is not the v1 fixed size;
-- encoded payload length exceeds the received datagram;
+- sender session ID is zero;
+- encoded payload length does not fit the received datagram;
 - flags contain unknown/illegal combinations;
 - fragment offset/length exceeds the logical total size;
 - logical total size exceeds the protocol bound;
-- non-DATA messages contain DATA terminator/fragment flags.
+- TIME_CODE/KEEPALIVE/ACK message shape is invalid;
+- an ACK contains a zero/invalid acknowledged-session payload;
+- non-DATA messages contain DATA terminator/fragment flags;
+- source address/port does not match the configured UDP peer.
 
-Remote length fields are therefore bounds-checked before they can drive copying.
+After structural validation, non-KEEPALIVE frames from a session other than the current remote session are ignored before they can affect application-visible queues or liveness.
 
 ## Verification
 
-The codec has golden-vector and malformed-frame tests. The distributed backend integration test creates two localhost peers through the public `spw_port_*` API, sends a 5 KiB EEP packet using 512-byte fragments, verifies insufficient-capacity retry without packet consumption, verifies reverse traffic, and round-trips a time code. The dedicated Device-to-device workflow executes this test instead of reporting a staged no-op as success.
+The codec has golden-vector and malformed-frame tests for the 40-byte session-aware header, DATA, TIME_CODE, session-bound ACK and header-only KEEPALIVE framing.
+
+The distributed backend integration test creates two localhost peers through the public `spw_port_*` API and verifies:
+
+- 5 KiB EEP transfer using 512-byte fragments;
+- insufficient-capacity retry without packet consumption;
+- reverse traffic;
+- reliable time-code transfer;
+- forced ACK timeout and logical-message retransmission;
+- duplicate suppression after retry;
+- peer timeout mapping to `SPW_LINK_ERROR_WAIT`;
+- peer restart/session recovery back to `SPW_LINK_RUN`.
+
+The dedicated Device-to-device workflow executes this test as a real transport gate.
