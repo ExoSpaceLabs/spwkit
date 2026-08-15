@@ -15,6 +15,7 @@ inline constexpr std::size_t kMaxFragmentPayload = kMaxUdpPayload - kHeaderSize;
 inline constexpr std::uint32_t kMaxPacketSize = 16u * 1024u * 1024u;
 inline constexpr std::size_t kTimeCodePayloadSize = 2u;
 inline constexpr std::size_t kKeepalivePayloadSize = 8u;
+inline constexpr std::size_t kAckPayloadSize = 8u;
 
 enum class MessageType : std::uint8_t {
     Data = 1u,
@@ -77,5 +78,13 @@ bool encode_keepalive_payload(std::uint64_t session_id,
 bool decode_keepalive_payload(const std::uint8_t* source,
                               std::size_t source_size,
                               std::uint64_t& session_id) noexcept;
+
+bool encode_ack_payload(std::uint64_t acknowledged_session_id,
+                        std::uint8_t* destination,
+                        std::size_t destination_size) noexcept;
+
+bool decode_ack_payload(const std::uint8_t* source,
+                        std::size_t source_size,
+                        std::uint64_t& acknowledged_session_id) noexcept;
 
 } // namespace spwkit::ethernet::vspw_tp
