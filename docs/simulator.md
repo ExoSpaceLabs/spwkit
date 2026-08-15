@@ -1,6 +1,6 @@
 # Local virtual SpaceWire simulator
 
-The v0.1 simulator is a process-local implementation of the same backend contract used by `libspwkit` for loopback and future physical or distributed transports.
+The v0.1 simulator is a process-local implementation of the same backend contract used by `libspwkit` for loopback, the distributed UDP backend, and future physical transports.
 
 Applications do not call simulator-specific transport functions. They select the simulator through `spw_port_config_t` and continue to use the normal `spw_port_*` API.
 
@@ -124,26 +124,39 @@ The local virtual link is synchronized internally and supports concurrent A-to-B
 
 The lifetime of a single `spw_port_t` object must still be coordinated by the application. Closing a port concurrently with another thread using that same handle is outside the v0.1 contract.
 
-## What this simulator is not
+## Zero-copy ownership
 
-The process-local backend is not `vspwd`, a Linux character device, Ethernet tunnelling, or a physical SpaceWire implementation.
+The local simulator advertises `SPW_CAP_ZERO_COPY` and implements the same ownership-oriented API available to applications:
 
-Those layers are intended to reuse the same application-facing contract later:
+```text
+TX: acquire -> fill -> submit -> backend owns -> reclaim -> reuse/release
+RX: backend receives -> acquire -> inspect -> release
+```
+
+The simulator uses fixed aligned host-memory buffers and may copy internally while preserving the application-visible ownership, capacity, timeout and completion semantics.
+
+This is intentional. A future DMA-capable backend can map the same API to coherent/pinned memory and descriptor rings without exposing hardware addresses or descriptor types to applications.
+
+## Relationship to distributed simulation
+
+The process-local simulator remains the v0.1 behavioral reference. Current `main` additionally contains the first v0.2 VSPW-TP/UDP backend:
 
 ```text
 Application
     |
 libspwkit
     |
-    +-- local simulator       <- implemented here
-    +-- vspwd / local IPC     <- later
-    +-- Ethernet transport    <- later
+    +-- local simulator       <- v0.1
+    +-- VSPW-TP / UDP         <- v0.2 in progress
+    +-- vspwd / /dev/vspwX   <- later
     +-- RTOS / bare metal     <- later
     +-- FPGA / DMA hardware   <- later
 ```
 
-The local simulator therefore establishes the packet/link behavioral reference before distributed and physical transports are introduced.
+The UDP backend is a separate backend, not an extension of the process-local simulator API. Both remain hidden behind `libspwkit` and share the same SpaceWire-facing concepts.
 
-## Zero-copy relationship
+## What this simulator is not
 
-The current local link implements the mandatory copied packet API. Portable zero-copy buffer ownership is intentionally defined by issue #10 before being added to the simulator. Once that API exists, the simulator will emulate its buffer ownership transitions using host memory while preserving the same packet-visible behavior described here.
+The process-local backend is not `vspwd`, a Linux character device, an electrical/Data-Strobe simulator, or a physical SpaceWire implementation.
+
+It establishes the packet/link behavioral reference before device-driver and physical transports are introduced.
