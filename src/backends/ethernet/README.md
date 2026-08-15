@@ -1,7 +1,21 @@
-# Ethernet backend
+# Ethernet / distributed backend
 
-Distributed virtual SpaceWire transport for connecting `vspw` endpoints across Linux hosts, containers, bare-metal boards, and RTOS targets.
+This directory contains the distributed virtual SpaceWire transport implementation.
 
-Initial transport target: UDP. Raw Ethernet may be added where a lower-level point-to-point transport is useful.
+Current `main` includes:
 
-Ethernet is only the carrier. SpaceWire packet termination, link state, modeled rate, latency, and error behaviour remain defined by the virtual SpaceWire protocol rather than inherited from Ethernet.
+- VSPW-TP v1 framing/validation;
+- a POSIX IPv4 UDP backend selected as `SPW_BACKEND_UDP`;
+- bounded packet fragmentation/reassembly;
+- EOP/EEP preservation;
+- time-code transport;
+- receive timeout/statistics handling;
+- active D2D CI coverage.
+
+The default UDP fragment payload is 1200 bytes. The current backend advertises a 1 MiB logical packet/reassembly limit even though the protocol framing format can represent larger logical payloads.
+
+Ethernet/IP is only the carrier. SpaceWire packet termination, packet boundaries, link semantics and time codes remain defined by SpWKit rather than inherited from UDP datagrams.
+
+Remaining v0.2 work includes ACK/retransmission, peer keepalive/disconnect detection, loss/reordering policy, configurable virtual rate/latency and deterministic fault injection.
+
+The VSPW-TP codec is deliberately independent of socket/POSIX APIs so future embedded/lwIP transports can reuse the same framing contract.

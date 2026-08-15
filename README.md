@@ -2,7 +2,7 @@
 
 **SpaceWire Development & Integration Toolkit**
 
-SpWKit provides one portable software-facing SpaceWire API across simulation, embedded systems, Linux drivers and future hardware-backed implementations.
+SpWKit provides one portable software-facing SpaceWire API across simulation, distributed virtual links, embedded systems, Linux drivers and future hardware-backed implementations.
 
 ```text
 Application
@@ -12,17 +12,19 @@ libspwkit public C ABI
     |
     +--> loopback reference backend
     +--> process-local SpaceWire simulator
+    +--> VSPW-TP / UDP distributed backend
     +--> future /dev/spwX backend
-    +--> future Ethernet virtual backend
     +--> future bare-metal / RTOS backend
     +--> future FPGA / vendor backend
 ```
 
-The design goal is simple: application SpaceWire logic should not change just because the transport underneath moves from a simulator to a DMA-capable FPGA implementation.
+The design goal is simple: application SpaceWire logic should not change just because the implementation underneath moves from a simulator to UDP transport or a DMA-capable FPGA implementation.
 
-## v0.1 status
+## Release status
 
-The v0.1 software baseline currently includes:
+### v0.1.0 baseline
+
+The completed v0.1 software baseline includes:
 
 - stable-in-v0.1 public C ABI and opaque port handles;
 - packet send/receive with EOP and EEP preservation;
@@ -40,7 +42,23 @@ The v0.1 software baseline currently includes:
 
 Physical FPGA/HIL verification is deliberately deferred until suitable hardware is available. The same backend contract suite is intended to be reused when a physical backend exists.
 
+### Current `main`: v0.2 development
+
+`main` has moved beyond the v0.1 baseline and now contains the first distributed virtual SpaceWire implementation:
+
+- versioned VSPW-TP v1 framing;
+- POSIX UDP backend selected through the normal `spw_port_*` API;
+- bounded fragmentation/reassembly;
+- EOP/EEP and time-code transport;
+- deterministic 1 MiB backend packet/reassembly limit;
+- default 1200-byte UDP fragment payload;
+- active device-to-device CI exercising real UDP transfer.
+
+ACK/retransmission, keepalive/disconnect detection, richer distributed link control, configurable latency/rate and deterministic transport fault injection remain v0.2 work.
+
 ## Virtual SpaceWire
+
+### Process-local simulator
 
 Two simulator ports with the same `link_id` and opposite A/B endpoint identifiers form equal SpaceWire peers:
 
@@ -56,7 +74,23 @@ A/B are pairing labels, not server/client roles.
 
 The process-local simulator supports bidirectional/full-duplex packets, EOP/EEP, time codes, bounded queues, immediate/finite/infinite waits, link start/stop/reset, disconnect/recovery, statistics and zero-copy ownership emulation.
 
-Distributed IPC/Ethernet virtual links and `/dev/vspwX` are later roadmap work.
+### Distributed UDP backend
+
+Two applications can also communicate over VSPW-TP/UDP while retaining the same public SpaceWire API:
+
+```text
+Application A                         Application B
+     |                                    |
+ libspwkit                            libspwkit
+     |                                    |
+ SPW_BACKEND_UDP                    SPW_BACKEND_UDP
+     |                                    |
+     +--------- VSPW-TP / UDP ------------+
+```
+
+UDP is an internal transport. Packet boundaries, EOP/EEP and time codes remain SpaceWire-facing semantics and are not replaced by datagram boundaries.
+
+`/dev/vspwX` remains later roadmap work.
 
 ## Portable memory model
 
@@ -93,7 +127,7 @@ TX: acquire -> fill -> submit -> backend owns -> reclaim -> reuse/release
 RX: backend receives -> acquire -> inspect -> release
 ```
 
-A simulator may emulate this with host memory. A future FPGA backend may map the same operations to coherent/pinned memory and descriptor rings internally. Physical addresses, AXI descriptors, Linux `dma_addr_t` and vendor handles do not appear in the portable ABI.
+The local simulator emulates this with host memory. A future FPGA backend may map the same operations to coherent/pinned memory and descriptor rings internally. Physical addresses, AXI descriptors, Linux `dma_addr_t` and vendor handles do not appear in the portable ABI.
 
 Scatter/gather is deferred beyond v0.1; one buffer currently represents one contiguous packet.
 
@@ -128,6 +162,7 @@ CI builds a standalone installed-package consumer so exported package metadata c
 
 - `examples/c_loopback.c`: hosted C API, capabilities, packets, EEP and time codes;
 - `examples/cpp_no_heap.cpp`: C++ application using caller-owned workspace;
+- `examples/c_simulator_zero_copy.c`: paired simulator endpoints using zero-copy ownership;
 - `examples/installed`: standalone installed-package consumer.
 
 All examples use public headers only and require no physical hardware.
@@ -149,6 +184,7 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [No-throw and portability contract](docs/portability.md)
 - [Backend contract](docs/backend-contract.md)
 - [Local virtual simulator](docs/simulator.md)
+- [Distributed VSPW-TP transport](docs/vspw-tp.md)
 - [Testing strategy](docs/testing.md)
 - [Architecture](docs/architecture.md)
 - [ECSS scope and compliance policy](docs/compliance.md)

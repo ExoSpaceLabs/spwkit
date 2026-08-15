@@ -1,34 +1,55 @@
 # Roadmap
 
-SpWKit is currently in architecture bootstrap. The order below is intended to stabilize semantics before hardware-specific implementation starts dictating the API.
+SpWKit has completed its v0.1 portable-core milestone and is now implementing v0.2 distributed virtual SpaceWire. The ordering below continues to stabilize software semantics before hardware-specific details are allowed to dictate the application API.
 
-## v0.1.0 — Portable core and local virtual link
+## v0.1.0 — Portable core and local virtual link — complete
 
-- define public C ABI;
-- define C++ wrapper;
-- define packet, EOP/EEP, time-code, link-state, error, and capability types;
-- implement in-process loopback backend;
-- implement local virtual peer link;
-- deterministic unit tests;
-- static-memory operation baseline;
-- initial API documentation.
+Delivered:
 
-## v0.2.0 — Distributed virtual SpaceWire
+- public C ABI and opaque port handles;
+- packet, EOP/EEP, time-code, link-state, error and capability types;
+- deterministic in-process loopback backend;
+- process-local two-peer simulator;
+- copied packet transfer and optional zero-copy ownership API;
+- caller-owned no-heap port construction;
+- reusable backend contract suite;
+- packet-capacity/no-truncation and link-recovery semantics;
+- CMake install/export and standalone `find_package(SpWKit)` verification;
+- C/C++ examples;
+- Linux GCC/Clang, macOS Clang, Windows MSVC, ASan/UBSan, no-heap and simulator CI.
 
-- define versioned virtual SpaceWire transport protocol;
-- UDP transport backend;
-- fragmentation/reassembly independent of Ethernet MTU;
+Physical FPGA/HIL validation is deliberately outside the v0.1 release boundary because suitable hardware is not currently available.
+
+## v0.2.0 — Distributed virtual SpaceWire — in progress
+
+Implemented on current `main`:
+
+- versioned VSPW-TP v1 wire format;
+- POSIX UDP backend selected through `spw_port_*`;
+- packet fragmentation/reassembly independent of Ethernet MTU;
+- EOP/EEP preservation across fragments;
+- time-code transport;
+- bounded receive/reassembly storage;
+- active device-to-device UDP CI.
+
+Remaining v0.2 work:
+
+- ACK/retransmission and duplicate handling where transport reliability requires it;
 - peer keepalive and disconnect detection;
+- transport sequence/loss/reordering policy;
 - configurable virtual link rate and latency;
-- deterministic fault injection;
+- deterministic SpaceWire-side and transport-side fault injection;
 - Linux-to-Linux distributed examples;
-- Wireshark dissector or capture tooling.
+- Wireshark dissector or capture tooling;
+- broaden the shared backend contract where distributed semantics require additional assertions.
+
+The public SpaceWire API remains unchanged: applications do not call UDP or VSPW-TP directly.
 
 ## v0.3.0 — Linux virtual device
 
 - `vspwd` simulator service;
 - `/dev/vspwX` device model investigation/implementation;
-- blocking and non-blocking packet API;
+- blocking and non-blocking packet API integration;
 - `poll`/event integration;
 - link statistics;
 - `spwctl` management utility;
@@ -73,7 +94,7 @@ The repository does not require the SpaceWire RTL implementation itself to be op
 - FreeRTOS adapter;
 - RTEMS adapter;
 - deterministic integration examples;
-- common backend conformance test suite across Linux, bare metal, HardRT, FreeRTOS, and RTEMS where available.
+- common backend conformance test suite across Linux, bare metal, HardRT, FreeRTOS and RTEMS where available.
 
 ## v0.8.0 — Network/router simulation
 
@@ -114,7 +135,7 @@ Target conditions:
 Potential areas include:
 
 - additional FPGA/vendor adapters;
-- zero-copy DMA APIs;
+- richer DMA/scatter-gather extensions;
 - hardware-in-the-loop gateways;
 - record/replay tooling;
 - PCAP/Wireshark integration;

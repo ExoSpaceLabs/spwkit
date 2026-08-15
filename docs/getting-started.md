@@ -1,6 +1,8 @@
-# Getting started with SpWKit v0.1
+# Getting started with SpWKit
 
-SpWKit exposes one portable C ABI. C++ applications can use the same headers directly; an optional idiomatic C++ wrapper may be layered above the ABI later without changing backend implementations.
+SpWKit exposes one portable C ABI. C++ applications can use the same public headers directly; an optional higher-level C++ wrapper can remain layered above the ABI without changing backend implementations.
+
+The released v0.1 baseline contains loopback and the process-local simulator. Current `main` has moved into v0.2 development and additionally contains the first VSPW-TP/UDP distributed backend.
 
 ## Build from source
 
@@ -34,7 +36,7 @@ target_link_libraries(my_app PRIVATE SpWKit::spwkit)
 set_target_properties(my_app PROPERTIES LINKER_LANGUAGE CXX)
 ```
 
-Application source can remain pure C and uses only the C ABI. The v0.1 distributed library is a **static archive implemented in C++**, so the final executable must be linked by a C++-capable toolchain to supply the implementation runtime. This does not expose C++ types in the public ABI. A future shared-library or pure-C implementation strategy may remove that build-system requirement without changing application source.
+Application source can remain pure C and uses only the C ABI. The current library is a **static archive implemented in C++**, so the final executable must be linked by a C++-capable toolchain to supply the implementation runtime. This does not expose C++ types in the public ABI.
 
 CI builds `examples/installed` against an installed package to ensure consumers do not accidentally depend on source-private headers or unpublished CMake state.
 
@@ -75,7 +77,7 @@ spw_port_stop(port);
 spw_port_reset(port);
 ```
 
-Use `spw_port_get_link_state()` rather than assuming the state after an operation. A simulator endpoint may remain `SPW_LINK_CONNECTING` until its peer is started.
+Use `spw_port_get_link_state()` rather than assuming the state after an operation. A process-local simulator endpoint may remain `SPW_LINK_CONNECTING` until its peer is started.
 
 ## Copied packet I/O
 
@@ -106,7 +108,7 @@ spw_packet_t rx = {
 result = spw_port_receive(port, &rx, 1000);
 ```
 
-SpWKit never silently truncates packets. If the next packet is larger than `capacity`, receive returns `SPW_ERR_BUFFER_TOO_SMALL`, sets `length` to the required size, preserves the EOP/EEP terminator, and leaves the packet queued for retry.
+SpWKit never silently truncates packets. If the next complete packet is larger than `capacity`, receive returns `SPW_ERR_BUFFER_TOO_SMALL`, sets `length` to the required size, preserves the EOP/EEP terminator, and leaves the packet available for retry.
 
 Zero-length packets are valid.
 
@@ -121,7 +123,7 @@ Backends that advertise `SPW_CAP_EEP` preserve EEP without silently converting i
 
 ## Time codes
 
-The v0.1 time-code type uses a six-bit count (`0..63`) and reserved control flags. Ordinary v0.1 time codes require `control_flags == 0`.
+The v0.1 time-code type uses a six-bit count (`0..63`) and reserved control flags. Ordinary time codes currently require `control_flags == 0`.
 
 ```c
 spw_time_code_t time_code = {37, 0};
@@ -139,7 +141,7 @@ spw_port_get_capabilities(port, &caps);
 
 Capabilities describe optional behavior and resource constraints such as maximum packet size, queue depths, buffer alignment and zero-copy support.
 
-Do not assume that every future physical or RTOS backend has the same optional capabilities as the simulator.
+Do not assume that every backend has the same optional capabilities or limits.
 
 ## Zero-copy ownership API
 
@@ -158,13 +160,13 @@ RX lifecycle:
 backend receives -> acquire -> application inspects -> release
 ```
 
-Important ownership rule: successful submit/release calls set the caller's buffer pointer to `NULL`. Failed operations preserve ownership and leave the pointer unchanged.
+Successful submit/release calls set the caller's buffer pointer to `NULL`. Failed operations preserve ownership and leave the pointer unchanged.
 
-The v0.1 zero-copy API models ownership, not DMA implementation details. A simulator may emulate it using ordinary host memory; a future hardware backend may map the same contract to DMA-capable buffers internally.
+The zero-copy API models ownership, not DMA implementation details. The local simulator emulates it using ordinary host memory; a future hardware backend may map the same contract to DMA-capable buffers internally.
 
 Scatter/gather is not part of v0.1. One buffer represents one contiguous packet payload.
 
-## Simulator peers
+## Process-local simulator peers
 
 Two simulator endpoints are paired by `link_id` and opposite endpoint identifiers:
 
@@ -180,7 +182,27 @@ sim_b.endpoint = SPW_SIMULATOR_ENDPOINT_B;
 
 A and B are equal SpaceWire peers, not server/client roles.
 
-The v0.1 simulator is process-local. Distributed IPC/Ethernet virtual links are later roadmap work.
+## Distributed UDP peers on current main
+
+The v0.2 development backend uses the same public port API. Only backend configuration changes:
+
+```c
+spw_udp_config_t udp_a = SPW_UDP_CONFIG_INITIALIZER(42000, 42001, 42);
+spw_port_config_t cfg_a = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
+cfg_a.backend_config = &udp_a;
+cfg_a.backend_config_size = sizeof(udp_a);
+
+spw_udp_config_t udp_b = SPW_UDP_CONFIG_INITIALIZER(42001, 42000, 42);
+spw_port_config_t cfg_b = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
+cfg_b.backend_config = &udp_b;
+cfg_b.backend_config_size = sizeof(udp_b);
+```
+
+The initializer uses numeric localhost by default. The current backend uses numeric IPv4 addresses, bounded VSPW-TP fragmentation/reassembly, a default fragment payload of 1200 bytes, and a 1 MiB logical packet limit.
+
+Applications still call `spw_port_start`, `spw_port_send`, `spw_port_receive`, time-code operations and statistics exactly as they do with other backends.
+
+ACK/retransmission, peer keepalive/disconnect detection, configurable virtual latency/rate and deterministic fault injection remain v0.2 work.
 
 ## Errors and timeouts
 
@@ -200,4 +222,4 @@ Finite timeout values are expressed in microseconds.
 - `examples/c_simulator_zero_copy.c`: paired simulator endpoints and the zero-copy ownership lifecycle;
 - `examples/installed`: standalone `find_package(SpWKit)` consumer used by CI.
 
-All examples use public headers only and require no physical SpaceWire hardware.
+The repository's device-to-device test provides the current executable UDP example/verification path until a dedicated user-facing distributed example is added during v0.2.
