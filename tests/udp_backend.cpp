@@ -123,11 +123,19 @@ int main() {
     assert(a_stats.tx_time_codes == 1u);
     assert(b_stats.rx_time_codes == 1u);
 
-    /* Peer loss becomes visible through the public link state. */
+    /*
+     * Peer loss becomes visible through the public link state. Valid control
+     * datagrams may already be queued when B closes, so each poll may drain
+     * one stale datagram before a full quiet peer-timeout is observed.
+     */
     assert(spw_port_close(b) == SPW_OK);
     b = nullptr;
-    ::usleep(150000u);
-    assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+    for (unsigned attempt = 0u;
+         attempt < 4u && a_state != SPW_LINK_ERROR_WAIT;
+         ++attempt) {
+        ::usleep(160000u);
+        assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+    }
     assert(a_state == SPW_LINK_ERROR_WAIT);
 
     /* A restarted peer advertises a new transport session and recovers RUN. */

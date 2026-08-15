@@ -182,6 +182,7 @@ void UdpBackend::clear_pending_tx() noexcept {
     pending_tx_kind_ = PendingTxKind::None;
     pending_tx_message_id_ = 0u;
     pending_tx_retries_ = 0u;
+    pending_tx_failed_ = false;
     pending_tx_last_send_ = {};
 }
 
@@ -428,6 +429,7 @@ void UdpBackend::reset_remote_session(std::uint64_t session_id) noexcept {
         clear_recent_messages();
         if (pending_tx_kind_ != PendingTxKind::None) {
             pending_tx_retries_ = 0u;
+            pending_tx_failed_ = false;
             pending_tx_last_send_ = {};
         }
     }
@@ -522,8 +524,11 @@ spw_result_t UdpBackend::service_pending_tx() noexcept {
     }
 
     if (pending_tx_retries_ >= config_.max_retries) {
+        if (!pending_tx_failed_) {
+            pending_tx_failed_ = true;
+            statistics_.dropped_packets++;
+        }
         mark_peer_lost();
-        statistics_.dropped_packets++;
         return SPW_ERR_LINK_UNAVAILABLE;
     }
 
@@ -682,7 +687,13 @@ spw_result_t UdpBackend::pump_one(spw_timeout_us_t timeout_us) noexcept {
 
     const spw_timeout_us_t keepalive_slice =
         static_cast<spw_timeout_us_t>(config_.keepalive_interval_ms) * 1000u;
-    const spw_timeout_us_t wait_timeout = min_timeout(timeout_us, keepalive_slice);
+    spw_timeout_us_t service_slice = keepalive_slice;
+    if (pending_tx_kind_ != PendingTxKind::None) {
+        const spw_timeout_us_t ack_slice =
+            static_cast<spw_timeout_us_t>(config_.ack_timeout_ms) * 1000u;
+        service_slice = min_timeout(service_slice, ack_slice);
+    }
+    const spw_timeout_us_t wait_timeout = min_timeout(timeout_us, service_slice);
     const spw_result_t wait_result = wait_readable(wait_timeout);
     if (wait_result == SPW_ERR_TIMEOUT) {
         maybe_send_keepalive();

@@ -132,6 +132,7 @@ private:
     PendingTxKind pending_tx_kind_{PendingTxKind::None};
     std::uint32_t pending_tx_message_id_{0u};
     std::uint16_t pending_tx_retries_{0u};
+    bool pending_tx_failed_{false};
     TimePoint pending_tx_last_send_{};
 
     std::array<DeliveredKey, recent_message_depth> recent_messages_{};
