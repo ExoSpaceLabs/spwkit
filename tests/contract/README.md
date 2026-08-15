@@ -2,7 +2,7 @@
 
 This directory contains the reusable public-API behavioral contract for SpWKit backends.
 
-The purpose is simple: a backend is not considered compatible merely because it compiles against the internal interface. It must exhibit the same application-visible behavior through `spw_port_*` as every other backend, subject only to explicitly advertised optional capabilities.
+A backend is not considered compatible merely because it compiles against the internal interface. It must exhibit the same application-visible behavior through `spw_port_*` as every other backend, subject only to explicitly advertised optional capabilities.
 
 ## Structure
 
@@ -12,9 +12,9 @@ contract_suite.hpp/.cpp
         +-- shared lifecycle, packet, timeout, queue, statistics,
         |   time-code, capacity and capability assertions
         |
-        +-- loopback_contract.cpp      fixture only
-        +-- simulator_contract.cpp     fixture only
-        +-- future Ethernet fixture
+        +-- loopback_contract.cpp      fixture
+        +-- simulator_contract.cpp     fixture
+        +-- future distributed fixture
         +-- future Linux-device fixture
         +-- future embedded/HIL fixture
 ```
@@ -25,13 +25,13 @@ A loopback backend may map logical endpoints A and B to the same `spw_port_t`. A
 
 ## Mandatory copied-I/O contract
 
-The common suite currently verifies:
+The common suite verifies:
 
-- initial/reset lifecycle and transition to `SPW_LINK_RUN`;
+- initial/reset lifecycle and transition to `SPW_LINK_RUN` where applicable;
 - A-to-B and B-to-A packet transfer;
 - EOP and capability-gated EEP preservation;
 - zero-length packets;
-- deterministic large-packet transfer up to 4096 bytes or the advertised backend limit;
+- deterministic large-packet transfer up to the advertised backend limit;
 - insufficient receive capacity without packet consumption or silent truncation;
 - immediate and finite receive timeout behavior;
 - bounded queue exhaustion and recovery when queue depth is advertised;
@@ -43,9 +43,13 @@ The common suite currently verifies:
 
 Optional tests are selected from `spw_capabilities_t`.
 
-In particular, zero-copy ownership tests are invoked only when both logical endpoints advertise `SPW_CAP_ZERO_COPY`. The fixture must then provide the zero-copy contract hook. No current v0.1 backend advertises that capability yet; the concrete ownership API and simulator implementation remain tracked by issue #10.
+The v0.1 process-local simulator advertises `SPW_CAP_ZERO_COPY` and the shared contract verifies its ownership-oriented behavior, including acquire/fill/submit/reclaim/release, RX acquire/release, capacity/alignment constraints, pool exhaustion, ownership preservation on failed operations, and copied/zero-copy interoperability.
 
 This rule is intentional: unsupported optional features are skipped explicitly, while mandatory copied SpaceWire packet semantics cannot be redefined by an adapter.
+
+## Distributed backend
+
+The initial VSPW-TP/UDP backend is verified today by codec unit tests plus an end-to-end D2D integration test. As ACK/liveness/loss-recovery semantics mature, a dedicated distributed fixture should reuse as much of this common suite as possible rather than duplicating the contract in transport-specific tests.
 
 ## CTest
 
@@ -55,4 +59,4 @@ The shared contract tests use the `contract` label:
 ctest --test-dir build -L contract --output-on-failure
 ```
 
-With simulator support enabled, both loopback and the local virtual peer backend run the same common suite. Future hardware-in-the-loop runners should reuse this suite unchanged and provide only the hardware fixture plus its capability declaration.
+With simulator support enabled, both loopback and the local virtual peer backend run the common suite. Future distributed, embedded and hardware-in-the-loop fixtures should reuse the same behavioral assertions and add only capability/profile-specific setup.
