@@ -338,16 +338,26 @@ spw_result_t UdpBackend::send_ack(std::uint32_t message_id) noexcept {
     if (message_id == 0u) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
+    if (remote_session_id_ == 0u) {
+        return SPW_ERR_INVALID_STATE;
+    }
 
     Header header{};
     header.type = MessageType::Ack;
+    header.payload_size = static_cast<std::uint16_t>(kAckPayloadSize);
     header.link_id = config_.link_id;
     header.sequence = take_nonzero(next_sequence_);
     header.message_id = message_id;
-    if (!encode_header(header, control_datagram_.data(), control_datagram_.size())) {
+    header.total_size = static_cast<std::uint32_t>(kAckPayloadSize);
+    if (!encode_header(header, control_datagram_.data(), control_datagram_.size()) ||
+        !encode_ack_payload(remote_session_id_,
+                            control_datagram_.data() + kHeaderSize,
+                            kAckPayloadSize)) {
         return SPW_ERR_BACKEND;
     }
-    return send_datagram(control_datagram_.data(), kHeaderSize, SPW_TIMEOUT_IMMEDIATE);
+    return send_datagram(control_datagram_.data(),
+                         kHeaderSize + kAckPayloadSize,
+                         SPW_TIMEOUT_IMMEDIATE);
 }
 
 spw_result_t UdpBackend::send_keepalive(spw_timeout_us_t timeout_us) noexcept {
@@ -556,7 +566,16 @@ spw_result_t UdpBackend::wait_readable(spw_timeout_us_t timeout_us) noexcept {
     return SPW_OK;
 }
 
-spw_result_t UdpBackend::process_ack(const Header& header) noexcept {
+spw_result_t UdpBackend::process_ack(const Header& header,
+                                     const std::uint8_t* payload) noexcept {
+    std::uint64_t acknowledged_session_id = 0u;
+    if (!decode_ack_payload(payload, header.payload_size, acknowledged_session_id)) {
+        statistics_.dropped_packets++;
+        return SPW_OK;
+    }
+    if (acknowledged_session_id != local_session_id_) {
+        return SPW_OK;
+    }
     if (pending_tx_kind_ != PendingTxKind::None &&
         header.message_id == pending_tx_message_id_) {
         clear_pending_tx();
@@ -743,7 +762,7 @@ spw_result_t UdpBackend::pump_one(spw_timeout_us_t timeout_us) noexcept {
         case MessageType::Keepalive:
             return process_keepalive(header, payload);
         case MessageType::Ack:
-            return process_ack(header);
+            return process_ack(header, payload);
         case MessageType::LinkControl:
             return SPW_OK;
     }

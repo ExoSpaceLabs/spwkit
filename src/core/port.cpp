@@ -119,7 +119,9 @@ spw_result_t validate_udp_config(const spw_port_config_t* config) noexcept {
         return SPW_ERR_UNSUPPORTED;
     }
     if (udp->remote_port == 0u || udp->link_id == 0u ||
-        udp->fragment_payload_size < 256u || udp->reserved != 0u ||
+        udp->fragment_payload_size < 256u || udp->max_retries == 0u ||
+        udp->ack_timeout_ms == 0u || udp->keepalive_interval_ms == 0u ||
+        udp->peer_timeout_ms <= udp->keepalive_interval_ms || udp->reserved != 0u ||
         udp->local_address[0] == '\0' || udp->remote_address[0] == '\0') {
         return SPW_ERR_INVALID_ARGUMENT;
     }
