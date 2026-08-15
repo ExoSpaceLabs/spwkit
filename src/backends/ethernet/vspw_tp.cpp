@@ -117,12 +117,39 @@ bool validate_message_shape(const Header& header) noexcept {
             return header.payload_size == kKeepalivePayloadSize &&
                    header.total_size == kKeepalivePayloadSize;
         case MessageType::Ack:
-            return header.payload_size == 0u && header.total_size == 0u &&
+            return header.payload_size == kAckPayloadSize &&
+                   header.total_size == kAckPayloadSize &&
                    header.message_id != 0u;
         case MessageType::LinkControl:
             return true;
     }
     return false;
+}
+
+bool encode_nonzero_u64(std::uint64_t value,
+                        std::uint8_t* destination,
+                        std::size_t destination_size,
+                        std::size_t required_size) noexcept {
+    if (destination == nullptr || destination_size < required_size || value == 0u) {
+        return false;
+    }
+    write_u64(destination, value);
+    return true;
+}
+
+bool decode_nonzero_u64(const std::uint8_t* source,
+                        std::size_t source_size,
+                        std::size_t required_size,
+                        std::uint64_t& value) noexcept {
+    if (source == nullptr || source_size != required_size) {
+        return false;
+    }
+    const std::uint64_t decoded = read_u64(source);
+    if (decoded == 0u) {
+        return false;
+    }
+    value = decoded;
+    return true;
 }
 
 } // namespace
@@ -221,25 +248,28 @@ DecodeResult decode_header(const std::uint8_t* source,
 bool encode_keepalive_payload(std::uint64_t session_id,
                               std::uint8_t* destination,
                               std::size_t destination_size) noexcept {
-    if (destination == nullptr || destination_size < kKeepalivePayloadSize || session_id == 0u) {
-        return false;
-    }
-    write_u64(destination, session_id);
-    return true;
+    return encode_nonzero_u64(session_id, destination, destination_size,
+                              kKeepalivePayloadSize);
 }
 
 bool decode_keepalive_payload(const std::uint8_t* source,
                               std::size_t source_size,
                               std::uint64_t& session_id) noexcept {
-    if (source == nullptr || source_size != kKeepalivePayloadSize) {
-        return false;
-    }
-    const std::uint64_t decoded = read_u64(source);
-    if (decoded == 0u) {
-        return false;
-    }
-    session_id = decoded;
-    return true;
+    return decode_nonzero_u64(source, source_size, kKeepalivePayloadSize, session_id);
+}
+
+bool encode_ack_payload(std::uint64_t acknowledged_session_id,
+                        std::uint8_t* destination,
+                        std::size_t destination_size) noexcept {
+    return encode_nonzero_u64(acknowledged_session_id, destination, destination_size,
+                              kAckPayloadSize);
+}
+
+bool decode_ack_payload(const std::uint8_t* source,
+                        std::size_t source_size,
+                        std::uint64_t& acknowledged_session_id) noexcept {
+    return decode_nonzero_u64(source, source_size, kAckPayloadSize,
+                              acknowledged_session_id);
 }
 
 } // namespace spwkit::ethernet::vspw_tp
