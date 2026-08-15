@@ -18,6 +18,7 @@ public:
     static constexpr std::size_t max_packet_size = 1024u * 1024u;
     static constexpr std::size_t time_code_queue_depth = 8u;
     static constexpr std::size_t recent_message_depth = 32u;
+    static constexpr std::size_t retired_session_depth = 8u;
 
     explicit UdpBackend(const spw_udp_config_t& config) noexcept;
     ~UdpBackend() override;
@@ -70,8 +71,7 @@ private:
                               const std::uint8_t* payload) noexcept;
     spw_result_t process_time_code(const Header& header,
                                    const std::uint8_t* payload) noexcept;
-    spw_result_t process_keepalive(const Header& header,
-                                   const std::uint8_t* payload) noexcept;
+    spw_result_t process_keepalive(const Header& header) noexcept;
     spw_result_t process_ack(const Header& header,
                              const std::uint8_t* payload) noexcept;
 
@@ -88,14 +88,17 @@ private:
     void maybe_send_keepalive() noexcept;
     void refresh_peer_state() noexcept;
     void note_peer_activity() noexcept;
-    void reset_remote_session(std::uint64_t session_id) noexcept;
+    bool reset_remote_session(std::uint64_t session_id) noexcept;
+    void remember_retired_session(std::uint64_t session_id) noexcept;
     void mark_peer_lost() noexcept;
     void clear_reassembly() noexcept;
     void clear_pending_tx() noexcept;
     void clear_recent_messages() noexcept;
+    void clear_retired_sessions() noexcept;
     void close_socket() noexcept;
 
     bool peer_is_current() const noexcept;
+    bool is_retired_session(std::uint64_t session_id) const noexcept;
     bool recently_delivered(MessageType type, std::uint32_t message_id) const noexcept;
     void remember_delivered(MessageType type, std::uint32_t message_id) noexcept;
 
@@ -139,6 +142,10 @@ private:
     std::array<DeliveredKey, recent_message_depth> recent_messages_{};
     std::size_t recent_message_head_{0u};
     std::size_t recent_message_count_{0u};
+
+    std::array<std::uint64_t, retired_session_depth> retired_sessions_{};
+    std::size_t retired_session_head_{0u};
+    std::size_t retired_session_count_{0u};
 
     std::uint64_t local_session_id_{0u};
     std::uint64_t remote_session_id_{0u};
