@@ -130,10 +130,11 @@ int main() {
      */
     assert(spw_port_close(b) == SPW_OK);
     b = nullptr;
+    constexpr unsigned peer_loss_poll_us = 160000u; // > configured 120 ms timeout
     for (unsigned attempt = 0u;
          attempt < 4u && a_state != SPW_LINK_ERROR_WAIT;
          ++attempt) {
-        ::usleep(160000u);
+        ::usleep(peer_loss_poll_us);
         assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
     }
     assert(a_state == SPW_LINK_ERROR_WAIT);
