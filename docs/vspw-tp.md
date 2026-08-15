@@ -14,7 +14,7 @@ Applications continue to call `libspwkit`. A distributed backend translates pack
 - fragments are never visible through the public SpaceWire API;
 - EOP and EEP belong to the logical SpaceWire packet, not to UDP datagrams;
 - transport packet loss is not itself a simulated SpaceWire error;
-- public SpWKit headers do not expose UDP, socket or VSPW-TP structures.
+- public SpWKit headers do not expose UDP socket or VSPW-TP wire structures.
 
 ## Header
 
@@ -39,11 +39,13 @@ Applications continue to call `libspwkit`. A distributed backend translates pack
 |---:|---|---|
 | 1 | DATA | SpaceWire packet payload |
 | 2 | TIME_CODE | SpaceWire time-code event |
-| 3 | LINK_CONTROL | distributed link-control event |
-| 4 | KEEPALIVE | peer-liveness transport event |
-| 5 | ACK | transport acknowledgement |
+| 3 | LINK_CONTROL | reserved distributed link-control event |
+| 4 | KEEPALIVE | reserved peer-liveness transport event |
+| 5 | ACK | reserved transport acknowledgement |
 
 Unknown message types are rejected in v1.
+
+TIME_CODE v1.0 uses a two-byte payload: `{time_count, control_flags}`. The remaining control-message bodies stay reserved until their state-machine semantics are implemented.
 
 ## Flags
 
@@ -59,18 +61,38 @@ EOP and EEP are mutually exclusive. They are only legal for DATA messages.
 
 For an unfragmented DATA message, both fragment flags are clear, `fragment_offset` is zero and `payload_size == total_size`.
 
-For a fragmented DATA message, all fragments share `link_id` and `message_id`. The first fragment has `FRAGMENT_START` and offset zero. The final fragment has `FRAGMENT_END` and ends exactly at `total_size`. Intermediate fragments have neither fragment-boundary flag. Reassembly must complete before a packet is surfaced to the application.
+For a fragmented DATA message, all fragments share `link_id` and `message_id`. The first fragment has `FRAGMENT_START` and offset zero. The final fragment has `FRAGMENT_END` and ends exactly at `total_size`. Intermediate fragments have neither fragment-boundary flag. Reassembly completes before a packet is surfaced to the application.
 
 ## Bounds
 
-The protocol codec currently defines:
+The protocol codec defines:
 
 - maximum UDP payload: 65,507 bytes;
 - fixed VSPW-TP header: 32 bytes;
 - maximum single fragment payload: 65,475 bytes;
 - maximum logical packet represented by the protocol: 16 MiB.
 
-Backends may advertise and enforce smaller packet limits. A normal UDP backend is expected to use a substantially smaller configured fragment payload, for example around 1200 bytes, to avoid IP fragmentation. The protocol limit is not a recommendation to emit maximum-size UDP datagrams, because networking already has enough opportunities for regret.
+The initial UDP backend deliberately advertises a smaller 1 MiB maximum packet size so reassembly storage remains bounded and deterministic. Its default fragment payload is 1200 bytes to avoid relying on IP fragmentation. `spw_udp_config_t` may request another supported fragment size.
+
+The v0.2 initial reassembler accepts one logical packet at a time and requires contiguous offsets for that packet. Sequence and message identity are already present in the wire format so later duplicate/loss/reordering handling can evolve without changing the public SpaceWire API or the v1 header.
+
+## UDP backend configuration
+
+`SPW_BACKEND_UDP` is selected through the normal `spw_port_config_t`. `spw_udp_config_t` supplies local/remote numeric IPv4 addresses, local/remote UDP ports, the virtual `link_id`, and fragment payload size. Both endpoints are peers; there is no application-visible server/client role.
+
+```text
+Application A                        Application B
+    |                                    |
+libspwkit                            libspwkit
+    |                                    |
+SPW_BACKEND_UDP                     SPW_BACKEND_UDP
+    |                                    |
+    +----------- VSPW-TP/UDP ------------+
+```
+
+The backend currently implements packet transfer, EOP/EEP, time codes, statistics, timeouts, fragmentation, and reassembly. Completed packets retain the normal no-truncation rule: if caller receive capacity is too small, `SPW_ERR_BUFFER_TOO_SMALL` reports the required length without consuming the completed packet.
+
+UDP loss/reordering is not silently reclassified as a simulated SpaceWire error. ACK, keepalive, disconnect detection and richer distributed link control remain explicit transport-layer work rather than accidental packet-API behavior.
 
 ## Version compatibility
 
@@ -92,10 +114,8 @@ A receiver rejects a message before using its payload when any of the following 
 - logical total size exceeds the protocol bound;
 - non-DATA messages contain DATA terminator/fragment flags.
 
-Remote length fields are therefore bounds-checked before they can drive allocation or copying.
+Remote length fields are therefore bounds-checked before they can drive copying.
 
-## Payload contracts
+## Verification
 
-The header codec intentionally does not yet define the complete payload body for every control message. DATA payload bytes are already fully defined by the header. TIME_CODE, LINK_CONTROL, KEEPALIVE and ACK body details will be fixed alongside the distributed backend implementation before v0.2.0 is released.
-
-This separation lets the framing/parser become stable first without pretending unfinished control-plane behavior is already standardized.
+The codec has golden-vector and malformed-frame tests. The distributed backend integration test creates two localhost peers through the public `spw_port_*` API, sends a 5 KiB EEP packet using 512-byte fragments, verifies insufficient-capacity retry without packet consumption, verifies reverse traffic, and round-trips a time code. The dedicated Device-to-device workflow executes this test instead of reporting a staged no-op as success.
