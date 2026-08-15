@@ -7,15 +7,18 @@ Applications continue to call `libspwkit`. A distributed backend translates pack
 ## Design rules
 
 - network byte order is used for all multi-byte integers;
-- the v1 fixed header remains 32 bytes;
+- the v1 fixed header is 40 bytes;
+- every frame carries the non-zero 64-bit session ID of its sender;
 - one VSPW-TP message belongs to one virtual `link_id`;
 - `message_id` identifies one logical SpaceWire-side event across fragments and retries;
 - `sequence` identifies individual transport datagrams for ordering/diagnostics;
-- retransmission may use new sequence values while retaining the same logical `message_id`;
+- retransmission may use new sequence values while retaining the same logical `message_id` and sender session;
 - fragments are never visible through the public SpaceWire API;
 - EOP and EEP belong to the logical SpaceWire packet, not to UDP datagrams;
 - transport packet loss is not itself a simulated SpaceWire error;
 - public SpWKit headers do not expose UDP socket or VSPW-TP wire structures.
+
+The session field is part of every frame rather than only KEEPALIVE. This is necessary to distinguish current traffic from delayed datagrams belonging to a previous peer process after restart.
 
 ## Header
 
@@ -26,13 +29,14 @@ Applications continue to call `libspwkit`. A distributed backend translates pack
 | 5 | 1 | version minor | `0` |
 | 6 | 1 | message type | see below |
 | 7 | 1 | flags | see below |
-| 8 | 2 | header size | `32` for v1 |
+| 8 | 2 | header size | `40` for v1 |
 | 10 | 2 | payload size | bytes following this header in this datagram |
 | 12 | 4 | link id | virtual link identifier |
-| 16 | 4 | sequence | transport datagram sequence number |
-| 20 | 4 | message id | logical event/packet identifier |
-| 24 | 4 | fragment offset | byte offset into logical payload |
-| 28 | 4 | total size | complete logical payload size |
+| 16 | 8 | session id | non-zero sender transport session |
+| 24 | 4 | sequence | transport datagram sequence number |
+| 28 | 4 | message id | logical event/packet identifier |
+| 32 | 4 | fragment offset | byte offset into logical payload |
+| 36 | 4 | total size | complete logical payload size |
 
 ## Message types
 
@@ -48,7 +52,7 @@ Unknown message types are rejected in v1.
 
 ### DATA
 
-DATA carries one SpaceWire packet. Fragmented DATA messages retain one `message_id` across every fragment and every retransmission of that logical packet.
+DATA carries one SpaceWire packet. Fragmented DATA messages retain one `message_id` and sender `session_id` across every fragment and retransmission of that logical packet.
 
 For an unfragmented DATA message, both fragment flags are clear, `fragment_offset` is zero and `payload_size == total_size`.
 
@@ -68,27 +72,38 @@ Reliable TIME_CODE events use `ACK_REQUIRED` and a non-zero logical `message_id`
 
 ### ACK
 
-ACK carries exactly one 64-bit non-zero **acknowledged sender session ID** in network byte order:
+The ACK frame header identifies the ACK sender's current session. Its payload carries exactly one 64-bit non-zero **acknowledged sender session ID** in network byte order:
 
 - `payload_size == 8`;
 - `total_size == 8`;
 - `message_id` identifies the logical DATA/TIME_CODE event being acknowledged;
-- the 8-byte payload identifies the transport session that originally sent that event;
+- `header.session_id` identifies the peer sending the ACK;
+- the 8-byte payload identifies the session that originally sent the acknowledged event;
 - ACK itself never carries `ACK_REQUIRED`.
 
 Acknowledgement is **logical-message based**, not per-fragment. A fragmented packet is acknowledged only after complete reassembly has been accepted into the backend receive queue.
 
-The sender accepts an ACK only when both the logical `message_id` matches its pending event and the ACK payload matches its current local session ID. This prevents a delayed ACK from an earlier transport session from incorrectly acknowledging a new message after a sender restart or `message_id` reuse.
+The sender accepts an ACK only when:
 
-The receiver remembers a bounded history of delivered logical message IDs. If an ACK is lost and the sender retransmits the same logical message, the receiver re-sends the ACK without surfacing the packet/time-code to the application a second time. An ACK is emitted only when the receiver knows the sender's session ID. If DATA/TIME_CODE arrives before its KEEPALIVE because UDP reordered the datagrams, the event may be accepted but remains unacknowledged; the subsequent keepalive plus normal retransmission resolves the session association without duplicate application delivery.
+1. the ACK header belongs to the currently established remote session;
+2. the logical `message_id` matches its pending event; and
+3. the ACK payload matches its own current local session ID.
+
+That prevents delayed ACKs from old peer or local sessions from completing a new reliable transfer after restart/message-ID reuse.
+
+The receiver remembers a bounded history of delivered logical message IDs for the current remote session. If an ACK is lost and the sender retransmits the same logical message, the receiver re-sends the ACK without surfacing the packet/time-code a second time.
 
 ### KEEPALIVE
 
-KEEPALIVE carries one 64-bit non-zero session identifier in network byte order. It has no SpaceWire payload semantics and never requires ACK.
+KEEPALIVE is header-only in v1. Its `session_id` field advertises the sender's current transport session. `payload_size`, `total_size`, and `message_id` are zero.
 
-A new peer session identifier indicates that the configured peer restarted/reopened its transport session. The receiver clears partial reassembly and duplicate-history state for the old session while preserving already completed application-visible receive data.
+KEEPALIVE is the only frame allowed to establish or replace the current remote session. Once established, DATA, TIME_CODE, ACK, and other control traffic are accepted only when their header `session_id` matches that current peer session.
 
-The UDP backend also validates the source IPv4 address and source UDP port against the configured peer before accepting a frame. `link_id` alone is not treated as peer identity.
+When a new peer session is accepted, the backend clears partial reassembly and duplicate-history state for the prior session while preserving already completed application-visible receive data. A bounded retired-session history prevents delayed KEEPALIVEs from immediately reverting the peer to a recently superseded session. Frames from retired or otherwise non-current sessions are ignored and do not refresh peer liveness.
+
+This also handles UDP reordering around restart: DATA from a new session that arrives before its KEEPALIVE is ignored rather than delivered ambiguously; after the KEEPALIVE establishes the session, normal reliable retransmission delivers it once.
+
+The UDP backend additionally validates source IPv4 address and source UDP port against the configured peer. `link_id` alone is not treated as peer identity.
 
 ## Flags
 
@@ -111,17 +126,17 @@ For one port:
 1. at most one logical outbound DATA/TIME_CODE event is retained as the reliable TX slot;
 2. the first transmission uses normal VSPW-TP fragmentation;
 3. successful `spw_port_send*` means the event was accepted by the backend and transmitted, not that the remote application consumed it;
-4. the peer ACKs the logical `message_id` after accepting it, binding that ACK to the sender's current transport session;
+4. the peer ACKs the logical `message_id` after accepting it, with both frames bound to transport sessions;
 5. while normal SpWKit API calls service the backend, an unacknowledged message is retransmitted after `ack_timeout_ms`;
 6. retries are bounded by `max_retries`;
-7. retry exhaustion maps to `SPW_LINK_ERROR_WAIT`, increments link-error/drop statistics, and returns `SPW_ERR_LINK_UNAVAILABLE` from service-dependent operations;
-8. a later valid peer message/ACK/keepalive may recover the link without re-opening the public port.
+7. retry exhaustion maps to `SPW_LINK_ERROR_WAIT`, increments link-error/drop statistics once for that failed logical event, and returns `SPW_ERR_LINK_UNAVAILABLE` from service-dependent operations;
+8. a later valid current-session keepalive/traffic may recover the link without re-opening the public port.
 
-This model deliberately avoids requiring a second thread merely to make two peers work. Blocking receive/wait operations and link-state polling also service keepalive/ACK traffic.
+This model deliberately avoids requiring a second thread merely to make two peers work. Blocking receive/wait operations and link-state polling also service keepalive/ACK/retry traffic. Their internal wake interval is bounded by the next keepalive or ACK timeout so retransmission is not delayed behind a longer receive wait.
 
 ## Liveness
 
-Each started UDP backend advertises a new local session ID through KEEPALIVE. `keepalive_interval_ms` controls periodic advertisement while API calls are servicing the transport. `peer_timeout_ms` controls when lack of valid traffic from the configured peer is mapped to `SPW_LINK_ERROR_WAIT`.
+Each started UDP backend chooses a new non-zero local session ID and advertises it through KEEPALIVE while stamping the same ID on all other frames. `keepalive_interval_ms` controls periodic advertisement while API calls are servicing the transport. `peer_timeout_ms` controls when lack of valid current-session traffic from the configured peer is mapped to `SPW_LINK_ERROR_WAIT`.
 
 There is no hidden mandatory background worker in v0.2. If an application performs no SpWKit calls at all, transport timers do not execute in the background. This is intentional for portability to bare-metal/RTOS adapters. Applications that need continuous liveness observation can poll link state or keep a blocking receive/service loop active.
 
@@ -130,8 +145,8 @@ There is no hidden mandatory background worker in v0.2. If an application perfor
 The protocol codec defines:
 
 - maximum UDP payload: 65,507 bytes;
-- fixed VSPW-TP header: 32 bytes;
-- maximum single fragment payload: 65,475 bytes;
+- fixed VSPW-TP header: 40 bytes;
+- maximum single fragment payload: 65,467 bytes;
 - maximum logical packet represented by the protocol: 16 MiB.
 
 The UDP backend deliberately advertises a smaller 1 MiB maximum packet size so TX retention and reassembly storage remain bounded and deterministic. Its default fragment payload is 1200 bytes to avoid relying on IP fragmentation.
@@ -169,6 +184,8 @@ A v1.0 decoder accepts only major version 1 and minor versions less than or equa
 
 A different major version is rejected. Future minor versions may only add behavior that an older decoder can safely ignore; otherwise a major-version change is required.
 
+The earlier 32-byte VSPW-TP draft existed only on unreleased v0.2 development history. The session-aware 40-byte format is the v1 format intended for the v0.2 release.
+
 ## Validation
 
 A receiver rejects a message before using its payload when any of the following is true:
@@ -177,20 +194,21 @@ A receiver rejects a message before using its payload when any of the following 
 - version is unsupported;
 - message type is unknown;
 - header size is not the v1 fixed size;
+- sender session ID is zero;
 - encoded payload length does not fit the received datagram;
 - flags contain unknown/illegal combinations;
 - fragment offset/length exceeds the logical total size;
 - logical total size exceeds the protocol bound;
 - TIME_CODE/KEEPALIVE/ACK message shape is invalid;
-- ACK or KEEPALIVE contains a zero/invalid 64-bit session identifier;
+- an ACK contains a zero/invalid acknowledged-session payload;
 - non-DATA messages contain DATA terminator/fragment flags;
 - source address/port does not match the configured UDP peer.
 
-Remote length fields are therefore bounds-checked before they can drive copying.
+After structural validation, non-KEEPALIVE frames from a session other than the current remote session are ignored before they can affect application-visible queues or liveness.
 
 ## Verification
 
-The codec has golden-vector and malformed-frame tests for DATA, TIME_CODE, session-bound ACK and KEEPALIVE framing.
+The codec has golden-vector and malformed-frame tests for the 40-byte session-aware header, DATA, TIME_CODE, session-bound ACK and header-only KEEPALIVE framing.
 
 The distributed backend integration test creates two localhost peers through the public `spw_port_*` API and verifies:
 
