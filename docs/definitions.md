@@ -85,31 +85,31 @@ Default packet simulation may model the effect of finite credit without serializ
 
 **End Of Packet** terminates a normally completed SpaceWire packet.
 
-SpWKit must preserve EOP as metadata and not merely infer it from a transport frame boundary.
+SpWKit preserves EOP as packet metadata and does not infer it from a simulator/UDP frame boundary.
 
 ## EEP
 
 **Error End of Packet** terminates a packet that ended in error.
 
-EOP and EEP are semantically different and must remain distinguishable across all backends.
+EOP and EEP are semantically different and remain distinguishable across all supporting backends.
 
 ## Time code
 
 SpaceWire supports time-code distribution as a control function across a network.
 
-SpWKit treats time codes separately from normal packet payloads.
+SpWKit treats time codes separately from normal packet payloads. Distributed VSPW-TP transport carries time-code events using a dedicated message type rather than embedding them in DATA payloads.
 
 ## Link state
 
 SpaceWire defines link initialization, operational, and error-recovery behaviour through an exchange-level state machine.
 
-SpWKit may expose a simplified portable link-state API, but any mapping to ECSS state names must be explicitly documented and verified.
+SpWKit exposes a portable set of ECSS-oriented state names and each backend maps its observable state into that vocabulary. A software backend is not required to invent transient hardware states it cannot meaningfully observe.
 
 ## LinkStart
 
 `LinkStart` is a management parameter that causes an enabled SpaceWire port to attempt link startup.
 
-The public API may expose equivalent operations such as `start()` while retaining a documented mapping to the underlying ECSS management behaviour.
+The public API exposes `spw_port_start()` as the portable management operation and documents backend-specific observable state transitions separately.
 
 ## RMAP
 
@@ -135,9 +135,9 @@ In SpWKit documentation, **physical SpaceWire** means an implementation that ult
 
 **Virtual SpaceWire** is SpWKit's software model of application-visible SpaceWire behaviour.
 
-A virtual port is expected to preserve packet and link semantics while intentionally abstracting electrical implementation details.
+A virtual port preserves packet/link semantics while intentionally abstracting electrical implementation details.
 
-Example Linux naming:
+Current implementations include the process-local simulator and the distributed VSPW-TP/UDP backend. Future Linux virtual-device naming is expected to use forms such as:
 
 ```text
 /dev/vspw0
@@ -145,20 +145,34 @@ Example Linux naming:
 
 ## vspw
 
-`vspw` is the shorthand used for virtual SpaceWire components.
+`vspw` is shorthand used for virtual SpaceWire components.
 
-Examples:
+Examples/planned names include:
 
 ```text
-vspwd       virtual SpaceWire daemon/service
-vspw0       virtual SpaceWire port 0
+vspwd       virtual SpaceWire daemon/service (planned)
+vspw0       virtual SpaceWire port 0/device name (planned)
 ```
+
+## VSPW-TP
+
+**VSPW-TP** is SpWKit's versioned **Virtual SpaceWire Transport Protocol** used internally by distributed virtual backends.
+
+VSPW-TP is not a SpaceWire upper-layer protocol and is not application-facing. It frames simulator/backend events for transport over UDP while preserving the logical SpaceWire packet boundary, EOP/EEP terminator, time-code identity and virtual `link_id`.
+
+Current v1 framing uses a fixed network-order header and supports DATA, TIME_CODE and reserved control/liveness/acknowledgement message types. DATA may be fragmented for transport; fragments are reassembled before being exposed through `spw_port_receive()`.
+
+## UDP backend
+
+`SPW_BACKEND_UDP` is the current distributed virtual backend on supported POSIX hosts.
+
+UDP is only the carrier. Datagram loss, ordering, MTU, IP addressing and timing are transport concerns and must not silently redefine SpaceWire semantics.
 
 ## spw
 
 `spw` is used for generic or physical SpaceWire components when ambiguity is low.
 
-Examples:
+Examples/planned names include:
 
 ```text
 spw0        physical/generic SpaceWire port
@@ -170,10 +184,10 @@ spwmon      monitoring utility
 
 A backend is the implementation-specific layer that translates the portable SpWKit API into a particular transport or hardware mechanism.
 
-Examples include virtual Ethernet, Linux character devices, AXI/DMA, and vendor SDKs.
+Implemented examples include loopback, the process-local simulator and VSPW-TP/UDP. Future examples include Linux character devices, AXI/DMA and vendor SDKs.
 
 ## Transport
 
 A transport is the mechanism used internally by a virtual backend to move simulation events or packet fragments between virtual ports.
 
-UDP, raw Ethernet, Unix sockets, and shared memory are transports. They are **not** SpaceWire semantics and must remain hidden below the virtual-port contract.
+UDP, raw Ethernet, Unix sockets and shared memory are transports. They are **not** SpaceWire semantics and remain below the virtual-port contract.
