@@ -24,7 +24,7 @@ Delivered:
 
 Implemented in v0.2 development:
 
-- versioned VSPW-TP v1 wire format with a stable 32-byte header;
+- versioned VSPW-TP v1 wire format with a 40-byte header carrying the sender session ID;
 - POSIX IPv4 UDP backend selected through `spw_port_*`;
 - packet fragmentation/reassembly independent of Ethernet MTU;
 - EOP/EEP preservation across fragments;
@@ -33,7 +33,7 @@ Implemented in v0.2 development:
 - logical-message ACK semantics for DATA/TIME_CODE;
 - bounded complete-message retransmission after ACK timeout;
 - duplicate logical-message suppression and ACK replay;
-- 64-bit peer session KEEPALIVE semantics;
+- 64-bit sender session identity on every frame plus KEEPALIVE-driven session transitions;
 - configured peer address/port validation;
 - peer timeout mapping to public link state/errors;
 - peer restart/session recovery;

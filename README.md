@@ -46,7 +46,7 @@ Physical FPGA/HIL verification is deliberately deferred until suitable hardware 
 
 Development has moved to package version 0.2.0 and the distributed virtual SpaceWire backend now includes:
 
-- versioned VSPW-TP v1 framing with a fixed 32-byte header;
+- versioned VSPW-TP v1 framing with a fixed 40-byte header carrying a 64-bit sender session ID;
 - POSIX IPv4 UDP backend selected through the normal `spw_port_*` API;
 - bounded fragmentation/reassembly;
 - EOP/EEP and time-code transport;
@@ -54,7 +54,7 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 - default 1200-byte UDP fragment payload;
 - logical-message ACK and bounded complete-message retransmission;
 - duplicate logical-message suppression;
-- keepalive/session identity, peer timeout and restart recovery;
+- per-frame session identity, keepalive/peer timeout and restart recovery;
 - configured source address/port validation;
 - active device-to-device CI exercising real UDP transfer and recovery behavior.
 
