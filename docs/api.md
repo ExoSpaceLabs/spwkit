@@ -1,8 +1,8 @@
 # Public API Contract
 
-SpWKit uses a C ABI as the portability baseline. The C++ interface is layered above that ABI and must not require backends to expose C++ implementation details.
+SpWKit uses a C ABI as the portability baseline. C++ applications may use the same ABI directly and a higher-level wrapper can remain layered above it without requiring backends to expose C++ implementation details.
 
-This document defines the v0.1 API contract boundary.
+This document defines the v0.1 application-facing contract and notes the v0.2 distributed backend now present on current `main`.
 
 ## Design rule
 
@@ -24,13 +24,13 @@ Application
    +-----------+-----------+----------------+----------------+
    |                       |                |                |
    v                       v                v                v
-Simulator              Linux device     Embedded        Vendor/HW
+Simulator              VSPW-TP/UDP      Embedded        Vendor/HW
 backend                backend          backend         backend
    |                       |                |                |
-virtual link           /dev/spwX        MMIO/DMA       vendor API
+local virtual link      IP network       MMIO/DMA       vendor API
 ```
 
-The simulator is therefore an implementation of the same SpaceWire-facing contract, not an alternate application-facing API.
+The simulator and UDP transport are therefore implementations of the same SpaceWire-facing contract, not alternate application-facing APIs.
 
 ## ABI primitives
 
@@ -42,7 +42,7 @@ The simulator is therefore an implementation of the same SpaceWire-facing contra
 
 ## Port lifecycle
 
-The mandatory lifecycle operations are:
+The public lifecycle operations are:
 
 ```text
 spw_port_open
@@ -53,15 +53,31 @@ spw_port_stop
 spw_port_reset
 ```
 
-`open` creates or attaches to one configured SpaceWire port implementation. `spw_port_open_in_place()` provides the mandatory allocation-free construction path using caller-owned workspace. The hosted `spw_port_open()` convenience path may allocate and can be disabled at build time.
+`open` creates or attaches to one configured SpaceWire port implementation. `spw_port_open_in_place()` provides the allocation-free construction path using caller-owned workspace. The hosted `spw_port_open()` convenience path may allocate and can be disabled at build time.
 
-`start`, `stop`, and `reset` represent software-visible SpaceWire link control. A backend may internally translate them to simulator state changes, driver calls, MMIO writes, or vendor API operations.
+`start`, `stop`, and `reset` represent software-visible SpaceWire link control. A backend may internally translate them to simulator state changes, socket/backend state, driver calls, MMIO writes, or vendor API operations.
+
+## Backend selection
+
+Backends are selected by `spw_port_config_t` plus an optional backend-specific configuration object.
+
+Implemented backend identifiers currently include:
+
+- `SPW_BACKEND_LOOPBACK`;
+- `SPW_BACKEND_SIMULATOR`;
+- `SPW_BACKEND_UDP` on supported POSIX hosts.
+
+The common port operations do not change when the selected backend changes.
+
+The UDP backend configuration carries portable descriptive network values such as numeric IPv4 addresses, UDP ports, virtual `link_id`, and fragment payload size. Native socket handles and platform socket structures remain internal.
 
 ## Link state
 
-`spw_port_get_link_state` reports the software-visible link state through `spw_link_state_t`.
+`spw_port_get_link_state` reports software-visible link state through `spw_link_state_t`.
 
 All backends map implementation state into the common SpaceWire-oriented model rather than returning operating-system or hardware-vendor states directly.
+
+A backend is not required to fabricate transient ECSS states it cannot meaningfully observe.
 
 ## Capabilities
 
@@ -90,9 +106,23 @@ spw_port_receive
 
 A packet is a complete software-visible SpaceWire packet carrying caller storage, payload length/capacity, and EOP/EEP termination.
 
-Packet ownership remains with the caller for the copied API. A conforming backend must not silently convert EEP to EOP or merge/split software-visible packet boundaries.
+Packet ownership remains with the caller for the copied API. A conforming backend must not silently convert EEP to EOP or expose internal fragmentation as multiple application packets.
 
-The simulator may fragment or copy internally, and a hardware backend may use one or more DMA descriptors internally, but those details remain below the public boundary.
+A simulator may copy internally, the UDP backend may fragment/reassemble over VSPW-TP, and a hardware backend may use one or more DMA descriptors internally. Those details remain below the public boundary.
+
+## Receive-capacity rule
+
+SpWKit does not silently truncate packets.
+
+If the next complete packet is larger than caller receive capacity:
+
+- `SPW_ERR_BUFFER_TOO_SMALL` is returned;
+- the required complete payload length is reported;
+- the EOP/EEP terminator is reported;
+- caller payload storage is not partially overwritten;
+- the complete packet remains available for retry.
+
+This rule applies to the local reference backends and to completed packets reassembled by the distributed UDP backend.
 
 ## Optional zero-copy buffer path
 
@@ -130,7 +160,7 @@ spw_port_release_rx_buffer
 
 Successful submit/release operations clear the caller's buffer pointer to make ownership transfer explicit. Failed operations do not steal application ownership.
 
-The public contract models **buffer ownership transitions**, not DMA implementation details. A future DMA-capable backend may map these handles to pinned/coherent memory or descriptor rings. The simulator emulates the same ownership contract using fixed host memory.
+The public contract models **buffer ownership transitions**, not DMA implementation details. A future DMA-capable backend may map these handles to pinned/coherent memory or descriptor rings. The process-local simulator emulates the same ownership contract using fixed host memory.
 
 Physical addresses, DMA descriptor types, AXI addresses, Linux `dma_addr_t`, file descriptors, and vendor handles are not exposed by the portable ABI.
 
@@ -140,13 +170,13 @@ See `docs/buffers.md` for the complete ownership, alignment, exhaustion, simulat
 
 ## Scatter/gather
 
-Scatter/gather packet buffers are deferred for v0.1. One `spw_buffer_t` represents one contiguous packet payload. A future scatter/gather extension must be capability-gated and define segment ownership explicitly rather than changing the meaning of the v0.1 buffer object.
+Scatter/gather packet buffers are deferred beyond v0.1. One `spw_buffer_t` represents one contiguous packet payload. A future scatter/gather extension must be capability-gated and define segment ownership explicitly rather than changing the meaning of the v0.1 buffer object.
 
-## Simulator backend
+## Process-local simulator backend
 
-For v0.1, the simulator is the primary runtime reference backend.
+For v0.1, the process-local simulator is the primary runtime reference backend.
 
-Applications invoke only `libspwkit` operations. The selected simulator backend translates those calls to virtual link state, queues, packet transfer, time codes, and zero-copy ownership emulation.
+Applications invoke only `libspwkit` operations. The selected simulator backend translates those calls to local virtual-link state, queues, packet transfer, time codes, and zero-copy ownership emulation.
 
 ```text
 wrong:
@@ -156,7 +186,34 @@ correct:
 Application -> libspwkit -> simulator backend
 ```
 
-The same application-facing operations can later target a Linux device, RTOS implementation, or physical DMA-capable backend without changing application SpaceWire logic.
+## Distributed UDP backend
+
+Current `main` contains the first v0.2 distributed backend:
+
+```text
+Application A                         Application B
+    |                                    |
+libspwkit                            libspwkit
+    |                                    |
+SPW_BACKEND_UDP                     SPW_BACKEND_UDP
+    |                                    |
+    +----------- VSPW-TP/UDP ------------+
+```
+
+The application API remains the same. VSPW-TP framing and UDP sockets are backend internals.
+
+The initial backend implements:
+
+- IPv4 UDP on supported POSIX hosts;
+- versioned VSPW-TP v1 framing;
+- bounded fragmentation/reassembly;
+- EOP/EEP preservation;
+- time-code transfer;
+- timeout/statistics support;
+- a 1 MiB backend logical packet/reassembly limit;
+- default 1200-byte transport fragments.
+
+ACK/retransmission, peer liveness/disconnect detection, loss/reordering handling, configurable latency/rate and deterministic fault injection remain v0.2 work.
 
 ## Time codes
 
@@ -168,6 +225,8 @@ spw_port_receive_time_code
 ```
 
 Backends that do not support time codes report the corresponding unsupported-operation result and must not advertise the capability.
+
+VSPW-TP transports time-code events separately from DATA packets.
 
 ## Statistics
 
@@ -184,7 +243,7 @@ Statistics are backend-independent counters intended for diagnostics and verific
 
 Packet, time-code, and buffer acquisition/completion operations use timeouts expressed in microseconds.
 
-The API does not require POSIX blocking semantics. Implementations may use polling, interrupts, RTOS events, Linux wait queues, simulator scheduling, condition variables, or vendor mechanisms.
+The API does not require POSIX blocking semantics. Implementations may use polling, interrupts, RTOS events, Linux wait queues, socket polling, simulator scheduling, condition variables, or vendor mechanisms.
 
 `SPW_TIMEOUT_IMMEDIATE` requests non-blocking behaviour and `SPW_TIMEOUT_INFINITE` requests an unbounded wait where supported.
 
@@ -196,27 +255,30 @@ Backends may retain additional diagnostic information internally, but common app
 
 ## Backend independence
 
-The following must never appear in mandatory common API signatures:
+The following must never appear in mandatory common operation signatures:
 
 - POSIX file descriptors;
-- socket addresses;
-- Ethernet MAC/IP addresses;
+- native socket structures/handles;
 - Linux `ioctl` request types;
 - AXI/MMIO addresses;
 - DMA descriptor or physical-address types;
 - RTOS task/semaphore handles;
 - vendor SDK handles.
 
-Such values belong to backend-specific configuration or extension APIs.
+Such values belong to backend-specific configuration/extension APIs or remain internal.
 
 ## Contract-test mapping
 
-Every mandatory backend is expected to run the shared contract suite. At minimum it verifies lifecycle, link state, capabilities, copied packet boundaries, EOP/EEP, timeout behaviour, time codes/statistics where supported, reset/recovery, and zero-copy ownership when `SPW_CAP_ZERO_COPY` is advertised.
+Every backend is expected to satisfy the shared application-visible contract for the capabilities it advertises.
 
-For v0.1, the suite runs through `libspwkit` against loopback and the local simulator backend. The same behavioural tests should later execute against Ethernet, embedded, `/dev/spwX`, and HIL backends where the capability profile permits.
+For v0.1, the shared suite runs through `libspwkit` against loopback and the local simulator backend.
+
+The v0.2 UDP backend currently adds codec and end-to-end D2D integration coverage. As distributed semantics mature, reusable contract coverage should be expanded so the same behavioural assertions execute across local, distributed, embedded, `/dev/spwX`, and future HIL backends where capability profiles permit.
 
 ## Versioning
 
 The public ABI carries explicit major/minor/patch version macros.
 
 Before v1.0, incompatible API changes are permitted but must update documentation and tests together. After v1.0, ABI-breaking changes require a major version change.
+
+Release tags identify coherent milestones. Development on `main` may contain post-release functionality before the project/package version is advanced for the next release cycle; documentation should distinguish the released baseline from current development state.
