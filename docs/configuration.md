@@ -87,13 +87,8 @@ The simulator backend is implemented and supports packet transfer, EOP/EEP, time
 Current `main` contains the first v0.2 distributed backend. Select it with `SPW_BACKEND_UDP` and provide `spw_udp_config_t`:
 
 ```c
-spw_udp_config_t udp = SPW_UDP_CONFIG_INITIALIZER;
-udp.local_address = "127.0.0.1";
-udp.remote_address = "127.0.0.1";
-udp.local_port = 42000;
-udp.remote_port = 42001;
-udp.link_id = 42;
-udp.fragment_payload_size = 1200;
+spw_udp_config_t udp = SPW_UDP_CONFIG_INITIALIZER(42000, 42001, 42);
+udp.fragment_payload_size = SPW_UDP_DEFAULT_FRAGMENT_PAYLOAD;
 
 spw_port_config_t config =
     SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
@@ -101,7 +96,13 @@ config.backend_config = &udp;
 config.backend_config_size = sizeof(udp);
 ```
 
-The peer uses the opposite local/remote port assignment and the same `link_id`.
+The initializer uses numeric localhost (`127.0.0.1`) for both addresses. For another numeric IPv4 peer, copy the address strings into `local_address` and `remote_address` before opening the port; DNS resolution is deliberately not part of the current backend contract.
+
+The opposite peer swaps the local/remote ports and uses the same `link_id`:
+
+```c
+spw_udp_config_t udp_peer = SPW_UDP_CONFIG_INITIALIZER(42001, 42000, 42);
+```
 
 ```text
 Application A                         Application B
