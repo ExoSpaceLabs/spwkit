@@ -42,7 +42,7 @@ Applications continue to call `libspwkit`. A distributed backend translates pack
 | 2 | TIME_CODE | SpaceWire time-code event |
 | 3 | LINK_CONTROL | reserved distributed link-control event |
 | 4 | KEEPALIVE | peer/session liveness transport event |
-| 5 | ACK | logical-message transport acknowledgement |
+| 5 | ACK | session-bound logical-message acknowledgement |
 
 Unknown message types are rejected in v1.
 
@@ -68,16 +68,19 @@ Reliable TIME_CODE events use `ACK_REQUIRED` and a non-zero logical `message_id`
 
 ### ACK
 
-ACK is header-only:
+ACK carries exactly one 64-bit non-zero **acknowledged sender session ID** in network byte order:
 
-- `payload_size == 0`;
-- `total_size == 0`;
-- `message_id` is the logical DATA/TIME_CODE message being acknowledged;
+- `payload_size == 8`;
+- `total_size == 8`;
+- `message_id` identifies the logical DATA/TIME_CODE event being acknowledged;
+- the 8-byte payload identifies the transport session that originally sent that event;
 - ACK itself never carries `ACK_REQUIRED`.
 
 Acknowledgement is **logical-message based**, not per-fragment. A fragmented packet is acknowledged only after complete reassembly has been accepted into the backend receive queue.
 
-The receiver remembers a bounded history of delivered logical message IDs. If an ACK is lost and the sender retransmits the same logical message, the receiver re-sends ACK without surfacing the packet/time-code to the application a second time.
+The sender accepts an ACK only when both the logical `message_id` matches its pending event and the ACK payload matches its current local session ID. This prevents a delayed ACK from an earlier transport session from incorrectly acknowledging a new message after a sender restart or `message_id` reuse.
+
+The receiver remembers a bounded history of delivered logical message IDs. If an ACK is lost and the sender retransmits the same logical message, the receiver re-sends the ACK without surfacing the packet/time-code to the application a second time. An ACK is emitted only when the receiver knows the sender's session ID. If DATA/TIME_CODE arrives before its KEEPALIVE because UDP reordered the datagrams, the event may be accepted but remains unacknowledged; the subsequent keepalive plus normal retransmission resolves the session association without duplicate application delivery.
 
 ### KEEPALIVE
 
@@ -108,7 +111,7 @@ For one port:
 1. at most one logical outbound DATA/TIME_CODE event is retained as the reliable TX slot;
 2. the first transmission uses normal VSPW-TP fragmentation;
 3. successful `spw_port_send*` means the event was accepted by the backend and transmitted, not that the remote application consumed it;
-4. the peer ACKs the logical `message_id` after accepting it;
+4. the peer ACKs the logical `message_id` after accepting it, binding that ACK to the sender's current transport session;
 5. while normal SpWKit API calls service the backend, an unacknowledged message is retransmitted after `ack_timeout_ms`;
 6. retries are bounded by `max_retries`;
 7. retry exhaustion maps to `SPW_LINK_ERROR_WAIT`, increments link-error/drop statistics, and returns `SPW_ERR_LINK_UNAVAILABLE` from service-dependent operations;
@@ -179,6 +182,7 @@ A receiver rejects a message before using its payload when any of the following 
 - fragment offset/length exceeds the logical total size;
 - logical total size exceeds the protocol bound;
 - TIME_CODE/KEEPALIVE/ACK message shape is invalid;
+- ACK or KEEPALIVE contains a zero/invalid 64-bit session identifier;
 - non-DATA messages contain DATA terminator/fragment flags;
 - source address/port does not match the configured UDP peer.
 
@@ -186,7 +190,7 @@ Remote length fields are therefore bounds-checked before they can drive copying.
 
 ## Verification
 
-The codec has golden-vector and malformed-frame tests for DATA, TIME_CODE, ACK and KEEPALIVE framing.
+The codec has golden-vector and malformed-frame tests for DATA, TIME_CODE, session-bound ACK and KEEPALIVE framing.
 
 The distributed backend integration test creates two localhost peers through the public `spw_port_*` API and verifies:
 
