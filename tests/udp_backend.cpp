@@ -16,6 +16,10 @@ spw_port_t* open_udp(std::uint16_t local_port,
                      std::uint16_t fragment_size) {
     spw_udp_config_t udp = SPW_UDP_CONFIG_INITIALIZER(local_port, remote_port, link_id);
     udp.fragment_payload_size = fragment_size;
+    udp.ack_timeout_ms = 20u;
+    udp.max_retries = 3u;
+    udp.keepalive_interval_ms = 30u;
+    udp.peer_timeout_ms = 120u;
 
     spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
     config.backend_config = &udp;
@@ -59,6 +63,31 @@ int main() {
     assert(incoming.terminator == SPW_TERMINATOR_EEP);
     assert(std::memcmp(tx.data(), rx.data(), tx.size()) == 0);
 
+    /*
+     * Send a small packet, intentionally leave it unacknowledged long enough
+     * for A to retransmit, then verify B surfaces the logical packet once.
+     */
+    const std::array<std::uint8_t, 5> retry_payload{{9u, 8u, 7u, 6u, 5u}};
+    spw_packet_t retry_out{const_cast<std::uint8_t*>(retry_payload.data()),
+                           retry_payload.size(), retry_payload.size(),
+                           SPW_TERMINATOR_EOP};
+    assert(spw_port_send(a, &retry_out, 500000u) == SPW_OK);
+    ::usleep(30000u);
+
+    spw_link_state_t a_state = SPW_LINK_ERROR_RESET;
+    assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+    assert(a_state == SPW_LINK_RUN);
+
+    std::array<std::uint8_t, 5> retry_rx{};
+    spw_packet_t retry_in{retry_rx.data(), 0u, retry_rx.size(), SPW_TERMINATOR_EOP};
+    assert(spw_port_receive(b, &retry_in, 500000u) == SPW_OK);
+    assert(retry_in.length == retry_payload.size());
+    assert(std::memcmp(retry_payload.data(), retry_rx.data(), retry_payload.size()) == 0);
+
+    std::array<std::uint8_t, 5> duplicate_rx{};
+    spw_packet_t duplicate_in{duplicate_rx.data(), 0u, duplicate_rx.size(), SPW_TERMINATOR_EOP};
+    assert(spw_port_receive(b, &duplicate_in, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_TIMEOUT);
+
     const std::array<std::uint8_t, 5> reply{{1u, 2u, 3u, 4u, 5u}};
     spw_packet_t reply_packet{const_cast<std::uint8_t*>(reply.data()), reply.size(),
                               reply.size(), SPW_TERMINATOR_EOP};
@@ -80,10 +109,25 @@ int main() {
     spw_statistics_t b_stats{};
     assert(spw_port_get_statistics(a, &a_stats) == SPW_OK);
     assert(spw_port_get_statistics(b, &b_stats) == SPW_OK);
-    assert(a_stats.tx_packets == 1u);
-    assert(b_stats.rx_packets == 1u);
+    assert(a_stats.tx_packets == 2u);
+    assert(b_stats.rx_packets == 2u);
     assert(a_stats.tx_time_codes == 1u);
     assert(b_stats.rx_time_codes == 1u);
+
+    /* Peer loss becomes visible through the public link state. */
+    assert(spw_port_close(b) == SPW_OK);
+    b = nullptr;
+    ::usleep(150000u);
+    assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+    assert(a_state == SPW_LINK_ERROR_WAIT);
+
+    /* A restarted peer advertises a new transport session and recovers RUN. */
+    b = open_udp(static_cast<std::uint16_t>(base + 1u), base, link_id, 512u);
+    for (unsigned attempt = 0u; attempt < 10u && a_state != SPW_LINK_RUN; ++attempt) {
+        ::usleep(10000u);
+        assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+    }
+    assert(a_state == SPW_LINK_RUN);
 
     assert(spw_port_close(a) == SPW_OK);
     assert(spw_port_close(b) == SPW_OK);
