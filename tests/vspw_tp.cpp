@@ -13,6 +13,7 @@ int main() {
     header.flags = FlagEep;
     header.payload_size = 4u;
     header.link_id = 0x01020304u;
+    header.session_id = 0x1020304050607080ull;
     header.sequence = 0x11223344u;
     header.message_id = 0x55667788u;
     header.total_size = 4u;
@@ -23,8 +24,9 @@ int main() {
     const std::array<std::uint8_t, kHeaderSize> expected{{
         0x56, 0x53, 0x50, 0x57,
         0x01, 0x00, 0x01, 0x02,
-        0x00, 0x20, 0x00, 0x04,
+        0x00, 0x28, 0x00, 0x04,
         0x01, 0x02, 0x03, 0x04,
+        0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80,
         0x11, 0x22, 0x33, 0x44,
         0x55, 0x66, 0x77, 0x88,
         0x00, 0x00, 0x00, 0x00,
@@ -40,6 +42,7 @@ int main() {
     assert(decoded.flags == FlagEep);
     assert(decoded.payload_size == 4u);
     assert(decoded.link_id == 0x01020304u);
+    assert(decoded.session_id == 0x1020304050607080ull);
     assert(decoded.sequence == 0x11223344u);
     assert(decoded.message_id == 0x55667788u);
     assert(decoded.fragment_offset == 0u);
@@ -58,6 +61,12 @@ int main() {
     assert(decode_header(malformed.data(), malformed.size(), decoded) == DecodeResult::UnsupportedType);
 
     malformed = frame;
+    for (std::size_t i = 16u; i < 24u; ++i) {
+        malformed[i] = 0u;
+    }
+    assert(decode_header(malformed.data(), malformed.size(), decoded) == DecodeResult::InvalidSession);
+
+    malformed = frame;
     malformed[7] = static_cast<std::uint8_t>(FlagEop | FlagEep);
     assert(decode_header(malformed.data(), malformed.size(), decoded) == DecodeResult::InvalidFlags);
 
@@ -66,6 +75,7 @@ int main() {
     fragment.flags = FlagFragmentStart | FlagAckRequired;
     fragment.payload_size = 1200u;
     fragment.link_id = 7u;
+    fragment.session_id = 0x1111222233334444ull;
     fragment.sequence = 11u;
     fragment.message_id = 42u;
     fragment.fragment_offset = 0u;
@@ -88,6 +98,9 @@ int main() {
     time_code.type = MessageType::TimeCode;
     time_code.flags = FlagAckRequired;
     time_code.payload_size = static_cast<std::uint16_t>(kTimeCodePayloadSize);
+    time_code.link_id = 7u;
+    time_code.session_id = 0x1111222233334444ull;
+    time_code.message_id = 43u;
     time_code.total_size = static_cast<std::uint32_t>(kTimeCodePayloadSize);
     std::array<std::uint8_t, kHeaderSize + kTimeCodePayloadSize> tc_frame{};
     assert(encode_header(time_code, tc_frame.data(), tc_frame.size()));
@@ -100,17 +113,19 @@ int main() {
     ack.type = MessageType::Ack;
     ack.payload_size = static_cast<std::uint16_t>(kAckPayloadSize);
     ack.link_id = 7u;
+    ack.session_id = 0xaaaabbbbccccddddull;
     ack.sequence = 12u;
     ack.message_id = 42u;
     ack.total_size = static_cast<std::uint32_t>(kAckPayloadSize);
     std::array<std::uint8_t, kHeaderSize + kAckPayloadSize> ack_frame{};
     assert(encode_header(ack, ack_frame.data(), ack_frame.size()));
-    constexpr std::uint64_t acknowledged_session = 0x8877665544332211ull;
+    constexpr std::uint64_t acknowledged_session = 0x1111222233334444ull;
     assert(encode_ack_payload(acknowledged_session,
                               ack_frame.data() + kHeaderSize,
                               kAckPayloadSize));
     assert(decode_header(ack_frame.data(), ack_frame.size(), decoded) == DecodeResult::Ok);
     assert(decoded.type == MessageType::Ack);
+    assert(decoded.session_id == 0xaaaabbbbccccddddull);
     assert(decoded.message_id == 42u);
     std::uint64_t decoded_ack_session = 0u;
     assert(decode_ack_payload(ack_frame.data() + kHeaderSize,
@@ -131,26 +146,17 @@ int main() {
 
     Header keepalive{};
     keepalive.type = MessageType::Keepalive;
-    keepalive.payload_size = static_cast<std::uint16_t>(kKeepalivePayloadSize);
     keepalive.link_id = 7u;
+    keepalive.session_id = 0x5555666677778888ull;
     keepalive.sequence = 13u;
-    keepalive.total_size = static_cast<std::uint32_t>(kKeepalivePayloadSize);
-    std::array<std::uint8_t, kHeaderSize + kKeepalivePayloadSize> keepalive_frame{};
+    std::array<std::uint8_t, kHeaderSize> keepalive_frame{};
     assert(encode_header(keepalive, keepalive_frame.data(), keepalive_frame.size()));
-    constexpr std::uint64_t session_id = 0x1122334455667788ull;
-    assert(encode_keepalive_payload(session_id,
-                                    keepalive_frame.data() + kHeaderSize,
-                                    kKeepalivePayloadSize));
-    std::uint64_t decoded_session = 0u;
-    assert(decode_keepalive_payload(keepalive_frame.data() + kHeaderSize,
-                                    kKeepalivePayloadSize,
-                                    decoded_session));
-    assert(decoded_session == session_id);
     assert(decode_header(keepalive_frame.data(), keepalive_frame.size(), decoded) ==
            DecodeResult::Ok);
+    assert(decoded.session_id == keepalive.session_id);
 
-    keepalive.payload_size = 0u;
-    keepalive.total_size = 0u;
+    keepalive.payload_size = 1u;
+    keepalive.total_size = 1u;
     assert(!encode_header(keepalive, keepalive_frame.data(), keepalive_frame.size()));
 
     assert(decode_header(frame.data(), kHeaderSize - 1u, decoded) == DecodeResult::BufferTooSmall);
