@@ -114,8 +114,8 @@ bool validate_message_shape(const Header& header) noexcept {
             return header.payload_size == kTimeCodePayloadSize &&
                    header.total_size == kTimeCodePayloadSize;
         case MessageType::Keepalive:
-            return header.payload_size == kKeepalivePayloadSize &&
-                   header.total_size == kKeepalivePayloadSize;
+            return header.payload_size == 0u && header.total_size == 0u &&
+                   header.message_id == 0u;
         case MessageType::Ack:
             return header.payload_size == kAckPayloadSize &&
                    header.total_size == kAckPayloadSize &&
@@ -171,6 +171,7 @@ bool validate(const Header& header) noexcept {
            header.version_minor <= kVersionMinor &&
            is_known_type(header.type) &&
            header.header_size == kHeaderSize &&
+           header.session_id != 0u &&
            validate_flags(header) &&
            validate_fragment(header) &&
            validate_message_shape(header);
@@ -191,10 +192,11 @@ bool encode_header(const Header& header,
     write_u16(destination + 8u, header.header_size);
     write_u16(destination + 10u, header.payload_size);
     write_u32(destination + 12u, header.link_id);
-    write_u32(destination + 16u, header.sequence);
-    write_u32(destination + 20u, header.message_id);
-    write_u32(destination + 24u, header.fragment_offset);
-    write_u32(destination + 28u, header.total_size);
+    write_u64(destination + 16u, header.session_id);
+    write_u32(destination + 24u, header.sequence);
+    write_u32(destination + 28u, header.message_id);
+    write_u32(destination + 32u, header.fragment_offset);
+    write_u32(destination + 36u, header.total_size);
     return true;
 }
 
@@ -216,10 +218,11 @@ DecodeResult decode_header(const std::uint8_t* source,
     header.header_size = read_u16(source + 8u);
     header.payload_size = read_u16(source + 10u);
     header.link_id = read_u32(source + 12u);
-    header.sequence = read_u32(source + 16u);
-    header.message_id = read_u32(source + 20u);
-    header.fragment_offset = read_u32(source + 24u);
-    header.total_size = read_u32(source + 28u);
+    header.session_id = read_u64(source + 16u);
+    header.sequence = read_u32(source + 24u);
+    header.message_id = read_u32(source + 28u);
+    header.fragment_offset = read_u32(source + 32u);
+    header.total_size = read_u32(source + 36u);
 
     if (header.version_major != kVersionMajor || header.version_minor > kVersionMinor) {
         return DecodeResult::UnsupportedVersion;
@@ -234,6 +237,9 @@ DecodeResult decode_header(const std::uint8_t* source,
         source_size < kHeaderSize + header.payload_size) {
         return DecodeResult::InvalidPayloadSize;
     }
+    if (header.session_id == 0u) {
+        return DecodeResult::InvalidSession;
+    }
     if (!validate_flags(header)) {
         return DecodeResult::InvalidFlags;
     }
@@ -243,19 +249,6 @@ DecodeResult decode_header(const std::uint8_t* source,
 
     out_header = header;
     return DecodeResult::Ok;
-}
-
-bool encode_keepalive_payload(std::uint64_t session_id,
-                              std::uint8_t* destination,
-                              std::size_t destination_size) noexcept {
-    return encode_nonzero_u64(session_id, destination, destination_size,
-                              kKeepalivePayloadSize);
-}
-
-bool decode_keepalive_payload(const std::uint8_t* source,
-                              std::size_t source_size,
-                              std::uint64_t& session_id) noexcept {
-    return decode_nonzero_u64(source, source_size, kKeepalivePayloadSize, session_id);
 }
 
 bool encode_ack_payload(std::uint64_t acknowledged_session_id,
