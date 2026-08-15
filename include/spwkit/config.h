@@ -16,6 +16,7 @@ extern "C" {
 typedef uint32_t spw_backend_id_t;
 #define SPW_BACKEND_LOOPBACK  ((spw_backend_id_t)1u)
 #define SPW_BACKEND_SIMULATOR ((spw_backend_id_t)2u)
+#define SPW_BACKEND_UDP       ((spw_backend_id_t)3u)
 
 /**
  * Backend-independent port configuration.
