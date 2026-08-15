@@ -72,7 +72,8 @@ private:
                                    const std::uint8_t* payload) noexcept;
     spw_result_t process_keepalive(const Header& header,
                                    const std::uint8_t* payload) noexcept;
-    spw_result_t process_ack(const Header& header) noexcept;
+    spw_result_t process_ack(const Header& header,
+                             const std::uint8_t* payload) noexcept;
 
     spw_result_t send_datagram(const std::uint8_t* bytes,
                                std::size_t size,
