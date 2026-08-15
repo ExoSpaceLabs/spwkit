@@ -3,6 +3,7 @@
 #include <spwkit/buffer.h>
 #include <spwkit/port.h>
 #include <spwkit/simulator.h>
+#include <spwkit/udp.h>
 
 #include "backends/loopback/loopback_backend.hpp"
 #include "core/backend.hpp"
@@ -10,6 +11,9 @@
 
 #ifdef SPWKIT_HAS_SIMULATOR
 #include "backends/virtual/simulator_backend.hpp"
+#endif
+#ifdef SPWKIT_HAS_UDP
+#include "backends/ethernet/udp_backend.hpp"
 #endif
 
 #include <cstddef>
@@ -60,6 +64,11 @@ void destroy_simulator_in_place(spwkit::detail::Backend* backend) noexcept {
     static_cast<spwkit::detail::SimulatorBackend*>(backend)->~SimulatorBackend();
 }
 #endif
+#ifdef SPWKIT_HAS_UDP
+void destroy_udp_in_place(spwkit::detail::Backend* backend) noexcept {
+    static_cast<spwkit::detail::UdpBackend*>(backend)->~UdpBackend();
+}
+#endif
 
 spw_result_t validate_common_config(const spw_port_config_t* config) noexcept {
     if (config == nullptr) {
@@ -92,6 +101,26 @@ spw_result_t validate_simulator_config(const spw_port_config_t* config) noexcept
     }
     if (simulator->endpoint != SPW_SIMULATOR_ENDPOINT_A &&
         simulator->endpoint != SPW_SIMULATOR_ENDPOINT_B) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    return SPW_OK;
+}
+
+spw_result_t validate_udp_config(const spw_port_config_t* config) noexcept {
+    if (config->backend_config == nullptr ||
+        config->backend_config_size < sizeof(spw_udp_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    const auto* udp = static_cast<const spw_udp_config_t*>(config->backend_config);
+    if (udp->struct_size < sizeof(spw_udp_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (udp->version != SPW_UDP_CONFIG_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (udp->remote_port == 0u || udp->link_id == 0u ||
+        udp->fragment_payload_size < 256u || udp->reserved != 0u ||
+        udp->local_address[0] == '\0' || udp->remote_address[0] == '\0') {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     return SPW_OK;
@@ -155,6 +184,19 @@ spw_result_t spw_port_workspace_requirements(
 #endif
     }
 
+    case SPW_BACKEND_UDP: {
+        const spw_result_t result = validate_udp_config(config);
+        if (result != SPW_OK) {
+            return result;
+        }
+#ifdef SPWKIT_HAS_UDP
+        *out_requirements = requirements_for<spwkit::detail::UdpBackend>();
+        return SPW_OK;
+#else
+        return SPW_ERR_UNSUPPORTED;
+#endif
+    }
+
     default:
         return SPW_ERR_UNSUPPORTED;
     }
@@ -210,6 +252,24 @@ spw_result_t spw_port_open_in_place(const spw_port_config_t* config,
         }
         backend = simulator;
         destroy_backend = &destroy_simulator_in_place;
+        break;
+#else
+        return SPW_ERR_UNSUPPORTED;
+#endif
+    }
+
+    case SPW_BACKEND_UDP: {
+#ifdef SPWKIT_HAS_UDP
+        const auto udp_config = *static_cast<const spw_udp_config_t*>(config->backend_config);
+        auto* udp = backend_address<spwkit::detail::UdpBackend>(workspace);
+        udp = ::new (static_cast<void*>(udp)) spwkit::detail::UdpBackend(udp_config);
+        const spw_result_t attach_result = udp->attach();
+        if (attach_result != SPW_OK) {
+            udp->~UdpBackend();
+            return attach_result;
+        }
+        backend = udp;
+        destroy_backend = &destroy_udp_in_place;
         break;
 #else
         return SPW_ERR_UNSUPPORTED;
