@@ -98,20 +98,36 @@ int main() {
 
     Header ack{};
     ack.type = MessageType::Ack;
+    ack.payload_size = static_cast<std::uint16_t>(kAckPayloadSize);
     ack.link_id = 7u;
     ack.sequence = 12u;
     ack.message_id = 42u;
-    std::array<std::uint8_t, kHeaderSize> ack_frame{};
+    ack.total_size = static_cast<std::uint32_t>(kAckPayloadSize);
+    std::array<std::uint8_t, kHeaderSize + kAckPayloadSize> ack_frame{};
     assert(encode_header(ack, ack_frame.data(), ack_frame.size()));
+    constexpr std::uint64_t acknowledged_session = 0x8877665544332211ull;
+    assert(encode_ack_payload(acknowledged_session,
+                              ack_frame.data() + kHeaderSize,
+                              kAckPayloadSize));
     assert(decode_header(ack_frame.data(), ack_frame.size(), decoded) == DecodeResult::Ok);
     assert(decoded.type == MessageType::Ack);
     assert(decoded.message_id == 42u);
+    std::uint64_t decoded_ack_session = 0u;
+    assert(decode_ack_payload(ack_frame.data() + kHeaderSize,
+                              kAckPayloadSize,
+                              decoded_ack_session));
+    assert(decoded_ack_session == acknowledged_session);
 
     ack.message_id = 0u;
     assert(!encode_header(ack, ack_frame.data(), ack_frame.size()));
     ack.message_id = 42u;
     ack.flags = FlagAckRequired;
     assert(!encode_header(ack, ack_frame.data(), ack_frame.size()));
+    ack.flags = FlagNone;
+    ack.payload_size = 0u;
+    ack.total_size = 0u;
+    assert(!encode_header(ack, ack_frame.data(), ack_frame.size()));
+    assert(!encode_ack_payload(0u, ack_frame.data() + kHeaderSize, kAckPayloadSize));
 
     Header keepalive{};
     keepalive.type = MessageType::Keepalive;
