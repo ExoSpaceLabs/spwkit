@@ -18,6 +18,7 @@ option(SPWKIT_BUILD_EXAMPLES "Build SpWKit examples" ON)
 option(SPWKIT_BUILD_CPP_EXAMPLES "Build C++ examples" ON)
 option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backend" ON)
 option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend when supported" ON)
+option(SPWKIT_BUILD_VSPWD "Build/install the Linux vspwd userspace service" OFF)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 option(SPWKIT_ENABLE_CPP "Enable/install the optional C++17 convenience wrapper" OFF)
@@ -32,6 +33,10 @@ if(SPWKIT_BUILD_UDP AND NOT UNIX)
     message(STATUS
         "SpWKit UDP runtime is currently POSIX-only; public UDP API will be installed, "
         "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
+endif()
+
+if(SPWKIT_BUILD_VSPWD AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "SPWKIT_BUILD_VSPWD currently requires Linux")
 endif()
 
 # Enable CXX only when an explicitly requested build product needs it. This is
@@ -144,6 +149,19 @@ if(SPWKIT_ENABLE_CPP)
     set_target_properties(spwkit_cpp PROPERTIES EXPORT_NAME cpp)
 endif()
 
+if(SPWKIT_BUILD_VSPWD)
+    add_executable(vspwd
+        src/vspwd/main.c
+        src/vspwd/server.c)
+    target_link_libraries(vspwd PRIVATE spwkit::spwkit)
+    target_include_directories(vspwd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(vspwd PRIVATE c_std_11)
+    set_target_properties(vspwd PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF)
+endif()
+
 if(SPWKIT_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
@@ -159,6 +177,9 @@ if(SPWKIT_BUILD_TESTS)
     include(CTest)
     enable_testing()
     add_subdirectory(tests)
+    if(SPWKIT_BUILD_VSPWD)
+        add_subdirectory(tests/device)
+    endif()
 endif()
 
 install(
@@ -172,6 +193,9 @@ install(
 
 if(SPWKIT_ENABLE_CPP)
     install(TARGETS spwkit_cpp EXPORT SpWKitTargets)
+endif()
+if(SPWKIT_BUILD_VSPWD)
+    install(TARGETS vspwd RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
 # C headers are always installed. The optional C++ convenience header is only
