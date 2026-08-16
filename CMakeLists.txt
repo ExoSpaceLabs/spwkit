@@ -13,9 +13,26 @@ include(CMakePackageConfigHelpers)
 option(SPWKIT_BUILD_TESTS "Build SpWKit tests" ON)
 option(SPWKIT_BUILD_EXAMPLES "Build SpWKit examples" ON)
 option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backend" ON)
-option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend" ON)
+option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend when supported" ON)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
+
+# v0.2 runtime platform policy: the distributed UDP backend is implemented on
+# POSIX hosts only. The public UDP configuration/API remains available on every
+# platform so source/package compatibility does not depend on native socket
+# types. Unsupported builds reject UDP backend selection with
+# SPW_ERR_UNSUPPORTED.
+if(SPWKIT_BUILD_UDP AND UNIX)
+    set(SPWKIT_UDP_RUNTIME_SUPPORTED ON)
+else()
+    set(SPWKIT_UDP_RUNTIME_SUPPORTED OFF)
+endif()
+
+if(SPWKIT_BUILD_UDP AND NOT UNIX)
+    message(STATUS
+        "SpWKit v0.2 UDP runtime is POSIX-only; public UDP API will be installed, "
+        "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
+endif()
 
 # Apply the same exception/RTTI policy to library code and any internal C++
 # test that directly instantiates implementation classes. Public consumers are
@@ -42,7 +59,7 @@ if(SPWKIT_BUILD_SIMULATOR)
     )
 endif()
 
-if(SPWKIT_BUILD_UDP AND UNIX)
+if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     list(APPEND SPWKIT_SOURCES
         src/backends/ethernet/udp_backend.cpp
     )
@@ -67,7 +84,7 @@ if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_SIMULATOR=1)
 endif()
 
-if(SPWKIT_BUILD_UDP AND UNIX)
+if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_UDP=1)
 endif()
 
