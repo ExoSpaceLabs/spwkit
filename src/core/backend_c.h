@@ -63,6 +63,12 @@ typedef struct spw_backend_ops {
                                       spw_buffer_t** out_buffer);
     spw_result_t (*release_rx_buffer)(void* context,
                                       spw_buffer_t* buffer);
+
+    /* Optional level-triggered, non-consuming receive readiness. */
+    spw_result_t (*wait)(void* context,
+                         spw_ready_events_t interests,
+                         spw_timeout_us_t timeout_us,
+                         spw_ready_events_t* out_ready);
 } spw_backend_ops_t;
 
 typedef struct spw_backend_factory {
