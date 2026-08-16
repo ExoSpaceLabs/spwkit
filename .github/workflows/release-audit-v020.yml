@@ -23,6 +23,32 @@ jobs:
       - name: Apply release audit corrections
         run: python3 .github/release_audit_v020.py
 
+      - name: Keep test assertions active in Release builds
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          cmake = Path("tests/CMakeLists.txt")
+          text = cmake.read_text(encoding="utf-8")
+          marker = "add_library(spwkit_api_c_compile OBJECT api_c_compile.c)\n"
+          block = """# Test sources use assert() as executable test assertions, including around calls\n# whose side effects establish test state. Release builds define NDEBUG by\n# default, so explicitly undefine it for every target created in this directory.\n# The library itself keeps the normal build configuration; this only hardens\n# the test harness.\nif(MSVC)\n    add_compile_options(/UNDEBUG)\nelse()\n    add_compile_options(-UNDEBUG)\nendif()\n\n"""
+          if block not in text:
+              if text.count(marker) != 1:
+                  raise SystemExit("tests/CMakeLists.txt: insertion marker mismatch")
+              text = text.replace(marker, block + marker, 1)
+              cmake.write_text(text, encoding="utf-8")
+
+          core = Path("tests/core_types.c")
+          text = core.read_text(encoding="utf-8")
+          marker = '#include <stdint.h>\n\n'
+          guard = '#ifdef NDEBUG\n#error "SpWKit tests require assert() to remain enabled"\n#endif\n\n'
+          if guard not in text:
+              if text.count(marker) != 1:
+                  raise SystemExit("tests/core_types.c: assertion guard marker mismatch")
+              text = text.replace(marker, marker + guard, 1)
+              core.write_text(text, encoding="utf-8")
+          PY
+
       - name: Configure release candidate
         run: >-
           cmake -S . -B build-release-audit
@@ -36,13 +62,21 @@ jobs:
       - name: Build release candidate
         run: cmake --build build-release-audit --parallel
 
-      - name: Test release candidate
+      - name: Test release candidate with active assertions
         run: ctest --test-dir build-release-audit --output-on-failure
+
+      - name: Stress simulator edge contract
+        run: >-
+          ctest --test-dir build-release-audit
+          --output-on-failure
+          --repeat until-fail:50
+          -R '^simulator_edge_cases$'
 
       - name: Verify package version and stale release markers
         run: |
           grep -F 'VERSION 0.2.0' CMakeLists.txt
           grep -F '#define SPWKIT_API_VERSION_MINOR 2u' include/spwkit/api.h
+          grep -F '#error "SpWKit tests require assert() to remain enabled"' tests/core_types.c
           ! git grep -n -E 'Current `main`: v0\.2 development|Current v0\.2 development|pending final validation/release tagging|remains? v0\.2 work|intended for the v0\.2 release' -- README.md docs src/backends/ethernet/README.md
 
       - name: Commit audited release state
@@ -51,5 +85,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+Inczert@users.noreply.github.com"
           git add -A
-          git commit -m "docs(spwkit): reconcile v0.2.0 release state"
+          git commit -m "test(spwkit): harden v0.2.0 release validation"
           git push origin HEAD:agent/v0.2-release-audit
