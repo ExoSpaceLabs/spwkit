@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.20)
+project(spwkit_installed_device_cpp LANGUAGES CXX)
+
+find_package(SpWKit 0.4 CONFIG REQUIRED)
+
+if(NOT SpWKit_DEVICE_RUNTIME_SUPPORTED)
+    message(FATAL_ERROR "Installed SpWKit package does not provide the Linux device runtime")
+endif()
+if(NOT SpWKit_DEVICE_RUNTIME_SCOPE STREQUAL "Linux")
+    message(FATAL_ERROR "Unexpected SpWKit device runtime scope: ${SpWKit_DEVICE_RUNTIME_SCOPE}")
+endif()
+if(NOT SpWKit_CPP_WRAPPER_AVAILABLE)
+    message(FATAL_ERROR "Installed SpWKit package does not contain the optional C++ wrapper")
+endif()
+if(NOT TARGET spwkit::cpp)
+    message(FATAL_ERROR "Expected installed spwkit::cpp target")
+endif()
+
+add_executable(spwkit_installed_device_cpp main.cpp)
+target_link_libraries(spwkit_installed_device_cpp PRIVATE spwkit::cpp)
+target_compile_features(spwkit_installed_device_cpp PRIVATE cxx_std_17)
