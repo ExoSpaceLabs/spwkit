@@ -18,6 +18,7 @@ option(SPWKIT_BUILD_EXAMPLES "Build SpWKit examples" ON)
 option(SPWKIT_BUILD_CPP_EXAMPLES "Build C++ examples" ON)
 option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backend" ON)
 option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend when supported" ON)
+option(SPWKIT_BUILD_DEVICE "Build the hosted VSPD virtual-device backend when supported" ON)
 option(SPWKIT_BUILD_VSPWD "Build/install the Linux vspwd userspace service" OFF)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
@@ -29,10 +30,22 @@ else()
     set(SPWKIT_UDP_RUNTIME_SUPPORTED OFF)
 endif()
 
+if(SPWKIT_BUILD_DEVICE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(SPWKIT_DEVICE_RUNTIME_SUPPORTED ON)
+else()
+    set(SPWKIT_DEVICE_RUNTIME_SUPPORTED OFF)
+endif()
+
 if(SPWKIT_BUILD_UDP AND NOT UNIX)
     message(STATUS
         "SpWKit UDP runtime is currently POSIX-only; public UDP API will be installed, "
         "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
+endif()
+
+if(SPWKIT_BUILD_DEVICE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(STATUS
+        "SpWKit virtual-device runtime is currently Linux-only; public device API will be installed, "
+        "but selecting SPW_BACKEND_DEVICE on this platform returns SPW_ERR_UNSUPPORTED")
 endif()
 
 if(SPWKIT_BUILD_VSPWD AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -92,6 +105,12 @@ if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     )
 endif()
 
+if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
+    list(APPEND SPWKIT_SOURCES
+        src/backends/device/device_backend.c
+    )
+endif()
+
 # BUILD_SHARED_LIBS is intentionally the standard switch. OFF (the CMake
 # default) gives the embedded/static profile; hosted builds may opt into a
 # shared library without changing the public target or API.
@@ -120,6 +139,10 @@ endif()
 
 if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_UDP=1)
+endif()
+
+if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
+    target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_DEVICE=1)
 endif()
 
 if(SPWKIT_ENABLE_HEAP)
