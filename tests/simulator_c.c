@@ -60,7 +60,7 @@ int main(void) {
     assert(spw_port_send(b, &second, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     expect_packet(a, b_to_a, sizeof(b_to_a), SPW_TERMINATOR_EEP);
 
-    spw_time_code_t tx_time = {37u, 2u};
+    spw_time_code_t tx_time = {37u, 0u};
     spw_time_code_t rx_time = {0u, 0u};
     assert(spw_port_send_time_code(a, &tx_time, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     assert(spw_port_receive_time_code(b, &rx_time, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
