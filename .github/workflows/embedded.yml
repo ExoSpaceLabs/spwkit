@@ -53,6 +53,8 @@ jobs:
             -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=OFF \
             -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
             -DSPWKIT_BUILD_TOOLS=OFF \
             -DSPWKIT_ENABLE_HEAP=OFF \
             -DSPWKIT_ENABLE_CPP=OFF \
@@ -80,5 +82,5 @@ jobs:
         run: |
           echo "### Embedded portability" >> "$GITHUB_STEP_SUMMARY"
           echo "This gate is a real freestanding C/no-heap compile, not target-HIL evidence." >> "$GITHUB_STEP_SUMMARY"
-          echo "The VSPD codec is included because protocol encoding must remain portable C; the Linux socket transport is not." >> "$GITHUB_STEP_SUMMARY"
+          echo "The VSPD codec is included because protocol encoding must remain portable C; the Linux socket transport and vspwd service are explicitly disabled." >> "$GITHUB_STEP_SUMMARY"
           echo "ARM/HardRT target toolchains remain v0.5 work and will be added as separate jobs." >> "$GITHUB_STEP_SUMMARY"

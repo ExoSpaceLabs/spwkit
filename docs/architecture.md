@@ -26,21 +26,23 @@ SpWKit is designed around one rule: **applications depend on SpaceWire semantics
        +----------------------+--------------------------+
        |                      |                          |
 +------v-------+      +-------v--------+        +--------v-------+
-| Local        |      | Distributed   |        | Linux / future |
-| simulator    |      | VSPW-TP/UDP   |        | HW/RTOS        |
+| Local        |      | Distributed   |        | Linux hosted   |
+| simulator    |      | VSPW-TP/UDP   |        | virtual device |
 +------+-------+      +-------+--------+        +--------+-------+
        |                      |                          |
- process-local link         UDP/IP              vspwd, /dev,
-                                                  MMIO/DMA/vendor
+ process-local link         UDP/IP                VSPD / vspwd
+                                                        |
+                                             future /dev/vspwX
 ```
 
 Implemented backends currently include:
 
 - deterministic loopback reference backend;
 - process-local two-peer simulator;
-- POSIX VSPW-TP/UDP distributed backend.
+- POSIX VSPW-TP/UDP distributed backend;
+- Linux hosted virtual-device backend speaking VSPD to `vspwd`.
 
-The next backend family is the Linux virtual-device/userspace-service layer tracked by #54. Embedded/RTOS adapters and physical FPGA/vendor implementations follow on the roadmap.
+The remainder of v0.4 is the OS-visible `/dev/vspwX` presentation and management/tooling layer. Embedded/RTOS adapters and physical FPGA/vendor implementations follow on the roadmap.
 
 ## Public API boundary
 
@@ -55,9 +57,9 @@ The public API represents concepts visible to software using a SpaceWire interfa
 - implementation capabilities;
 - optional ownership-oriented packet buffers.
 
-The mandatory common API does not expose transport-specific concepts such as UDP sockets, Unix-domain sockets, CUSE handles, Ethernet addresses, AXI registers, DMA descriptors, physical addresses or vendor handles.
+The mandatory common API does not expose transport-specific concepts such as UDP sockets, Unix-domain sockets, VSPD frames, CUSE handles, Ethernet addresses, AXI registers, DMA descriptors, physical addresses or vendor handles.
 
-Backend-specific configuration structures may describe the selected implementation, but normal packet/link operations remain portable.
+Backend-specific configuration structures may describe the selected implementation using portable values, but normal packet/link operations remain portable.
 
 ## C runtime and optional C++ use
 
@@ -73,6 +75,8 @@ C++ application -> optional spwkit::cpp ---+--> stable C ABI --> C11 core/backen
 
 `find_package(SpWKit)` remains the package/config name; imported CMake target namespaces are lowercase.
 
+The Linux virtual-device path is tested through both the C API and the optional C++ wrapper. The wrapper reaches the same `SPW_BACKEND_DEVICE` implementation and does not speak VSPD directly.
+
 See `docs/language-bindings.md` for the exact language/build contract.
 
 ## Backend model
@@ -83,11 +87,11 @@ Current backends:
 
 - `SPW_BACKEND_LOOPBACK`: deterministic in-process reference backend;
 - `SPW_BACKEND_SIMULATOR`: process-local equal-peer SpaceWire simulator;
-- `SPW_BACKEND_UDP`: distributed VSPW-TP transport over UDP on supported POSIX hosts.
+- `SPW_BACKEND_UDP`: distributed VSPW-TP transport over UDP on supported POSIX hosts;
+- `SPW_BACKEND_DEVICE`: Linux hosted VSPD client backend for `vspwd`.
 
-Planned backends:
+Planned backend families:
 
-- Linux virtual/device service;
 - Linux physical character device;
 - bare-metal MMIO/DMA;
 - HardRT integration;
@@ -144,23 +148,27 @@ The Linux-facing naming model distinguishes:
 /dev/spw0     physical SpaceWire port
 ```
 
-v0.4 develops the virtual path first. The initial implementation is deliberately userspace-first:
+v0.4 develops the virtual path first. The first working layer is userspace-hosted:
 
 ```text
 Application
     |
-libspwkit Linux-device backend
+spw_port_* / optional spwkit::Port
     |
-Unix/device boundary
+SPW_BACKEND_DEVICE
+    |
+private VSPD over AF_UNIX/SOCK_SEQPACKET
     |
   vspwd
     |
-+---+------------------+
-|                      |
-local virtual peer   VSPW-TP/UDP peer
+virtual port 0 <================> virtual port 1
 ```
 
-A Unix-domain socket is retained as the unprivileged/CI fallback. CUSE is investigated as a way to expose `/dev/vspwX` without committing immediately to a kernel module. Whatever presentation is selected, the daemon/private protocol stays below `spw_port_*` and must not become a second application API.
+The public backend configuration contains only a bounded endpoint path and daemon `port_id`. Unix file descriptors, `sockaddr_un`, VSPD records and poll state remain private.
+
+The backend translates lifecycle, DATA, EOP/EEP, time codes, state/capabilities and statistics to VSPD. It reassembles logical packets before returning them through `spw_port_receive()` and preserves receive-too-small retry semantics. After daemon/session loss, subsequent normal API calls attempt reconnect/HELLO/ATTACH and restore START intent without requiring a new public port object.
+
+The current userspace socket is both the implementation transport and unprivileged CI boundary. CUSE remains a candidate for presenting `/dev/vspwX` without committing immediately to a kernel module. That future presentation must remain below `spw_port_*`; `/dev/vspwX` is not a second application API.
 
 The future physical `/dev/spwX` path should reuse the same application-facing contract while replacing the implementation beneath it.
 
@@ -183,7 +191,9 @@ lwIP / UDP / raw L2                    MMIO + DMA
 
 The embedded core is intended to support deterministic memory ownership, caller-owned storage, polling, interrupt-driven operation and optional zero-copy paths.
 
-The VSPW-TP codec itself has no socket/POSIX dependency so it can be reused by future lwIP-based distributed backends.
+Hosted Linux backends such as `SPW_BACKEND_DEVICE` are explicitly disabled in the freestanding/embedded portability profile. The VSPD codec itself remains portable C and may still be compiled there because fixed-width protocol encoding has no socket/POSIX dependency.
+
+The VSPW-TP codec itself likewise has no socket/POSIX dependency so it can be reused by future lwIP-based distributed backends.
 
 ## FPGA reference path
 
@@ -237,3 +247,5 @@ The portable core maintains these constraints:
 - shared backend contract testing;
 - transport-independent packet semantics;
 - stable application-facing ABI suitable for long-lived embedded integrations.
+
+Hosted backends may add private platform dependencies when selected, but portability CI must prove those dependencies disappear when the backend is disabled.

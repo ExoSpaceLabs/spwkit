@@ -1,40 +1,62 @@
 # `vspwd` userspace virtual SpaceWire service
 
-`vspwd` is the Linux userspace service being introduced in v0.4 beneath the normal SpWKit application API.
-
-The first implementation establishes and tests the daemon/process boundary before the public Linux-device backend is added:
+`vspwd` is the Linux userspace service introduced in v0.4 beneath the normal SpWKit application API.
 
 ```text
-raw VSPD test client 0                 raw VSPD test client 1
-          |                                      |
-          +---------- AF_UNIX/SOCK_SEQPACKET ----+
-                              |
-                            vspwd
-                              |
-                    virtual port 0 <-> 1
+C application -----------------------------+
+                                           |
+C++ application -> optional spwkit::cpp ---+
+                                           v
+                                      spw_port_*
+                                           |
+                                  SPW_BACKEND_DEVICE
+                                           |
+                                  VSPD / SOCK_SEQPACKET
+                                           |
+                                         vspwd
+                                           |
+                               virtual port 0 <-> port 1
 ```
 
-Once the client backend lands, the raw clients disappear from normal application use:
-
-```text
-C application -> spw_port_* -> Linux device backend -> VSPD -> vspwd
-```
-
-Applications must never use VSPD or daemon-private state directly.
+Applications never need VSPD headers, Unix socket descriptors, or daemon-private state. The daemon protocol remains an implementation boundary underneath the authoritative public C API.
 
 ## Build
 
-`vspwd` is opt-in:
+The hosted Linux device backend is enabled with `SPWKIT_BUILD_DEVICE=ON` (default ON where supported). `vspwd` itself remains opt-in:
 
 ```sh
 cmake -S . -B build-device \
+  -DSPWKIT_BUILD_DEVICE=ON \
   -DSPWKIT_BUILD_VSPWD=ON
-cmake --build build-device --target vspwd
+cmake --build build-device
 ```
 
 `SPWKIT_BUILD_VSPWD` defaults to `OFF`. This prevents library-only, embedded-oriented, or non-Linux builds from acquiring a hosted daemon merely because the build machine happens to be Linux.
 
-The initial daemon target is Linux-only.
+Both the first device backend and daemon target are Linux-only. The installed package exports `SpWKit_DEVICE_RUNTIME_SUPPORTED` so consumers can distinguish an installed package that contains the runtime backend while keeping `SPW_BACKEND_DEVICE` and `spw_device_config_t` source-visible on every platform.
+
+## Public C configuration
+
+The public configuration deliberately contains no Unix-native types:
+
+```c
+spw_device_config_t device = SPW_DEVICE_CONFIG_INITIALIZER(0u);
+spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_DEVICE);
+
+config.backend_config = &device;
+config.backend_config_size = sizeof(device);
+
+spw_port_t* port = NULL;
+spw_result_t result = spw_port_open(&config, &port);
+```
+
+`spw_device_config_t` contains only:
+
+- version/size fields;
+- daemon `port_id`;
+- a bounded endpoint path string.
+
+The default development endpoint is `/tmp/spwkit-vspwd.sock`. Tests and multi-instance applications should override it explicitly. File descriptors, `sockaddr_un`, VSPD headers and daemon internals remain private.
 
 ## Run
 
@@ -42,19 +64,13 @@ The initial daemon target is Linux-only.
 ./build-device/vspwd
 ```
 
-Default endpoint:
-
-```text
-/tmp/spwkit-vspwd.sock
-```
-
-Override it explicitly:
+Override the endpoint explicitly:
 
 ```sh
 ./build-device/vspwd --socket /tmp/my-mission-vspwd.sock
 ```
 
-The socket is created as a Unix-domain `SOCK_SEQPACKET` endpoint with user read/write permissions. `SIGINT` or `SIGTERM` stops the daemon and removes the socket path.
+The socket is a Unix-domain `SOCK_SEQPACKET` endpoint. `SIGINT` or `SIGTERM` stops the daemon and removes the socket path.
 
 The `/tmp` default is intended for development/testing. A packaged/system service can choose a runtime-directory path through `--socket`; no public application ABI depends on the default path.
 
@@ -71,18 +87,34 @@ They are equal SpaceWire peers. There is no client/server direction at the Space
 Initial constraints:
 
 - one attached application client per virtual port;
-- HELLO must succeed before ATTACH;
+- the library backend performs VSPD HELLO then ATTACH internally;
 - a second simultaneous ATTACH to an occupied port is rejected;
 - both attached ports must be started before the link is `RUN`;
 - a started port with a peer that has not yet appeared is `CONNECTING`;
 - after an established peer disconnects, the surviving started port enters `ERROR_WAIT`;
-- a fresh client can attach/start on the missing port and the surviving peer can recover to `RUN` without reconnecting its daemon socket.
+- a fresh client can attach/start on the missing port and the surviving peer can recover to `RUN` without recreating its public `spw_port_t` handle.
 
 This topology is intentionally small and deterministic. Router/topology management belongs in later daemon-management work, not in the first application data path.
 
+## Public backend behavior
+
+`SPW_BACKEND_DEVICE` maps the normal backend contract onto VSPD:
+
+- `spw_port_start/stop/reset()` -> daemon lifecycle requests;
+- `spw_port_get_link_state()` -> current daemon link state;
+- `spw_port_send/receive()` -> logical DATA with internal VSPD fragmentation/reassembly;
+- `spw_port_send_time_code/receive_time_code()` -> VSPD time-code events;
+- statistics -> daemon per-port statistics;
+- ordinary EOP/EEP and zero-length packet semantics are preserved;
+- zero-copy is currently unsupported by the hosted device backend and remains capability-gated.
+
+The backend is cooperative and has no mandatory worker thread. Synchronous requests may receive asynchronous DATA/TIME_CODE/LINK_STATE events first; those are serviced internally until the requested operation can complete.
+
+If the daemon connection disappears, the backend reports link/service unavailability, preserves the public handle, and attempts reconnect/HELLO/ATTACH during subsequent normal API calls. A port that had been started before daemon loss requests START again after reattachment.
+
 ## Data path
 
-VSPD DATA_TX fragments are reassembled inside `vspwd` before one logical packet is accepted.
+VSPD DATA_TX fragments are reassembled inside `vspwd` before one logical packet is accepted. DATA_RX fragments are reassembled inside the library backend before one packet is returned to the application.
 
 Current bounds:
 
@@ -96,7 +128,7 @@ client slots              4
 
 Packet queueing is bounded. If the peer's logical packet queue is full, DATA_TX completes with resource exhaustion rather than creating an unbounded daemon buffer.
 
-The daemon preserves:
+The path preserves:
 
 - packet boundaries;
 - EOP versus EEP;
@@ -104,9 +136,7 @@ The daemon preserves:
 - time-code values;
 - logical packet size independently from VSPD record fragmentation.
 
-One fragmented DATA_TX receives one final response after the complete logical packet has been validated and accepted into the destination queue. Individual fragments are never reported as SpaceWire packets.
-
-DATA_RX is emitted asynchronously and may itself span multiple VSPD records. The future library backend will reassemble the complete packet before exposing it through `spw_port_receive()`.
+The library keeps a complete received packet until the application supplies enough storage. `SPW_ERR_BUFFER_TOO_SMALL` reports the required length/terminator without consuming the packet, so retry behavior matches the shared backend contract.
 
 ## Link lifecycle
 
@@ -131,11 +161,11 @@ established peer lost      ERROR_WAIT
 explicit reset             ERROR_RESET
 ```
 
-State changes are delivered as coalesced asynchronous VSPD link-state events. A slow client therefore receives the latest state rather than causing an unbounded transition queue.
+State changes are delivered as coalesced asynchronous VSPD events and absorbed by the library backend. A slow client therefore receives the latest state rather than causing an unbounded transition queue.
 
 ## Disconnect and restart
 
-Client disconnect performs deterministic cleanup:
+Client disconnect performs deterministic daemon cleanup:
 
 - releases the port attachment;
 - clears that port's queued inbound packets/time codes;
@@ -143,9 +173,9 @@ Client disconnect performs deterministic cleanup:
 - updates the surviving peer state;
 - does not require the surviving peer process to reconnect.
 
-The integration test keeps port 0 alive while port 1 exits, requires port 0 to observe `ERROR_WAIT`, then starts a new port-1 process and requires the link to return to `RUN`.
+The process integration tests keep port 0 alive while port 1 exits, require port 0 to observe `ERROR_WAIT`, then start a new port-1 process and require the link to return to `RUN`.
 
-This is deliberately stronger than simply restarting both clients and declaring recovery successful, a popular testing technique among software that prefers not to learn anything.
+The public-backend scenario repeats that sequence through `spw_port_*`; the raw VSPD scenario remains protocol/daemon test infrastructure. This gives us independent evidence at both sides of the private protocol boundary instead of letting one helper implementation validate itself.
 
 ## Statistics
 
@@ -158,57 +188,37 @@ The daemon maintains the normal `spw_statistics_t` semantics per virtual port fo
 - link errors;
 - dropped/resource-exhausted traffic.
 
-GET_STATISTICS and CLEAR_STATISTICS are implemented through VSPD fixed-width encodings. The edge integration test verifies transfer counters and clear behavior.
+GET_STATISTICS and CLEAR_STATISTICS use VSPD fixed-width encodings and are translated back to the public `spw_statistics_t` shape by the backend.
 
 ## Malformed clients
 
 VSPD frame validation occurs before daemon state mutation.
 
-Protocol violations such as invalid magic/version/header/reserved fields, impossible fragmentation metadata, event frames sent in the client-to-daemon direction, or conflicting in-progress DATA metadata cause the offending client connection to be closed. The daemon does not attempt to continue a connection whose record stream can no longer be trusted.
+Protocol violations such as invalid magic/version/header/reserved fields, impossible fragmentation metadata, event frames sent in the client-to-daemon direction, or conflicting in-progress DATA metadata cause the offending connection to be closed. Ordinary valid requests that fail because of current service/link state receive explicit VSPD status responses instead.
 
-Ordinary valid requests that fail because of current service/link state receive explicit VSPD status responses instead.
+The public backend treats malformed/unexpected daemon records as backend failure rather than exposing partially decoded VSPD state to applications.
 
 ## Memory/resource model
 
-The first daemon is single-threaded and `poll()` driven.
+The daemon is single-threaded and `poll()` driven. Its resource storage is fixed-size after initialization.
 
-Resource storage is fixed-size after initialization:
+The Linux client backend also uses a fixed-size context, including a bounded 1 MiB receive-reassembly arena and bounded time-code queue. It introduces no C++ runtime dependency and requires no background thread.
 
-- two virtual-port state objects;
-- bounded packet/time-code queues;
-- one fixed DATA_TX reassembly arena per accepted client;
-- one small pending synchronous response per client.
-
-The server aggregate is allocated once at daemon startup because the fixed reassembly/packet arenas are several MiB and do not belong on the process stack. No per-packet dynamic allocation is required in the data path.
-
-`SPWKIT_ENABLE_HEAP=OFF` continues to govern the library's hosted `spw_port_open()` convenience path; it does not prohibit an independently hosted daemon executable from allocating its bounded server object at initialization.
+`SPWKIT_ENABLE_HEAP=OFF` still disables the library's hosted `spw_port_open()` convenience function. The backend remains usable with caller-owned storage through `spw_port_workspace_requirements()` and `spw_port_open_in_place()`; hosted examples may enable the heap convenience path independently.
 
 ## CI evidence
 
-The dedicated **Virtual device** workflow builds the VSPD codec and `vspwd` with both GCC and Clang using:
+The dedicated **Virtual device** workflow is intentionally split into two profiles:
 
-```text
-CXX=/bin/false
--Wall -Wextra -Werror
-```
+1. **daemon/protocol core**: `SPWKIT_BUILD_DEVICE=OFF`, `SPWKIT_ENABLE_HEAP=OFF`, `CXX=/bin/false`; this proves adding `vspwd` does not contaminate the portable library with socket/C++ references;
+2. **hosted public device backend**: `SPWKIT_BUILD_DEVICE=ON`, `SPWKIT_BUILD_VSPWD=ON`, `CXX=/bin/false`; this runs the public C API process/restart contract with GCC and Clang.
 
-It runs:
+ASan+UBSan runs the complete hosted backend + daemon path. The raw daemon tests remain separate from the public backend test, so both VSPD protocol correctness and application-facing behavior are exercised.
 
-- VSPD golden/malformed codec tests;
-- Unix seqpacket/poll/disconnect tests;
-- a real daemon + survivor + peer restart process scenario;
-- a real daemon edge scenario covering duplicate ATTACH, statistics/clear and malformed-client disconnect;
-- daemon CLI smoke coverage.
+## Not in this slice
 
-A separate ASan+UBSan device job runs the protocol and daemon process tests with sanitizers enabled.
+The initial public backend does **not** yet provide:
 
-The portable `libspwkit.a` remains checked for accidental socket/C++ runtime references. `vspwd` is a separate hosted executable, so adding the daemon does not contaminate the portable C library core.
-
-## What is not implemented yet
-
-This daemon slice does **not** yet provide:
-
-- public `SPW_BACKEND_DEVICE` client integration;
 - `/dev/vspwX`/CUSE presentation;
 - `spwctl`;
 - `spwmon`;
@@ -216,4 +226,4 @@ This daemon slice does **not** yet provide:
 - router/topology configuration;
 - physical SpaceWire hardware.
 
-The next v0.4 slice is the C Linux-device backend that speaks VSPD internally while preserving the normal application-facing `spw_port_*` contract.
+Those remain later v0.4+ layers above the now-testable C application -> device backend -> VSPD -> `vspwd` path.

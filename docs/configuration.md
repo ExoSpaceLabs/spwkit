@@ -1,6 +1,6 @@
 # Port and backend configuration
 
-SpWKit applications select an implementation through `spw_port_config_t`. They do not call simulator, socket, DMA, operating-system, or vendor APIs directly for normal SpaceWire operations.
+SpWKit applications select an implementation through `spw_port_config_t`. They do not call simulator, socket, VSPD, DMA, operating-system, or vendor APIs directly for normal SpaceWire operations.
 
 ```text
 Application
@@ -14,7 +14,7 @@ libspwkit
     +--> loopback backend
     +--> process-local simulator backend
     +--> VSPW-TP / UDP distributed backend
-    +--> future Linux-device backend
+    +--> Linux virtual-device backend -> VSPD -> vspwd
     +--> future embedded / hardware backend
 ```
 
@@ -38,6 +38,17 @@ Use `SPW_PORT_CONFIG_INITIALIZER(...)` to obtain deterministic defaults.
 `struct_size` and `version` provide an explicit extension contract. Unknown versions or unsupported flags are rejected rather than guessed.
 
 The `backend_config` pointer is consumed synchronously while the port is opened. Public backend-specific configuration structures carry their own size/version contract when necessary.
+
+Current backend identifiers are:
+
+```text
+SPW_BACKEND_LOOPBACK
+SPW_BACKEND_SIMULATOR
+SPW_BACKEND_UDP
+SPW_BACKEND_DEVICE
+```
+
+Backend availability is build/platform dependent. A public identifier/configuration can remain source-visible even when a particular runtime implementation is unsupported on that build.
 
 ## Loopback
 
@@ -72,9 +83,80 @@ Two local peers use the same `link_id` and opposite endpoint values. A/B are lab
 
 The simulator backend supports packet transfer, EOP/EEP, time codes, link lifecycle/recovery, statistics, bounded queues and zero-copy ownership emulation.
 
+## Linux virtual-device backend
+
+The v0.4 hosted Linux device path uses `SPW_BACKEND_DEVICE` with `spw_device_config_t`:
+
+```c
+spw_device_config_t device = SPW_DEVICE_CONFIG_INITIALIZER(0u);
+
+spw_port_config_t config =
+    SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_DEVICE);
+config.backend_config = &device;
+config.backend_config_size = sizeof(device);
+
+spw_port_t* port = NULL;
+spw_result_t result = spw_port_open(&config, &port);
+```
+
+The initializer selects daemon port `0` and the development endpoint:
+
+```text
+/tmp/spwkit-vspwd.sock
+```
+
+The peer normally uses port `1`:
+
+```c
+spw_device_config_t peer = SPW_DEVICE_CONFIG_INITIALIZER(1u);
+```
+
+For a different daemon instance, copy a bounded socket-path string into `device.endpoint` before opening the port. `spw_port_open()` copies the backend configuration into the device context; the caller does not need to keep `spw_device_config_t` alive afterward.
+
+The public configuration deliberately exposes only portable values:
+
+- structure size/version;
+- daemon virtual `port_id`;
+- bounded endpoint path string.
+
+It does **not** expose Unix file descriptors, `sockaddr_un`, VSPD framing structures, poll descriptors, or daemon-private objects.
+
+The device backend performs VSPD HELLO/ATTACH internally and maps normal public operations onto the daemon:
+
+- lifecycle and link state;
+- copied DATA send/receive;
+- EOP/EEP and zero-length packets;
+- time codes;
+- statistics/clear;
+- reconnect/reattach after daemon/session loss during subsequent API service calls.
+
+Logical packets may be up to the VSPD 1 MiB bound and are fragmented internally into 32 KiB daemon records. Fragmentation is never visible to applications.
+
+If `spw_port_receive()` is given insufficient application storage, the backend returns `SPW_ERR_BUFFER_TOO_SMALL`, reports the required logical packet length/terminator, and retains the complete packet for a retry.
+
+Zero-copy is not currently advertised by `SPW_BACKEND_DEVICE`; it remains capability-gated rather than emulated through a socket transport.
+
+Build controls:
+
+```text
+SPWKIT_BUILD_DEVICE=ON    include the Linux hosted client backend when supported
+SPWKIT_BUILD_VSPWD=ON     build/install the separate vspwd service
+```
+
+The public device headers/identifier remain available on unsupported platforms. Selecting the backend there returns `SPW_ERR_UNSUPPORTED`. Installed packages expose:
+
+```cmake
+SpWKit_DEVICE_RUNTIME_SUPPORTED
+SpWKit_DEVICE_RUNTIME_SCOPE
+```
+
+The current runtime scope is `Linux`.
+
+See `docs/vspwd.md` for service/recovery behavior and `docs/vspw-device-protocol.md` for the private VSPD contract.
+
 ## Distributed UDP backend
 
-v0.2.0 uses `SPW_BACKEND_UDP` with `spw_udp_config_t`:
+`SPW_BACKEND_UDP` uses `spw_udp_config_t`:
 
 ```c
 spw_udp_config_t udp = SPW_UDP_CONFIG_INITIALIZER(42000, 42001, 42);
@@ -146,19 +228,6 @@ Each rule contains:
 
 Rules are evaluated in array order. Each matching rule has its own PRNG stream derived from `fault_seed`. Therefore the same configuration and event stream reproduce the same injections. `probability_per_10000 = 10000` gives a deterministic always-fire rule, useful for CI and targeted tests.
 
-Example: drop exactly the first outgoing ACK:
-
-```c
-udp.fault_rules[0] = (spw_udp_fault_rule_t) {
-    SPW_UDP_FAULT_ACTION_TRANSPORT_DROP,
-    SPW_UDP_FAULT_TARGET_ACK,
-    SPW_UDP_FAULT_PROBABILITY_SCALE,
-    1,
-    0,
-    0
-};
-```
-
 Transport-side actions are:
 
 - `SPW_UDP_FAULT_ACTION_TRANSPORT_DROP`;
@@ -166,11 +235,7 @@ Transport-side actions are:
 - `SPW_UDP_FAULT_ACTION_TRANSPORT_REORDER`;
 - `SPW_UDP_FAULT_ACTION_TRANSPORT_DELAY`.
 
-Targets can be ANY, DATA, TIME_CODE, ACK or KEEPALIVE/control. Reorder uses one fixed datagram-sized holding slot and swaps the selected datagram with the next outgoing transport datagram. This keeps the implementation bounded; if the selected datagram is the final traffic for a while, normal retry/keepalive activity eventually supplies its swap partner.
-
-Transport delay is deliberately a transport fault, not virtual SpaceWire latency. It applies to the selected VSPW-TP datagram and consumes the caller's transport timeout where applicable.
-
-The explicitly SpaceWire-visible action is `SPW_UDP_FAULT_ACTION_SPACEWIRE_EEP`. It is valid only for DATA. When selected for an outgoing EOP packet, the logical packet is transmitted as EEP before VSPW-TP framing. This is intentionally different from UDP loss/reordering: ordinary transport faults never synthesize EEP.
+The explicitly SpaceWire-visible action is `SPW_UDP_FAULT_ACTION_SPACEWIRE_EEP`. It is valid only for DATA. Ordinary transport faults never synthesize EEP.
 
 Fault-domain diagnostics are available through:
 
@@ -179,47 +244,23 @@ spw_fault_statistics_t faults;
 spw_port_get_fault_statistics(port, &faults);
 ```
 
-The counters keep transport drops, duplicates, reorders and delays separate from `spacewire_eep_injections`. Backends without fault injection return `SPW_ERR_UNSUPPORTED` from the fault-statistics operations.
+Backends without fault injection return `SPW_ERR_UNSUPPORTED` from the fault-statistics operations.
 
 ### Cooperative progress
 
 The UDP backend intentionally does not require a hidden worker thread. It retains at most one unacknowledged logical outbound event and advances ACK processing, retransmission and keepalive/liveness work when normal SpWKit calls service the port.
 
-Blocking receive calls and `spw_port_get_link_state()` also service transport control traffic. The virtual timing wait follows the same rule and pumps peer/control traffic while the logical delay elapses. An application that performs no SpWKit calls at all does not run transport timers in the background. This keeps the design portable to future bare-metal and RTOS adapters instead of quietly making POSIX threads a dependency.
+Blocking receive calls and `spw_port_get_link_state()` also service transport control traffic. The virtual timing wait follows the same rule and pumps peer/control traffic while the logical delay elapses. An application that performs no SpWKit calls at all does not run transport timers in the background.
 
-A successful `spw_port_send()` or `spw_port_send_time_code()` means the event was accepted into the backend's bounded reliable TX slot and its first transmission completed. It does not mean the remote application has consumed the event.
+### Hosted platform policy
 
-If a second send arrives while the reliable TX slot is still occupied, the backend services ACK/retry traffic up to the caller timeout. Retry exhaustion maps the link to `SPW_LINK_ERROR_WAIT` and subsequent service-dependent operations report `SPW_ERR_LINK_UNAVAILABLE` until valid peer traffic/acknowledgement recovers the link.
+The UDP runtime is currently POSIX-only. Linux is the primary fully exercised distributed platform and macOS is a supported second POSIX host. Native Windows/Winsock transport is tracked separately.
 
-### v0.2 host-platform policy
+This does **not** remove the UDP public API on Windows. `SPW_BACKEND_UDP`, `spw_udp_config_t` and the normal `spw_port_*` entry points remain available from the same installed headers. A structurally valid UDP configuration on an unsupported build returns `SPW_ERR_UNSUPPORTED` when selected.
 
-The v0.2 hosted UDP runtime is intentionally POSIX-only. Linux is the primary fully exercised distributed platform and macOS is a supported second POSIX host. Native Windows/Winsock transport is deferred beyond v0.2.
+`SPWKIT_BUILD_UDP` controls whether the hosted implementation is included when the build platform supports it.
 
-This does **not** remove the UDP public API on Windows. `SPW_BACKEND_UDP`, `spw_udp_config_t` and the normal `spw_port_*` entry points remain available from the same installed headers. A structurally valid UDP configuration on a Windows v0.2 build returns `SPW_ERR_UNSUPPORTED` when backend availability is queried/opened.
-
-`SPWKIT_BUILD_UDP` controls whether the hosted implementation is included when the build platform supports it. Disabling the option on a POSIX build also leaves the public API present while runtime UDP selection reports unsupported.
-
-The installed CMake package exports `SpWKit_UDP_RUNTIME_SUPPORTED` for the specific library build and `SpWKit_UDP_RUNTIME_SCOPE` (`POSIX` in v0.2). See `docs/platform-support.md` for the exact validation/support matrix and rationale.
-
-### Current POSIX feature set
-
-- IPv4 UDP transport;
-- VSPW-TP v1 framing;
-- bounded fragmentation/reassembly;
-- EOP/EEP preservation;
-- reliable logical DATA and TIME_CODE delivery with bounded retry;
-- duplicate logical-message suppression;
-- peer session/keepalive tracking and restart recovery;
-- peer-loss mapping into public link state/errors;
-- receive timeouts and statistics;
-- up to 1 MiB logical packet payload;
-- default 1200-byte fragment payload;
-- deterministic SpaceWire-side virtual rate/latency timing;
-- deterministic seeded transport drop/duplicate/reorder/delay injection;
-- explicit SpaceWire EEP injection with separate fault-domain counters;
-- reusable shared public contract coverage;
-- process/network-namespace integration on Linux;
-- VSPW-TP capture/Wireshark tooling.
+The installed CMake package exports `SpWKit_UDP_RUNTIME_SUPPORTED` and `SpWKit_UDP_RUNTIME_SCOPE`.
 
 ## Backend isolation
 
@@ -232,4 +273,4 @@ The mandatory common configuration and operation signatures deliberately contain
 - RTOS handles;
 - vendor SDK handles.
 
-Backend-specific public configuration may contain portable descriptive values such as numeric IP addresses, ports, virtual link identifiers and timing/fault limits. Platform-native implementation handles remain internal.
+Backend-specific public configuration may contain portable descriptive values such as numeric IP addresses, ports, virtual link identifiers, endpoint paths and timing/fault limits. Platform-native implementation handles remain internal.

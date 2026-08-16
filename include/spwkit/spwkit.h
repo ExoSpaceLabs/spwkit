@@ -8,5 +8,6 @@
 #include "spwkit/port.h"
 #include "spwkit/buffer.h"
 #include "spwkit/simulator.h"
+#include "spwkit/device.h"
 
 #endif /* SPWKIT_SPWKIT_H */

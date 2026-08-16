@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <spwkit/buffer.h>
+#include <spwkit/device.h>
 #include <spwkit/port.h>
 #include <spwkit/simulator.h>
 #include <spwkit/udp.h>
 
 #include "backends/loopback/loopback_backend.h"
+#ifdef SPWKIT_HAS_DEVICE
+#include "backends/device/device_backend.h"
+#endif
 #ifdef SPWKIT_HAS_SIMULATOR
 #include "backends/virtual/simulator_backend.h"
 #endif
@@ -80,6 +84,34 @@ static spw_result_t validate_common_config(const spw_port_config_t* config) {
     }
     if (config->flags != 0u) {
         return SPW_ERR_UNSUPPORTED;
+    }
+    return SPW_OK;
+}
+
+static spw_result_t validate_device_config(const spw_port_config_t* config) {
+    const spw_device_config_t* device;
+    size_t endpoint_length;
+    if (config->backend_config == NULL ||
+        config->backend_config_size < sizeof(spw_device_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    device = (const spw_device_config_t*)config->backend_config;
+    if (device->struct_size < sizeof(spw_device_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (device->version != SPW_DEVICE_CONFIG_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (device->reserved != 0u || device->endpoint[0] == '\0') {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    endpoint_length = 0u;
+    while (endpoint_length < SPW_DEVICE_ENDPOINT_CAPACITY &&
+           device->endpoint[endpoint_length] != '\0') {
+        ++endpoint_length;
+    }
+    if (endpoint_length == 0u || endpoint_length >= SPW_DEVICE_ENDPOINT_CAPACITY) {
+        return SPW_ERR_INVALID_ARGUMENT;
     }
     return SPW_OK;
 }
@@ -199,6 +231,18 @@ static spw_result_t select_factory(
         }
 #ifdef SPWKIT_HAS_UDP
         *out_factory = spw_udp_backend_factory();
+        return SPW_OK;
+#else
+        return SPW_ERR_UNSUPPORTED;
+#endif
+
+    case SPW_BACKEND_DEVICE:
+        result = validate_device_config(config);
+        if (result != SPW_OK) {
+            return result;
+        }
+#ifdef SPWKIT_HAS_DEVICE
+        *out_factory = spw_device_backend_factory();
         return SPW_OK;
 #else
         return SPW_ERR_UNSUPPORTED;
