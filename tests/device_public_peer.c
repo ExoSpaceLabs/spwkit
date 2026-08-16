@@ -109,7 +109,6 @@ static int run_survivor(const char* endpoint) {
     spw_port_t* port = open_started(endpoint, 0u);
     static uint8_t big[TEST_BIG_PACKET_SIZE];
     static uint8_t rx[TEST_BIG_PACKET_SIZE];
-    static uint8_t empty_storage[1];
     static const uint8_t reply[] = {0x42u, 0x2du, 0x3eu, 0x41u};
     static const uint8_t restart_reply[] = {0x52u, 0x45u, 0x53u, 0x54u};
     spw_packet_t no_packet;
@@ -145,8 +144,8 @@ static int run_survivor(const char* endpoint) {
         !wait_state(port, SPW_LINK_RUN) ||
         !send_packet(port, NULL, 0u, SPW_TERMINATOR_EEP) ||
         !receive_packet(port,
-                        empty_storage,
-                        sizeof(empty_storage),
+                        rx,
+                        sizeof(rx),
                         restart_reply,
                         sizeof(restart_reply),
                         SPW_TERMINATOR_EOP,
