@@ -30,17 +30,52 @@ public:
     virtual void reset_link() = 0;
 
     /**
+     * Timeout used by ordinary successful contract transfers.
+     *
+     * Local backends can retain the immediate default. Distributed backends may
+     * use a finite budget because one public receive call can need to service
+     * multiple transport fragments/control datagrams before one logical
+     * SpaceWire event is complete. The timeout is a fixture/environment
+     * property, not a backend-name conditional in the shared assertions.
+     */
+    virtual spw_timeout_us_t transfer_timeout_us() const noexcept {
+        return SPW_TIMEOUT_IMMEDIATE;
+    }
+
+    /**
      * Optional zero-copy contract hook.
      *
      * The shared suite calls this only when both endpoints advertise
      * SPW_CAP_ZERO_COPY. Backends advertising that capability must override
-     * this hook once the portable zero-copy API is defined by #10.
+     * this hook.
      */
     virtual bool has_zero_copy_contract() const noexcept { return false; }
     virtual void run_zero_copy_contract() {}
 };
 
+/**
+ * Reusable extension contract for peer-oriented/distributed backends.
+ *
+ * Implementations perform peer disconnect/restart using only their normal
+ * public configuration/lifecycle operations. The assertions themselves remain
+ * backend-independent and use only the public SpWKit API.
+ */
+class DistributedBackendContractFixture : public BackendContractFixture {
+public:
+    /** Remove endpoint B so endpoint A can observe peer loss. */
+    virtual void disconnect_endpoint_b() = 0;
+
+    /** Recreate and start endpoint B with a new transport/session incarnation. */
+    virtual void restart_endpoint_b() = 0;
+
+    /** Maximum public-observation budget for loss/recovery state transitions. */
+    virtual spw_timeout_us_t link_transition_timeout_us() const noexcept = 0;
+};
+
 /** Run the complete shared copied-I/O contract for one backend fixture. */
 int run_backend_contract(BackendContractFixture& fixture);
+
+/** Run reusable peer-loss/restart assertions for a distributed fixture. */
+int run_distributed_backend_contract(DistributedBackendContractFixture& fixture);
 
 } // namespace spwkit::test
