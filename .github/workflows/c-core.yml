@@ -11,6 +11,7 @@ on:
       - "src/platform/**"
       - "src/backends/loopback/**"
       - "src/backends/virtual/**"
+      - "src/backends/ethernet/**"
       - ".github/workflows/c-core.yml"
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - "src/platform/**"
       - "src/backends/loopback/**"
       - "src/backends/virtual/**"
+      - "src/backends/ethernet/**"
       - ".github/workflows/c-core.yml"
 
 jobs:
@@ -105,29 +107,29 @@ jobs:
           cmake --build consumer/build --parallel
           ./consumer/build/c_consumer
 
-      - name: Configure and build C-only simulator profile
+      - name: Configure and build complete C-only runtime
         env:
           CC: gcc
           CXX: /bin/false
         run: |
-          cmake -S . -B build-c-simulator \
+          cmake -S . -B build-c-runtime \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
             -DSPWKIT_BUILD_TESTS=OFF \
             -DSPWKIT_BUILD_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=ON \
-            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_UDP=ON \
             -DSPWKIT_BUILD_TOOLS=OFF \
             -DSPWKIT_ENABLE_HEAP=ON
-          if grep -q '^CMAKE_CXX_COMPILER:' build-c-simulator/CMakeCache.txt; then
-            echo "C-only simulator profile enabled a C++ compiler" >&2
+          if grep -q '^CMAKE_CXX_COMPILER:' build-c-runtime/CMakeCache.txt; then
+            echo "Complete runtime profile enabled a C++ compiler" >&2
             exit 1
           fi
-          cmake --build build-c-simulator --parallel
-          archive="build-c-simulator/libspwkit.a"
+          cmake --build build-c-runtime --parallel
+          archive="build-c-runtime/libspwkit.a"
           test -f "$archive"
           if nm -u "$archive" | grep -Eq '(__cxa|_Z|libstdc\+\+|cxxabi)'; then
-            echo "C-only simulator archive contains C++ runtime/ABI references" >&2
+            echo "Complete C runtime archive contains C++ runtime/ABI references" >&2
             nm -u "$archive"
             exit 1
           fi

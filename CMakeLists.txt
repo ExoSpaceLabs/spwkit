@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
-# The implementation baseline is C. C++ is enabled only when a selected
-# component still needs it during the v0.3 migration. The simulator is C11;
-# UDP remains the final runtime C++ dependency until #48 lands.
+# libspwkit is a C11 library. C++ is an optional consumer/test language and is
+# never required by the runtime implementation.
 project(
     spwkit
     VERSION 0.2.0
@@ -32,10 +31,11 @@ if(SPWKIT_BUILD_UDP AND NOT UNIX)
         "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
 endif()
 
-# Core, loopback and simulator are C11. CXX is enabled only for the remaining
-# C++ UDP runtime or for C++ tests/examples during the migration.
+# Runtime sources are C11. Enable CXX only for the existing C++ test/example
+# consumers; #49 will turn this into the explicit SPWKIT_ENABLE_CPP wrapper
+# option and independent SpWKit::cpp target.
 set(SPWKIT_NEEDS_CXX OFF)
-if(SPWKIT_UDP_RUNTIME_SUPPORTED OR SPWKIT_BUILD_TESTS OR SPWKIT_BUILD_EXAMPLES)
+if(SPWKIT_BUILD_TESTS OR SPWKIT_BUILD_EXAMPLES)
     set(SPWKIT_NEEDS_CXX ON)
 endif()
 if(SPWKIT_NEEDS_CXX)
@@ -57,6 +57,10 @@ endfunction()
 set(SPWKIT_SOURCES
     src/core/port.c
     src/backends/loopback/loopback_backend.c
+    src/backends/ethernet/vspw_tp.c
+    src/backends/ethernet/fragment_reassembler.c
+    src/backends/ethernet/virtual_link_timing.c
+    src/backends/ethernet/deterministic_faults.c
 )
 
 if(SPWKIT_BUILD_SIMULATOR)
@@ -69,23 +73,15 @@ endif()
 
 if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     list(APPEND SPWKIT_SOURCES
-        src/backends/ethernet/vspw_tp.cpp
-        src/backends/ethernet/udp_backend.cpp
-        src/core/cpp_backend_bridge.cpp
+        src/backends/ethernet/udp_backend.c
+        src/backends/ethernet/udp_factory_compat.c
     )
-elseif(SPWKIT_BUILD_TESTS)
-    # Internal codec tests still exercise the v0.2 C++ VSPW-TP implementation
-    # until #48 moves it into the C runtime.
-    list(APPEND SPWKIT_SOURCES src/backends/ethernet/vspw_tp.cpp)
 endif()
 
 add_library(spwkit ${SPWKIT_SOURCES})
 add_library(SpWKit::spwkit ALIAS spwkit)
 
 target_compile_features(spwkit PRIVATE c_std_11)
-if(SPWKIT_NEEDS_CXX)
-    target_compile_features(spwkit PRIVATE cxx_std_17)
-endif()
 
 target_include_directories(spwkit
     PUBLIC
@@ -94,8 +90,6 @@ target_include_directories(spwkit
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-
-spwkit_apply_no_throw_policy(spwkit)
 
 set(SPWKIT_HOST_THREADS_REQUIRED OFF)
 if(SPWKIT_BUILD_SIMULATOR)
@@ -124,9 +118,6 @@ set_target_properties(spwkit PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     EXPORT_NAME spwkit
 )
-if(SPWKIT_NEEDS_CXX)
-    set_target_properties(spwkit PROPERTIES CXX_EXTENSIONS OFF)
-endif()
 
 if(SPWKIT_BUILD_EXAMPLES)
     add_subdirectory(examples)
