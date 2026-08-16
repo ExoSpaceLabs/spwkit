@@ -1,0 +1,136 @@
+name: Finalize v0.3 C runtime docs
+
+on:
+  push:
+    branches: [agent/cpp-wrapper-packaging]
+    paths:
+      - ".github/workflows/patch-v03-final.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/cpp-wrapper-packaging
+          fetch-depth: 0
+
+      - name: Reconcile C runtime names and documentation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if actual < count:
+                  raise SystemExit(f"{path}: expected at least {count} occurrence(s), found {actual}: {old!r}")
+              text = text.replace(old, new, count)
+              p.write_text(text)
+
+          # Remove the temporary transition factory names. Runtime selection is
+          # now directly C-to-C for loopback, simulator and UDP.
+          replace(
+              "src/core/port.c",
+              '#include "backends/loopback/loopback_backend.h"\n',
+              '#include "backends/loopback/loopback_backend.h"\n'
+              '#ifdef SPWKIT_HAS_SIMULATOR\n'
+              '#include "backends/virtual/simulator_backend.h"\n'
+              '#endif\n'
+              '#ifdef SPWKIT_HAS_UDP\n'
+              '#include "backends/ethernet/udp_backend.h"\n'
+              '#endif\n')
+          replace(
+              "src/core/port.c",
+              '#ifdef SPWKIT_HAS_SIMULATOR\n'
+              'const spw_backend_factory_t* spw_cpp_simulator_backend_factory(void);\n'
+              '#endif\n'
+              '#ifdef SPWKIT_HAS_UDP\n'
+              'const spw_backend_factory_t* spw_cpp_udp_backend_factory(void);\n'
+              '#endif\n\n',
+              '')
+          replace("src/core/port.c", "spw_cpp_simulator_backend_factory()", "spw_simulator_backend_factory()")
+          replace("src/core/port.c", "spw_cpp_udp_backend_factory()", "spw_udp_backend_factory()")
+
+          replace(
+              "CMakeLists.txt",
+              '        src/backends/virtual/simulator_backend.c\n'
+              '        src/backends/virtual/simulator_factory_compat.c\n',
+              '        src/backends/virtual/simulator_backend.c\n')
+          replace(
+              "CMakeLists.txt",
+              '        src/backends/ethernet/udp_backend.c\n'
+              '        src/backends/ethernet/udp_factory_compat.c\n',
+              '        src/backends/ethernet/udp_backend.c\n')
+
+          # README: make the user-facing language/build boundary match reality.
+          replace(
+              "README.md",
+              '- **`libspwkit`**: core library implementing the application-facing C API and backend dispatch;\n',
+              '- **`libspwkit`**: C11 runtime implementing the application-facing C API and backend dispatch;\n')
+          replace(
+              "README.md",
+              '- **C API**: C11-compatible public headers;\n- **implementation**: C++17;\n',
+              '- **C runtime/API**: C11; no C++ compiler or runtime is required by `SpWKit::spwkit`;\n'
+              '- **optional C++ wrapper**: C++17, enabled with `SPWKIT_ENABLE_CPP=ON` and exported as `SpWKit::cpp`;\n')
+          replace(
+              "README.md",
+              'Library code is built with C++ exceptions and RTTI disabled. Public APIs use explicit `spw_result_t` errors instead of exceptions.\n',
+              '`libspwkit` is implemented in C11 and uses explicit `spw_result_t` errors. The optional C++ wrapper is exception-free and delegates to the same C API; it does not contain backend logic.\n')
+          marker = 'See [docs/getting-started.md](docs/getting-started.md) for build profiles, installed-package use, and basic API examples.\n'
+          if marker not in Path("README.md").read_text():
+              raise SystemExit("README getting-started marker not found")
+          replace(
+              "README.md", marker,
+              marker + '\nSee [docs/language-bindings.md](docs/language-bindings.md) for C-only, optional C++17, static/shared, and embedded integration rules.\n')
+
+          # Architecture: C vtable/context is now the implementation contract.
+          replace(
+              "docs/architecture.md",
+              'Application (C or C++)\n        |\n        v\nPublic C API (`spw_port_*`, packet/time-code/state/statistics types)\n',
+              'C application -------------------------------+\n'
+              '                                             |\n'
+              'C++ application -> optional `SpWKit::cpp` ---+\n'
+              '                                             v\n'
+              'Public C API (`spw_port_*`, packet/time-code/state/statistics types)\n')
+          replace(
+              "docs/architecture.md",
+              'The internal C++ `Backend` abstraction currently owns lifecycle, copied packet I/O, time-code I/O, state/capability reporting, statistics, and optional zero-copy hooks.\n',
+              'The internal C11 backend vtable/context contract owns lifecycle, copied packet I/O, time-code I/O, state/capability reporting, statistics, and optional zero-copy hooks.\n')
+          replace(
+              "docs/architecture.md",
+              'The current implementation uses fixed `std::array` storage and standard mutex/condition-variable synchronization.\n',
+              'The current implementation uses fixed C storage. The hosted simulator keeps pthread/Windows synchronization behind a private C portability shim; the portable core has no thread dependency.\n')
+
+          # Portability docs are already rewritten in this PR; ensure the old
+          # implementation-language claims cannot creep back into release text.
+          for path in ("README.md", "docs/architecture.md", "docs/portability.md"):
+              text = Path(path).read_text()
+              stale = [
+                  "implementation**: C++17",
+                  "internal C++ `Backend` abstraction",
+                  "library sources are compiled with C++ exceptions disabled",
+              ]
+              for token in stale:
+                  if token in text:
+                      raise SystemExit(f"{path}: stale token remains: {token}")
+          PY
+
+          rm -f src/backends/virtual/simulator_factory_compat.c
+          rm -f src/backends/ethernet/udp_factory_compat.c
+          rm -f .github/workflows/patch-v03-final.yml
+
+      - name: Commit final reconciliation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "refactor(spwkit): finalize C runtime packaging"
+          git push origin HEAD:agent/cpp-wrapper-packaging
