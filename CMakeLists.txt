@@ -52,6 +52,10 @@ if(SPWKIT_BUILD_VSPWD AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "SPWKIT_BUILD_VSPWD currently requires Linux")
 endif()
 
+if(SPWKIT_BUILD_TOOLS AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "SPWKIT_BUILD_TOOLS currently requires Linux")
+endif()
+
 # Enable CXX only when an explicitly requested build product needs it. This is
 # deliberately independent from SPWKIT_BUILD_TESTS/SPWKIT_BUILD_EXAMPLES so a
 # pure-C project can build and execute the C test/example surface with no C++
@@ -185,6 +189,19 @@ if(SPWKIT_BUILD_VSPWD)
         C_EXTENSIONS OFF)
 endif()
 
+if(SPWKIT_BUILD_TOOLS)
+    add_executable(spwctl
+        src/tools/spwctl.c
+        src/tools/vspd_management_client.c)
+    target_link_libraries(spwctl PRIVATE spwkit::spwkit)
+    target_include_directories(spwctl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(spwctl PRIVATE c_std_11)
+    set_target_properties(spwctl PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF)
+endif()
+
 if(SPWKIT_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
@@ -219,6 +236,9 @@ if(SPWKIT_ENABLE_CPP)
 endif()
 if(SPWKIT_BUILD_VSPWD)
     install(TARGETS vspwd RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+if(SPWKIT_BUILD_TOOLS)
+    install(TARGETS spwctl RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
 # C headers are always installed. The optional C++ convenience header is only

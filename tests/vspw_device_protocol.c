@@ -40,7 +40,7 @@ static void encode_frame(const vspd_header_t* header,
 static void test_golden_data_vector(void) {
     static const uint8_t expected_header[VSPD_HEADER_SIZE] = {
         0x56u, 0x53u, 0x50u, 0x44u,
-        0x01u, 0x00u, 0x09u, 0x0eu,
+        0x01u, 0x01u, 0x09u, 0x0eu,
         0x00u, 0x28u, 0x00u, 0x00u,
         0x00u, 0x00u, 0x00u, 0x04u,
         0x00u, 0x00u, 0x00u, 0x11u,
@@ -191,6 +191,13 @@ static void test_control_payloads(void) {
     vspd_statistics_payload_t statistics = {
         1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u};
     vspd_statistics_payload_t decoded_statistics;
+    vspd_server_info_payload_t server_info = {2u, 4u, 2u, 8u, 1048576u};
+    vspd_server_info_payload_t decoded_server_info;
+    vspd_port_info_payload_t port_info = {
+        VSPD_PORT_INFO_ATTACHED | VSPD_PORT_INFO_STARTED |
+            VSPD_PORT_INFO_EVER_ATTACHED,
+        VSPD_LINK_RUN, 1u, 2u};
+    vspd_port_info_payload_t decoded_port_info;
 
     vspd_encode_capabilities(&capabilities, payload);
     memset(&decoded_capabilities, 0, sizeof(decoded_capabilities));
@@ -233,6 +240,52 @@ static void test_control_payloads(void) {
                frame, VSPD_HEADER_SIZE + VSPD_LINK_STATE_PAYLOAD_SIZE, NULL) ==
            VSPD_CODEC_OK);
     assert(vspd_decode_u32_payload(payload) == VSPD_LINK_RUN);
+
+    vspd_encode_server_info(&server_info, payload);
+    memset(&decoded_server_info, 0, sizeof(decoded_server_info));
+    vspd_decode_server_info(payload, &decoded_server_info);
+    assert(decoded_server_info.port_count == server_info.port_count);
+    assert(decoded_server_info.client_capacity == server_info.client_capacity);
+    assert(decoded_server_info.packet_queue_depth == server_info.packet_queue_depth);
+    assert(decoded_server_info.time_code_queue_depth == server_info.time_code_queue_depth);
+    assert(decoded_server_info.max_logical_packet == server_info.max_logical_packet);
+    header = header_for(VSPD_MSG_GET_SERVER_INFO,
+                        VSPD_FLAG_RESPONSE,
+                        VSPD_SERVER_INFO_PAYLOAD_SIZE,
+                        17u,
+                        0u);
+    encode_frame(&header, payload, frame, sizeof(frame));
+    assert(vspd_validate_frame(
+               frame, VSPD_HEADER_SIZE + VSPD_SERVER_INFO_PAYLOAD_SIZE, NULL) ==
+           VSPD_CODEC_OK);
+
+    vspd_encode_port_info(&port_info, payload);
+    memset(&decoded_port_info, 0, sizeof(decoded_port_info));
+    vspd_decode_port_info(payload, &decoded_port_info);
+    assert(decoded_port_info.flags == port_info.flags);
+    assert(decoded_port_info.link_state == port_info.link_state);
+    assert(decoded_port_info.packet_queue_count == port_info.packet_queue_count);
+    assert(decoded_port_info.time_code_queue_count == port_info.time_code_queue_count);
+    header = header_for(VSPD_MSG_GET_PORT_INFO,
+                        VSPD_FLAG_RESPONSE,
+                        VSPD_PORT_INFO_PAYLOAD_SIZE,
+                        18u,
+                        1u);
+    encode_frame(&header, payload, frame, sizeof(frame));
+    assert(vspd_validate_frame(
+               frame, VSPD_HEADER_SIZE + VSPD_PORT_INFO_PAYLOAD_SIZE, NULL) ==
+           VSPD_CODEC_OK);
+
+    header = header_for(VSPD_MSG_GET_PORT_STATISTICS,
+                        VSPD_FLAG_RESPONSE,
+                        VSPD_STATISTICS_PAYLOAD_SIZE,
+                        19u,
+                        1u);
+    vspd_encode_statistics(&statistics, payload);
+    encode_frame(&header, payload, frame, sizeof(frame));
+    assert(vspd_validate_frame(
+               frame, VSPD_HEADER_SIZE + VSPD_STATISTICS_PAYLOAD_SIZE, NULL) ==
+           VSPD_CODEC_OK);
 }
 
 static void test_malformed_frames(void) {
@@ -249,7 +302,7 @@ static void test_malformed_frames(void) {
            VSPD_CODEC_INVALID_MAGIC);
     encode_frame(&header, hello, frame, sizeof(frame));
 
-    frame[5] = 1u;
+    frame[5] = (uint8_t)(VSPD_VERSION_MINOR + 1u);
     assert(vspd_validate_frame(frame, sizeof(frame), NULL) ==
            VSPD_CODEC_UNSUPPORTED_VERSION);
     encode_frame(&header, hello, frame, sizeof(frame));
@@ -284,6 +337,24 @@ static void test_malformed_frames(void) {
     assert(vspd_encode_header(&header, frame) == VSPD_CODEC_OK);
     assert(vspd_validate_frame(frame, VSPD_HEADER_SIZE + 4u, NULL) ==
            VSPD_CODEC_INVALID_SHAPE);
+
+    {
+        uint8_t port_frame[VSPD_HEADER_SIZE + VSPD_PORT_INFO_PAYLOAD_SIZE];
+        uint8_t port_payload[VSPD_PORT_INFO_PAYLOAD_SIZE];
+        vspd_port_info_payload_t invalid_port_info = {
+            VSPD_PORT_INFO_KNOWN_MASK + 1u, VSPD_LINK_RUN, 0u, 0u};
+        header = header_for(VSPD_MSG_GET_PORT_INFO,
+                            VSPD_FLAG_RESPONSE,
+                            VSPD_PORT_INFO_PAYLOAD_SIZE,
+                            20u,
+                            0u);
+        vspd_encode_port_info(&invalid_port_info, port_payload);
+        assert(vspd_encode_header(&header, port_frame) == VSPD_CODEC_OK);
+        memcpy(port_frame + VSPD_HEADER_SIZE, port_payload, sizeof(port_payload));
+        assert(vspd_validate_frame(
+                   port_frame, sizeof(port_frame), NULL) ==
+               VSPD_CODEC_INVALID_SHAPE);
+    }
 }
 
 int main(void) {

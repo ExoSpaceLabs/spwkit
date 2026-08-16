@@ -40,6 +40,16 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS OFF)
 
+    if(SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
+        add_executable(spwkit_device_hold_peer ../device_hold_peer.c)
+        target_link_libraries(spwkit_device_hold_peer PRIVATE spwkit::spwkit)
+        target_compile_features(spwkit_device_hold_peer PRIVATE c_std_11)
+        set_target_properties(spwkit_device_hold_peer PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
+    endif()
+
     if(SPWKIT_BUILD_CPP_TESTS AND SPWKIT_ENABLE_HEAP)
         add_executable(spwkit_device_contract_test ../contract/device_contract.cpp)
         target_link_libraries(spwkit_device_contract_test PRIVATE spwkit_backend_contract_suite)
@@ -77,6 +87,19 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
     set_tests_properties(device_public_api_process_pair_restart PROPERTIES
         LABELS "device;contract;integration;process;restart;c"
         TIMEOUT 45)
+
+    if(SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
+        add_test(
+            NAME spwctl_management_non_owning
+            COMMAND bash
+                    ${CMAKE_CURRENT_SOURCE_DIR}/run_spwctl.sh
+                    $<TARGET_FILE:vspwd>
+                    $<TARGET_FILE:spwctl>
+                    $<TARGET_FILE:spwkit_device_hold_peer>)
+        set_tests_properties(spwctl_management_non_owning PROPERTIES
+            LABELS "device;tools;management;integration;process;c"
+            TIMEOUT 45)
+    endif()
 
     if(SPWKIT_BUILD_CPP_TESTS AND SPWKIT_ENABLE_HEAP)
         add_test(

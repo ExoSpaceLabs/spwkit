@@ -16,7 +16,7 @@ extern "C" {
  */
 #define VSPD_MAGIC UINT32_C(0x56535044) /* "VSPD" */
 #define VSPD_VERSION_MAJOR 1u
-#define VSPD_VERSION_MINOR 0u
+#define VSPD_VERSION_MINOR 1u
 #define VSPD_HEADER_SIZE 40u
 
 /* Conservative per-SOCK_SEQPACKET record bound. Logical DATA can span records. */
@@ -36,9 +36,13 @@ extern "C" {
 #define VSPD_MSG_DATA_RX          10u
 #define VSPD_MSG_TIME_CODE_TX     11u
 #define VSPD_MSG_TIME_CODE_RX     12u
-#define VSPD_MSG_GET_STATISTICS   13u
-#define VSPD_MSG_CLEAR_STATISTICS 14u
-#define VSPD_MSG_LINK_STATE_EVENT 15u
+#define VSPD_MSG_GET_STATISTICS        13u
+#define VSPD_MSG_CLEAR_STATISTICS      14u
+#define VSPD_MSG_LINK_STATE_EVENT      15u
+#define VSPD_MSG_GET_SERVER_INFO       16u
+#define VSPD_MSG_GET_PORT_INFO         17u
+#define VSPD_MSG_GET_PORT_STATISTICS   18u
+#define VSPD_MSG_CLEAR_PORT_STATISTICS 19u
 
 /* Generic/message-shape flags. */
 #define VSPD_FLAG_RESPONSE       0x01u
@@ -54,6 +58,14 @@ extern "C" {
 #define VSPD_CAPABILITIES_PAYLOAD_SIZE 24u
 #define VSPD_TIME_CODE_PAYLOAD_SIZE    2u
 #define VSPD_STATISTICS_PAYLOAD_SIZE   72u
+#define VSPD_SERVER_INFO_PAYLOAD_SIZE  20u
+#define VSPD_PORT_INFO_PAYLOAD_SIZE    16u
+
+#define VSPD_PORT_INFO_ATTACHED      UINT32_C(0x01)
+#define VSPD_PORT_INFO_STARTED       UINT32_C(0x02)
+#define VSPD_PORT_INFO_RESET_LATCHED UINT32_C(0x04)
+#define VSPD_PORT_INFO_EVER_ATTACHED UINT32_C(0x08)
+#define VSPD_PORT_INFO_KNOWN_MASK    UINT32_C(0x0f)
 
 /*
  * Fixed protocol status values. They intentionally mirror the current public
@@ -119,6 +131,21 @@ typedef struct vspd_capabilities_payload {
     uint32_t buffer_alignment;
 } vspd_capabilities_payload_t;
 
+typedef struct vspd_server_info_payload {
+    uint32_t port_count;
+    uint32_t client_capacity;
+    uint32_t packet_queue_depth;
+    uint32_t time_code_queue_depth;
+    uint32_t max_logical_packet;
+} vspd_server_info_payload_t;
+
+typedef struct vspd_port_info_payload {
+    uint32_t flags;
+    uint32_t link_state;
+    uint32_t packet_queue_count;
+    uint32_t time_code_queue_count;
+} vspd_port_info_payload_t;
+
 typedef struct vspd_statistics_payload {
     uint64_t tx_packets;
     uint64_t rx_packets;
@@ -150,6 +177,16 @@ void vspd_encode_capabilities(const vspd_capabilities_payload_t* value,
                               uint8_t out[VSPD_CAPABILITIES_PAYLOAD_SIZE]);
 void vspd_decode_capabilities(const uint8_t in[VSPD_CAPABILITIES_PAYLOAD_SIZE],
                               vspd_capabilities_payload_t* out);
+
+void vspd_encode_server_info(const vspd_server_info_payload_t* value,
+                             uint8_t out[VSPD_SERVER_INFO_PAYLOAD_SIZE]);
+void vspd_decode_server_info(const uint8_t in[VSPD_SERVER_INFO_PAYLOAD_SIZE],
+                             vspd_server_info_payload_t* out);
+
+void vspd_encode_port_info(const vspd_port_info_payload_t* value,
+                           uint8_t out[VSPD_PORT_INFO_PAYLOAD_SIZE]);
+void vspd_decode_port_info(const uint8_t in[VSPD_PORT_INFO_PAYLOAD_SIZE],
+                           vspd_port_info_payload_t* out);
 
 void vspd_encode_statistics(const vspd_statistics_payload_t* value,
                             uint8_t out[VSPD_STATISTICS_PAYLOAD_SIZE]);

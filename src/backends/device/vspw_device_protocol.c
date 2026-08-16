@@ -38,7 +38,7 @@ static void vspd_write_be64(uint8_t* p, uint64_t value) {
 }
 
 static int vspd_type_valid(uint8_t type) {
-    return type >= VSPD_MSG_HELLO && type <= VSPD_MSG_LINK_STATE_EVENT;
+    return type >= VSPD_MSG_HELLO && type <= VSPD_MSG_CLEAR_PORT_STATISTICS;
 }
 
 static int vspd_type_is_event(uint8_t type) {
@@ -71,7 +71,12 @@ static uint32_t vspd_success_response_payload_size(uint8_t type) {
         case VSPD_MSG_GET_CAPABILITIES:
             return VSPD_CAPABILITIES_PAYLOAD_SIZE;
         case VSPD_MSG_GET_STATISTICS:
+        case VSPD_MSG_GET_PORT_STATISTICS:
             return VSPD_STATISTICS_PAYLOAD_SIZE;
+        case VSPD_MSG_GET_SERVER_INFO:
+            return VSPD_SERVER_INFO_PAYLOAD_SIZE;
+        case VSPD_MSG_GET_PORT_INFO:
+            return VSPD_PORT_INFO_PAYLOAD_SIZE;
         default:
             return 0u;
     }
@@ -202,6 +207,10 @@ static vspd_codec_result_t vspd_validate_payload_shape(const vspd_header_t* head
                 case VSPD_MSG_GET_CAPABILITIES:
                 case VSPD_MSG_GET_STATISTICS:
                 case VSPD_MSG_CLEAR_STATISTICS:
+                case VSPD_MSG_GET_SERVER_INFO:
+                case VSPD_MSG_GET_PORT_INFO:
+                case VSPD_MSG_GET_PORT_STATISTICS:
+                case VSPD_MSG_CLEAR_PORT_STATISTICS:
                     if (header->payload_size != 0u) {
                         return VSPD_CODEC_INVALID_SHAPE;
                     }
@@ -247,6 +256,16 @@ static vspd_codec_result_t vspd_validate_payload_shape(const vspd_header_t* head
             header->type == VSPD_MSG_LINK_STATE_EVENT) {
             if (header->payload_size == VSPD_LINK_STATE_PAYLOAD_SIZE &&
                 vspd_read_be32(payload) > VSPD_LINK_RUN) {
+                return VSPD_CODEC_INVALID_SHAPE;
+            }
+        }
+        if (header->type == VSPD_MSG_GET_PORT_INFO && response &&
+            header->status == VSPD_STATUS_OK &&
+            header->payload_size == VSPD_PORT_INFO_PAYLOAD_SIZE) {
+            const uint32_t flags = vspd_read_be32(payload + 0u);
+            const uint32_t state = vspd_read_be32(payload + 4u);
+            if ((flags & ~VSPD_PORT_INFO_KNOWN_MASK) != 0u ||
+                state > VSPD_LINK_RUN) {
                 return VSPD_CODEC_INVALID_SHAPE;
             }
         }
@@ -355,6 +374,52 @@ void vspd_encode_u32_payload(uint32_t value, uint8_t out[4]) {
 
 uint32_t vspd_decode_u32_payload(const uint8_t in[4]) {
     return in == NULL ? 0u : vspd_read_be32(in);
+}
+
+void vspd_encode_server_info(const vspd_server_info_payload_t* value,
+                             uint8_t out[VSPD_SERVER_INFO_PAYLOAD_SIZE]) {
+    if (value == NULL || out == NULL) {
+        return;
+    }
+    vspd_write_be32(out + 0u, value->port_count);
+    vspd_write_be32(out + 4u, value->client_capacity);
+    vspd_write_be32(out + 8u, value->packet_queue_depth);
+    vspd_write_be32(out + 12u, value->time_code_queue_depth);
+    vspd_write_be32(out + 16u, value->max_logical_packet);
+}
+
+void vspd_decode_server_info(const uint8_t in[VSPD_SERVER_INFO_PAYLOAD_SIZE],
+                             vspd_server_info_payload_t* out) {
+    if (in == NULL || out == NULL) {
+        return;
+    }
+    out->port_count = vspd_read_be32(in + 0u);
+    out->client_capacity = vspd_read_be32(in + 4u);
+    out->packet_queue_depth = vspd_read_be32(in + 8u);
+    out->time_code_queue_depth = vspd_read_be32(in + 12u);
+    out->max_logical_packet = vspd_read_be32(in + 16u);
+}
+
+void vspd_encode_port_info(const vspd_port_info_payload_t* value,
+                           uint8_t out[VSPD_PORT_INFO_PAYLOAD_SIZE]) {
+    if (value == NULL || out == NULL) {
+        return;
+    }
+    vspd_write_be32(out + 0u, value->flags);
+    vspd_write_be32(out + 4u, value->link_state);
+    vspd_write_be32(out + 8u, value->packet_queue_count);
+    vspd_write_be32(out + 12u, value->time_code_queue_count);
+}
+
+void vspd_decode_port_info(const uint8_t in[VSPD_PORT_INFO_PAYLOAD_SIZE],
+                           vspd_port_info_payload_t* out) {
+    if (in == NULL || out == NULL) {
+        return;
+    }
+    out->flags = vspd_read_be32(in + 0u);
+    out->link_state = vspd_read_be32(in + 4u);
+    out->packet_queue_count = vspd_read_be32(in + 8u);
+    out->time_code_queue_count = vspd_read_be32(in + 12u);
 }
 
 void vspd_encode_capabilities(const vspd_capabilities_payload_t* value,

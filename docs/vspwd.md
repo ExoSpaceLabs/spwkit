@@ -74,6 +74,20 @@ The socket is a Unix-domain `SOCK_SEQPACKET` endpoint. `SIGINT` or `SIGTERM` sto
 
 The `/tmp` default is intended for development/testing. A packaged/system service can choose a runtime-directory path through `--socket`; no public application ABI depends on the default path.
 
+## Management with `spwctl`
+
+Build the optional pure-C tools with `SPWKIT_BUILD_TOOLS=ON`. `spwctl` uses a HELLO-only VSPD management connection and never ATTACHes to an application port.
+
+```sh
+spwctl list
+spwctl show 0
+spwctl stats 0
+spwctl clear-stats 0
+spwctl --socket /tmp/my-mission-vspwd.sock list
+```
+
+`list`/`show` expose attachment, started/reset state, link state and bounded queue occupancy. Statistics inspection and clearing operate on daemon counters without consuming DATA/TIME_CODE events. This slice intentionally does not let `spwctl` START/STOP/RESET an attached application-owned port; ownership semantics remain unambiguous until an explicit administrative override model is designed.
+
 ## Initial topology
 
 The first v0.4 daemon owns exactly two virtual ports:

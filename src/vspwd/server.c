@@ -268,6 +268,33 @@ static int32_t vspwd_validate_attached_request(const vspwd_client_t* client,
     return VSPD_STATUS_OK;
 }
 
+static int32_t vspwd_validate_management_request(
+    const vspwd_client_t* client,
+    const vspd_header_t* header,
+    bool requires_port) {
+    if (!client->hello_done || client->port_id >= 0) {
+        return VSPD_STATUS_INVALID_STATE;
+    }
+    if (requires_port && header->port_id >= VSPWD_PORT_COUNT) {
+        return VSPD_STATUS_INVALID_ARGUMENT;
+    }
+    return VSPD_STATUS_OK;
+}
+
+static void vspwd_statistics_to_wire(const spw_statistics_t* source,
+                                     vspd_statistics_payload_t* destination) {
+    memset(destination, 0, sizeof(*destination));
+    destination->tx_packets = source->tx_packets;
+    destination->rx_packets = source->rx_packets;
+    destination->tx_bytes = source->tx_bytes;
+    destination->rx_bytes = source->rx_bytes;
+    destination->tx_time_codes = source->tx_time_codes;
+    destination->rx_time_codes = source->rx_time_codes;
+    destination->eep_packets = source->eep_packets;
+    destination->link_errors = source->link_errors;
+    destination->dropped_packets = source->dropped_packets;
+}
+
 static void vspwd_detach_client(vspwd_server_t* server, int client_index) {
     vspwd_client_t* client = &server->clients[client_index];
     if (client->port_id >= 0 && client->port_id < VSPWD_PORT_COUNT) {
@@ -591,20 +618,11 @@ static bool vspwd_handle_request(vspwd_server_t* server,
 
         case VSPD_MSG_GET_STATISTICS: {
             vspd_statistics_payload_t statistics;
-            const spw_statistics_t* source;
             status = vspwd_validate_attached_request(client, &header);
             memset(&statistics, 0, sizeof(statistics));
             if (status == VSPD_STATUS_OK) {
-                source = &server->ports[client->port_id].statistics;
-                statistics.tx_packets = source->tx_packets;
-                statistics.rx_packets = source->rx_packets;
-                statistics.tx_bytes = source->tx_bytes;
-                statistics.rx_bytes = source->rx_bytes;
-                statistics.tx_time_codes = source->tx_time_codes;
-                statistics.rx_time_codes = source->rx_time_codes;
-                statistics.eep_packets = source->eep_packets;
-                statistics.link_errors = source->link_errors;
-                statistics.dropped_packets = source->dropped_packets;
+                vspwd_statistics_to_wire(
+                    &server->ports[client->port_id].statistics, &statistics);
                 vspd_encode_statistics(&statistics, response_payload);
             }
             return vspwd_queue_response(client,
@@ -620,6 +638,81 @@ static bool vspwd_handle_request(vspwd_server_t* server,
                 memset(&server->ports[client->port_id].statistics,
                        0,
                        sizeof(server->ports[client->port_id].statistics));
+            }
+            return vspwd_queue_response(client, &header, status, NULL, 0u);
+
+        case VSPD_MSG_GET_SERVER_INFO: {
+            vspd_server_info_payload_t info;
+            status = vspwd_validate_management_request(client, &header, false);
+            memset(&info, 0, sizeof(info));
+            if (status == VSPD_STATUS_OK) {
+                info.port_count = VSPWD_PORT_COUNT;
+                info.client_capacity = VSPWD_CLIENT_COUNT;
+                info.packet_queue_depth = VSPWD_PACKET_QUEUE_DEPTH;
+                info.time_code_queue_depth = VSPWD_TIME_CODE_QUEUE_DEPTH;
+                info.max_logical_packet = VSPD_MAX_LOGICAL_PACKET;
+                vspd_encode_server_info(&info, response_payload);
+            }
+            return vspwd_queue_response(client,
+                                        &header,
+                                        status,
+                                        response_payload,
+                                        VSPD_SERVER_INFO_PAYLOAD_SIZE);
+        }
+
+        case VSPD_MSG_GET_PORT_INFO: {
+            vspd_port_info_payload_t info;
+            const vspwd_port_t* port = NULL;
+            status = vspwd_validate_management_request(client, &header, true);
+            memset(&info, 0, sizeof(info));
+            if (status == VSPD_STATUS_OK) {
+                port = &server->ports[header.port_id];
+                if (port->client_index >= 0) {
+                    info.flags |= VSPD_PORT_INFO_ATTACHED;
+                }
+                if (port->started) {
+                    info.flags |= VSPD_PORT_INFO_STARTED;
+                }
+                if (port->reset_latched) {
+                    info.flags |= VSPD_PORT_INFO_RESET_LATCHED;
+                }
+                if (port->ever_attached) {
+                    info.flags |= VSPD_PORT_INFO_EVER_ATTACHED;
+                }
+                info.link_state = port->state;
+                info.packet_queue_count = port->packets.count;
+                info.time_code_queue_count = port->time_codes.count;
+                vspd_encode_port_info(&info, response_payload);
+            }
+            return vspwd_queue_response(client,
+                                        &header,
+                                        status,
+                                        response_payload,
+                                        VSPD_PORT_INFO_PAYLOAD_SIZE);
+        }
+
+        case VSPD_MSG_GET_PORT_STATISTICS: {
+            vspd_statistics_payload_t statistics;
+            status = vspwd_validate_management_request(client, &header, true);
+            memset(&statistics, 0, sizeof(statistics));
+            if (status == VSPD_STATUS_OK) {
+                vspwd_statistics_to_wire(
+                    &server->ports[header.port_id].statistics, &statistics);
+                vspd_encode_statistics(&statistics, response_payload);
+            }
+            return vspwd_queue_response(client,
+                                        &header,
+                                        status,
+                                        response_payload,
+                                        VSPD_STATISTICS_PAYLOAD_SIZE);
+        }
+
+        case VSPD_MSG_CLEAR_PORT_STATISTICS:
+            status = vspwd_validate_management_request(client, &header, true);
+            if (status == VSPD_STATUS_OK) {
+                memset(&server->ports[header.port_id].statistics,
+                       0,
+                       sizeof(server->ports[header.port_id].statistics));
             }
             return vspwd_queue_response(client, &header, status, NULL, 0u);
 

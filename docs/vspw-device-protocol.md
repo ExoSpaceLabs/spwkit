@@ -1,4 +1,4 @@
-# VSPD v1 — virtual SpaceWire device protocol
+# VSPD v1.1 — virtual SpaceWire device protocol
 
 VSPD is the private protocol between a hosted SpWKit Linux-device backend and the `vspwd` userspace service.
 
@@ -52,13 +52,13 @@ Native structures are never transmitted with `send(sizeof(struct))`. No pointer,
 
 ## Fixed 40-byte header
 
-VSPD v1.0 uses a fixed 40-byte header:
+VSPD v1.1 uses the same fixed 40-byte header:
 
 | Offset | Size | Field | Meaning |
 |---:|---:|---|---|
 | 0 | 4 | magic | ASCII `VSPD`, `0x56535044` |
 | 4 | 1 | version_major | `1` |
-| 5 | 1 | version_minor | `0` |
+| 5 | 1 | version_minor | `1` |
 | 6 | 1 | type | message type |
 | 7 | 1 | flags | response/fragment/terminator bits |
 | 8 | 2 | header_size | `40` |
@@ -106,6 +106,10 @@ The final DATA fragment carries exactly one of EOP or EEP. Non-final fragments c
 | 13 | `GET_STATISTICS` | request/response |
 | 14 | `CLEAR_STATISTICS` | request/response |
 | 15 | `LINK_STATE_EVENT` | asynchronous event |
+| 16 | `GET_SERVER_INFO` | non-owning management request/response |
+| 17 | `GET_PORT_INFO` | non-owning management request/response |
+| 18 | `GET_PORT_STATISTICS` | non-owning management request/response |
+| 19 | `CLEAR_PORT_STATISTICS` | non-owning management request/response |
 
 Synchronous requests use a non-zero `request_id`. Their response repeats the message type and request ID and sets `RESPONSE`.
 
@@ -140,12 +144,12 @@ Payload, exactly four bytes:
 
 ```text
 byte 0  major = 1
-byte 1  minor = 0
+byte 1  minor = 1
 byte 2  reserved = 0
 byte 3  reserved = 0
 ```
 
-The v1.0 codec currently requires an exact 1.0 match. Version-range negotiation can be introduced in a later protocol revision rather than inferred from native package versions.
+The v1.1 codec currently requires an exact 1.1 match. Version-range negotiation can be introduced in a later protocol revision rather than inferred from native package versions.
 
 Protocol version and SpWKit package/API version are intentionally independent.
 
@@ -162,7 +166,7 @@ Initial v0.4 semantics:
 - daemon configuration/topology decides which virtual ports are peers or bridges;
 - application code does not configure private daemon routing through VSPD DATA operations.
 
-A later management protocol used by `spwctl` may configure topology, but that remains distinct from ordinary application packet I/O.
+VSPD 1.1 adds a separate non-owning management connection used by `spwctl`. A management client performs HELLO but never ATTACHes to a virtual port. It can discover daemon bounds, inspect per-port ownership/link/queue state, read per-port statistics, and clear statistics without displacing the application owner. Lifecycle overrides and topology mutation are deliberately not part of v1.1.
 
 ## Link-state semantics
 
@@ -275,6 +279,14 @@ Successful `GET_STATISTICS` response is nine network-order `u64` values, 72 byte
 9. dropped packets
 
 `CLEAR_STATISTICS` has no request or success-response payload.
+
+## Management payloads
+
+`GET_SERVER_INFO` is valid after HELLO without ATTACH. Its 20-byte success payload is five network-order `u32` values: port count, client capacity, packet queue depth, time-code queue depth, and maximum logical packet size.
+
+`GET_PORT_INFO` is also HELLO-only and uses the header `port_id` as the queried port. Its 16-byte success payload contains flags, link state, queued packet count, and queued time-code count. Flags report attached, started, reset-latched and ever-attached state.
+
+`GET_PORT_STATISTICS` returns the normal 72-byte statistics payload for the selected port. `CLEAR_PORT_STATISTICS` clears those counters and returns no payload. These operations do not ATTACH, START, STOP, RESET, dequeue traffic, or alter application ownership.
 
 ## Blocking, non-blocking and `poll()` direction
 
