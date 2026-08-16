@@ -55,6 +55,22 @@ extern "C" {
 #define VSPD_TIME_CODE_PAYLOAD_SIZE    2u
 #define VSPD_STATISTICS_PAYLOAD_SIZE   72u
 
+/*
+ * Fixed protocol status values. They intentionally mirror the current public
+ * spw_result_t meanings, but are defined independently so the wire protocol
+ * never depends on process-local enum/typedef representation.
+ */
+#define VSPD_STATUS_OK                 INT32_C(0)
+#define VSPD_STATUS_INVALID_ARGUMENT   INT32_C(-1)
+#define VSPD_STATUS_INVALID_STATE      INT32_C(-2)
+#define VSPD_STATUS_TIMEOUT            INT32_C(-3)
+#define VSPD_STATUS_UNSUPPORTED        INT32_C(-4)
+#define VSPD_STATUS_RESOURCE_EXHAUSTED INT32_C(-5)
+#define VSPD_STATUS_LINK_UNAVAILABLE   INT32_C(-6)
+#define VSPD_STATUS_BUFFER_TOO_SMALL   INT32_C(-7)
+#define VSPD_STATUS_INVALID_PACKET     INT32_C(-8)
+#define VSPD_STATUS_BACKEND            INT32_C(-9)
+
 /* Wire link-state values are explicit protocol constants, not native structs. */
 #define VSPD_LINK_ERROR_RESET 0u
 #define VSPD_LINK_ERROR_WAIT  1u
