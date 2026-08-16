@@ -177,6 +177,9 @@ if(SPWKIT_BUILD_TESTS)
     include(CTest)
     enable_testing()
     add_subdirectory(tests)
+    if(SPWKIT_BUILD_VSPWD)
+        add_subdirectory(tests/device)
+    endif()
 endif()
 
 install(
