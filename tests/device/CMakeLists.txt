@@ -4,6 +4,15 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT SPWKIT_BUILD_VSPWD)
     return()
 endif()
 
+# These integration programs use assert() as executable test assertions,
+# including around operations that establish protocol state. Keep assertions
+# active in Release builds just like the main tests/ directory does.
+if(MSVC)
+    add_compile_options(/UNDEBUG)
+else()
+    add_compile_options(-UNDEBUG)
+endif()
+
 add_executable(spwkit_vspwd_raw_peer ../vspwd_raw_peer.c)
 target_link_libraries(spwkit_vspwd_raw_peer PRIVATE spwkit::spwkit)
 target_include_directories(spwkit_vspwd_raw_peer PRIVATE ${PROJECT_SOURCE_DIR}/src)
