@@ -1,9 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 
 # The implementation baseline is C. C++ is enabled only when a selected
-# backend/test/example still needs it during the v0.3 migration. Once the
-# simulator and UDP conversions land, normal library builds no longer enable
-# CXX unless the optional wrapper or C++ tests/examples are requested.
+# component still needs it during the v0.3 migration. The simulator is C11;
+# UDP remains the final runtime C++ dependency until #48 lands.
 project(
     spwkit
     VERSION 0.2.0
@@ -21,11 +20,6 @@ option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend when supporte
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 
-# v0.2/v0.3 transition runtime platform policy: the distributed UDP backend is
-# currently implemented on POSIX hosts only. The public UDP configuration/API
-# remains available on every platform so source/package compatibility does not
-# depend on native socket types. Unsupported builds reject UDP selection with
-# SPW_ERR_UNSUPPORTED.
 if(SPWKIT_BUILD_UDP AND UNIX)
     set(SPWKIT_UDP_RUNTIME_SUPPORTED ON)
 else()
@@ -38,21 +32,16 @@ if(SPWKIT_BUILD_UDP AND NOT UNIX)
         "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
 endif()
 
-# Transitional language enablement. The core + loopback path is already C11.
-# Simulator/UDP implementations and much of the current test suite are still
-# C++ while #47/#48 migrate them. A C-only library build therefore needs no CXX
-# compiler when those components and C++ tests/examples are disabled.
+# Core, loopback and simulator are C11. CXX is enabled only for the remaining
+# C++ UDP runtime or for C++ tests/examples during the migration.
 set(SPWKIT_NEEDS_CXX OFF)
-if(SPWKIT_BUILD_SIMULATOR OR SPWKIT_UDP_RUNTIME_SUPPORTED OR
-   SPWKIT_BUILD_TESTS OR SPWKIT_BUILD_EXAMPLES)
+if(SPWKIT_UDP_RUNTIME_SUPPORTED OR SPWKIT_BUILD_TESTS OR SPWKIT_BUILD_EXAMPLES)
     set(SPWKIT_NEEDS_CXX ON)
 endif()
 if(SPWKIT_NEEDS_CXX)
     enable_language(CXX)
 endif()
 
-# Apply exception/RTTI policy only to C++ translation units. C sources remain
-# ordinary C11 and never inherit C++-specific compiler flags.
 function(spwkit_apply_no_throw_policy target_name)
     if(MSVC)
         target_compile_options(${target_name} PRIVATE
@@ -72,8 +61,9 @@ set(SPWKIT_SOURCES
 
 if(SPWKIT_BUILD_SIMULATOR)
     list(APPEND SPWKIT_SOURCES
-        src/backends/virtual/simulator_backend.cpp
-        src/backends/virtual/simulator_zero_copy.cpp
+        src/platform/host_sync.c
+        src/backends/virtual/simulator_backend.c
+        src/backends/virtual/simulator_factory_compat.c
     )
 endif()
 
@@ -81,6 +71,7 @@ if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     list(APPEND SPWKIT_SOURCES
         src/backends/ethernet/vspw_tp.cpp
         src/backends/ethernet/udp_backend.cpp
+        src/core/cpp_backend_bridge.cpp
     )
 elseif(SPWKIT_BUILD_TESTS)
     # Internal codec tests still exercise the v0.2 C++ VSPW-TP implementation
@@ -88,13 +79,6 @@ elseif(SPWKIT_BUILD_TESTS)
     list(APPEND SPWKIT_SOURCES src/backends/ethernet/vspw_tp.cpp)
 endif()
 
-if(SPWKIT_BUILD_SIMULATOR OR SPWKIT_UDP_RUNTIME_SUPPORTED)
-    list(APPEND SPWKIT_SOURCES src/core/cpp_backend_bridge.cpp)
-endif()
-
-# Respect the standard CMake BUILD_SHARED_LIBS switch. Static remains the
-# default and is the natural embedded profile; hosted builds may opt into a
-# shared library without changing the target name or public API.
 add_library(spwkit ${SPWKIT_SOURCES})
 add_library(SpWKit::spwkit ALIAS spwkit)
 
@@ -113,8 +97,14 @@ target_include_directories(spwkit
 
 spwkit_apply_no_throw_policy(spwkit)
 
+set(SPWKIT_HOST_THREADS_REQUIRED OFF)
 if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_SIMULATOR=1)
+    if(UNIX)
+        set(SPWKIT_HOST_THREADS_REQUIRED ON)
+        find_package(Threads REQUIRED)
+        target_link_libraries(spwkit PRIVATE Threads::Threads)
+    endif()
 endif()
 
 if(SPWKIT_UDP_RUNTIME_SUPPORTED)
