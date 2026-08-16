@@ -1,0 +1,401 @@
+name: Patch virtual link timing
+
+on:
+  push:
+    branches: [agent/v0.2-virtual-link-timing]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/v0.2-virtual-link-timing
+      - name: Implement virtual link timing
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"needle not found in {path}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Public UDP configuration: append timing controls and bump the
+          # backend-specific configuration version while retaining the normal
+          # spw_port_* application API.
+          replace('include/spwkit/udp.h',
+                  '#define SPW_UDP_CONFIG_VERSION 1u\n',
+                  '#define SPW_UDP_CONFIG_VERSION 2u\n')
+          replace('include/spwkit/udp.h',
+                  '#define SPW_UDP_DEFAULT_PEER_TIMEOUT_MS 3000u\n',
+                  '#define SPW_UDP_DEFAULT_PEER_TIMEOUT_MS 3000u\n'
+                  '#define SPW_UDP_DEFAULT_VIRTUAL_LINK_BPS 0ull\n'
+                  '#define SPW_UDP_DEFAULT_VIRTUAL_LATENCY_US 0u\n')
+          replace('include/spwkit/udp.h',
+                  '    uint32_t peer_timeout_ms;\n    uint32_t reserved;\n',
+                  '    uint32_t peer_timeout_ms;\n'
+                  '    uint64_t virtual_link_bps;\n'
+                  '    uint32_t virtual_latency_us;\n'
+                  '    uint32_t reserved;\n')
+          replace('include/spwkit/udp.h',
+                  '      (uint32_t)SPW_UDP_DEFAULT_KEEPALIVE_INTERVAL_MS, \\\n      (uint32_t)SPW_UDP_DEFAULT_PEER_TIMEOUT_MS, 0u }\n',
+                  '      (uint32_t)SPW_UDP_DEFAULT_KEEPALIVE_INTERVAL_MS, \\\n      (uint32_t)SPW_UDP_DEFAULT_PEER_TIMEOUT_MS, \\\n      (uint64_t)SPW_UDP_DEFAULT_VIRTUAL_LINK_BPS, \\\n      (uint32_t)SPW_UDP_DEFAULT_VIRTUAL_LATENCY_US, 0u }\n')
+          replace('include/spwkit/udp.h',
+                  ' * service the backend, and uses keepalives to detect/recover peer liveness.\n */\n',
+                  ' * service the backend, and uses keepalives to detect/recover peer liveness.\n'
+                  ' *\n'
+                  ' * Optional virtual-link timing is SpaceWire-side simulation state, not\n'
+                  ' * UDP transport timing. A zero bit rate disables serialization delay and\n'
+                  ' * a zero latency disables the fixed propagation/processing delay.\n'
+                  ' */\n')
+
+          Path('src/backends/ethernet/virtual_link_timing.hpp').write_text(r'''// SPDX-License-Identifier: Apache-2.0
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace spwkit::ethernet {
+
+enum class VirtualLinkEvent : std::uint8_t {
+    Data = 0u,
+    TimeCode,
+};
+
+/*
+ * Deterministic SpaceWire-side timing model used by distributed simulation.
+ *
+ * This is deliberately an effective logical timing model rather than a
+ * character/signal-accurate PHY model. DATA charges payload bytes plus one
+ * logical terminator octet; TIME_CODE charges its two-byte logical event.
+ * Fixed latency is added once per logical event. Transport ACK/KEEPALIVE and
+ * reliability retransmissions are intentionally outside this model.
+ */
+class VirtualLinkTiming {
+public:
+    constexpr VirtualLinkTiming(std::uint64_t link_bps = 0u,
+                                std::uint32_t latency_us = 0u) noexcept
+        : link_bps_(link_bps), latency_us_(latency_us) {}
+
+    constexpr bool enabled() const noexcept {
+        return link_bps_ != 0u || latency_us_ != 0u;
+    }
+
+    constexpr std::uint64_t serialization_us(VirtualLinkEvent event,
+                                             std::size_t payload_size) const noexcept {
+        if (link_bps_ == 0u) {
+            return 0u;
+        }
+
+        const std::uint64_t effective_octets =
+            event == VirtualLinkEvent::Data
+                ? static_cast<std::uint64_t>(payload_size) + 1u
+                : 2u;
+        const std::uint64_t bit_microseconds = effective_octets * 8u * 1000000u;
+        const std::uint64_t whole = bit_microseconds / link_bps_;
+        return whole + (bit_microseconds % link_bps_ != 0u ? 1u : 0u);
+    }
+
+    constexpr std::uint64_t delay_us(VirtualLinkEvent event,
+                                     std::size_t payload_size) const noexcept {
+        return serialization_us(event, payload_size) + latency_us_;
+    }
+
+    constexpr std::uint64_t link_bps() const noexcept {
+        return link_bps_;
+    }
+
+    constexpr std::uint32_t latency_us() const noexcept {
+        return latency_us_;
+    }
+
+private:
+    std::uint64_t link_bps_{0u};
+    std::uint32_t latency_us_{0u};
+};
+
+} // namespace spwkit::ethernet
+''')
+
+          replace('src/backends/ethernet/udp_backend.hpp',
+                  '#include "backends/ethernet/fragment_reassembler.hpp"\n#include "backends/ethernet/vspw_tp.hpp"\n',
+                  '#include "backends/ethernet/fragment_reassembler.hpp"\n'
+                  '#include "backends/ethernet/virtual_link_timing.hpp"\n'
+                  '#include "backends/ethernet/vspw_tp.hpp"\n')
+          replace('src/backends/ethernet/udp_backend.hpp',
+                  '    using FragmentReassembler = spwkit::ethernet::FragmentReassembler<max_packet_size>;\n',
+                  '    using FragmentReassembler = spwkit::ethernet::FragmentReassembler<max_packet_size>;\n'
+                  '    using VirtualLinkTiming = spwkit::ethernet::VirtualLinkTiming;\n'
+                  '    using VirtualLinkEvent = spwkit::ethernet::VirtualLinkEvent;\n')
+          replace('src/backends/ethernet/udp_backend.hpp',
+                  '    spw_result_t send_datagram(const std::uint8_t* bytes,\n                               std::size_t size,\n                               spw_timeout_us_t timeout_us) noexcept;\n',
+                  '    spw_result_t send_datagram(const std::uint8_t* bytes,\n'
+                  '                               std::size_t size,\n'
+                  '                               spw_timeout_us_t timeout_us) noexcept;\n'
+                  '    spw_result_t wait_virtual_link_delay(std::uint64_t delay_us,\n'
+                  '                                         spw_timeout_us_t timeout_us) noexcept;\n')
+          replace('src/backends/ethernet/udp_backend.hpp',
+                  '    spw_udp_config_t config_{};\n    int socket_fd_{-1};\n',
+                  '    spw_udp_config_t config_{};\n'
+                  '    VirtualLinkTiming virtual_timing_{};\n'
+                  '    int socket_fd_{-1};\n')
+
+          replace('src/backends/ethernet/udp_backend.cpp',
+                  'UdpBackend::UdpBackend(const spw_udp_config_t& config) noexcept : config_(config) {}\n',
+                  'UdpBackend::UdpBackend(const spw_udp_config_t& config) noexcept\n'
+                  '    : config_(config),\n'
+                  '      virtual_timing_(config.virtual_link_bps, config.virtual_latency_us) {}\n')
+
+          send_end = '''    const ssize_t sent = ::sendto(socket_fd_, bytes, size, 0,\n                                  reinterpret_cast<const sockaddr*>(&remote),\n                                  sizeof(remote));\n    return sent == static_cast<ssize_t>(size) ? SPW_OK : SPW_ERR_BACKEND;\n}\n\nspw_result_t UdpBackend::send_ack'''
+          send_repl = '''    const ssize_t sent = ::sendto(socket_fd_, bytes, size, 0,\n                                  reinterpret_cast<const sockaddr*>(&remote),\n                                  sizeof(remote));\n    return sent == static_cast<ssize_t>(size) ? SPW_OK : SPW_ERR_BACKEND;\n}\n\nspw_result_t UdpBackend::wait_virtual_link_delay(\n    std::uint64_t delay_us, spw_timeout_us_t timeout_us) noexcept {\n    if (delay_us == 0u) {\n        return SPW_OK;\n    }\n    if (timeout_us != SPW_TIMEOUT_INFINITE &&\n        static_cast<std::uint64_t>(timeout_us) < delay_us) {\n        return SPW_ERR_TIMEOUT;\n    }\n\n    Deadline deadline(timeout_us);\n    const TimePoint target = Clock::now() + std::chrono::microseconds(delay_us);\n    while (Clock::now() < target) {\n        const auto now = Clock::now();\n        const auto remaining_count =\n            std::chrono::duration_cast<std::chrono::microseconds>(target - now).count();\n        const spw_timeout_us_t timing_slice = remaining_count <= 0\n            ? SPW_TIMEOUT_IMMEDIATE\n            : static_cast<spw_timeout_us_t>(remaining_count);\n        const spw_result_t result = pump_one(\n            min_timeout(deadline.remaining(), timing_slice));\n        if (result != SPW_OK && result != SPW_ERR_TIMEOUT &&\n            result != SPW_ERR_RESOURCE_EXHAUSTED) {\n            return result;\n        }\n        if (Clock::now() >= target) {\n            return SPW_OK;\n        }\n        if (deadline.expired()) {\n            return SPW_ERR_TIMEOUT;\n        }\n    }\n    return SPW_OK;\n}\n\nspw_result_t UdpBackend::send_ack'''
+          replace('src/backends/ethernet/udp_backend.cpp', send_end, send_repl)
+
+          data_slot = '''    const spw_result_t slot_result = wait_for_tx_slot(deadline.remaining());\n    if (slot_result != SPW_OK) {\n        return slot_result;\n    }\n\n    if (packet.length != 0u) {'''
+          data_timed = '''    const spw_result_t slot_result = wait_for_tx_slot(deadline.remaining());\n    if (slot_result != SPW_OK) {\n        return slot_result;\n    }\n\n    const spw_result_t timing_result = wait_virtual_link_delay(\n        virtual_timing_.delay_us(VirtualLinkEvent::Data, packet.length),\n        deadline.remaining());\n    if (timing_result != SPW_OK) {\n        return timing_result;\n    }\n\n    if (packet.length != 0u) {'''
+          replace('src/backends/ethernet/udp_backend.cpp', data_slot, data_timed)
+
+          time_slot = '''    const spw_result_t slot_result = wait_for_tx_slot(deadline.remaining());\n    if (slot_result != SPW_OK) {\n        return slot_result;\n    }\n\n    pending_tx_time_code_ = time_code;'''
+          time_timed = '''    const spw_result_t slot_result = wait_for_tx_slot(deadline.remaining());\n    if (slot_result != SPW_OK) {\n        return slot_result;\n    }\n\n    const spw_result_t timing_result = wait_virtual_link_delay(\n        virtual_timing_.delay_us(VirtualLinkEvent::TimeCode, kTimeCodePayloadSize),\n        deadline.remaining());\n    if (timing_result != SPW_OK) {\n        return timing_result;\n    }\n\n    pending_tx_time_code_ = time_code;'''
+          replace('src/backends/ethernet/udp_backend.cpp', time_slot, time_timed)
+
+          Path('tests/virtual_link_timing.cpp').write_text(r'''// SPDX-License-Identifier: Apache-2.0
+#include "backends/ethernet/virtual_link_timing.hpp"
+
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+
+using spwkit::ethernet::VirtualLinkEvent;
+using spwkit::ethernet::VirtualLinkTiming;
+
+int main() {
+    constexpr VirtualLinkTiming disabled{};
+    static_assert(!disabled.enabled());
+    static_assert(disabled.delay_us(VirtualLinkEvent::Data, 4096u) == 0u);
+
+    constexpr VirtualLinkTiming latency_only{0u, 250u};
+    static_assert(latency_only.enabled());
+    static_assert(latency_only.serialization_us(VirtualLinkEvent::Data, 10u) == 0u);
+    static_assert(latency_only.delay_us(VirtualLinkEvent::Data, 10u) == 250u);
+
+    /* 124 payload octets + one terminator = 1000 effective bits at 1 Mbit/s. */
+    constexpr VirtualLinkTiming one_mbps{1000000u, 0u};
+    static_assert(one_mbps.serialization_us(VirtualLinkEvent::Data, 124u) == 1000u);
+    static_assert(one_mbps.serialization_us(VirtualLinkEvent::Data, 0u) == 8u);
+    static_assert(one_mbps.serialization_us(VirtualLinkEvent::TimeCode, 2u) == 16u);
+
+    constexpr VirtualLinkTiming rounded{3000000u, 7u};
+    static_assert(rounded.serialization_us(VirtualLinkEvent::Data, 1u) == 6u);
+    static_assert(rounded.delay_us(VirtualLinkEvent::Data, 1u) == 13u);
+
+    assert(rounded.link_bps() == 3000000u);
+    assert(rounded.latency_us() == 7u);
+    return 0;
+}
+''')
+
+          Path('tests/udp_timing.cpp').write_text(r'''// SPDX-License-Identifier: Apache-2.0
+#include <spwkit/port.h>
+#include <spwkit/udp.h>
+
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include <unistd.h>
+
+namespace {
+
+spw_port_t* open_udp(std::uint16_t local_port,
+                     std::uint16_t remote_port,
+                     std::uint32_t link_id) {
+    spw_udp_config_t udp = SPW_UDP_CONFIG_INITIALIZER(local_port, remote_port, link_id);
+    udp.fragment_payload_size = 512u;
+    udp.ack_timeout_ms = 20u;
+    udp.max_retries = 3u;
+    udp.keepalive_interval_ms = 20u;
+    udp.peer_timeout_ms = 250u;
+    udp.virtual_link_bps = 1000000u;
+    udp.virtual_latency_us = 2000u;
+
+    spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
+    config.backend_config = &udp;
+    config.backend_config_size = sizeof(udp);
+
+    spw_port_t* port = nullptr;
+    assert(spw_port_open(&config, &port) == SPW_OK);
+    assert(port != nullptr);
+    assert(spw_port_start(port) == SPW_OK);
+    return port;
+}
+
+void establish(spw_port_t* a, spw_port_t* b) {
+    spw_link_state_t a_state = SPW_LINK_CONNECTING;
+    spw_link_state_t b_state = SPW_LINK_CONNECTING;
+    for (unsigned attempt = 0u; attempt < 100u; ++attempt) {
+        assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+        assert(spw_port_get_link_state(b, &b_state) == SPW_OK);
+        if (a_state == SPW_LINK_RUN && b_state == SPW_LINK_RUN) {
+            return;
+        }
+        ::usleep(1000u);
+    }
+    assert(false && "UDP peers did not establish");
+}
+
+} // namespace
+
+int main() {
+    const std::uint16_t base = static_cast<std::uint16_t>(47000u +
+        (static_cast<unsigned>(::getpid()) % 500u) * 2u);
+    constexpr std::uint32_t link_id = 0x29A29A29u;
+
+    spw_port_t* a = open_udp(base, static_cast<std::uint16_t>(base + 1u), link_id);
+    spw_port_t* b = open_udp(static_cast<std::uint16_t>(base + 1u), base, link_id);
+    establish(a, b);
+
+    std::array<std::uint8_t, 124> tx{};
+    for (std::size_t i = 0u; i < tx.size(); ++i) {
+        tx[i] = static_cast<std::uint8_t>((i * 7u + 5u) & 0xffu);
+    }
+    spw_packet_t outgoing{tx.data(), tx.size(), tx.size(), SPW_TERMINATOR_EOP};
+
+    /* Non-zero virtual timing is deterministic with an immediate timeout. */
+    assert(spw_port_send(a, &outgoing, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_TIMEOUT);
+
+    const spw_time_code_t time_code{17u, 1u};
+    assert(spw_port_send_time_code(a, &time_code, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_TIMEOUT);
+
+    /* A finite budget comfortably above the configured virtual delay succeeds. */
+    assert(spw_port_send(a, &outgoing, 200000u) == SPW_OK);
+    std::array<std::uint8_t, 124> rx{};
+    spw_packet_t incoming{rx.data(), 0u, rx.size(), SPW_TERMINATOR_EOP};
+    assert(spw_port_receive(b, &incoming, 200000u) == SPW_OK);
+    assert(incoming.length == tx.size());
+    assert(std::memcmp(tx.data(), rx.data(), tx.size()) == 0);
+
+    assert(spw_port_send_time_code(a, &time_code, 200000u) == SPW_OK);
+    spw_time_code_t received{};
+    assert(spw_port_receive_time_code(b, &received, 200000u) == SPW_OK);
+    assert(received.time_count == time_code.time_count);
+    assert(received.control_flags == time_code.control_flags);
+
+    assert(spw_port_close(a) == SPW_OK);
+    assert(spw_port_close(b) == SPW_OK);
+    return 0;
+}
+''')
+
+          replace('tests/CMakeLists.txt',
+                  'add_executable(spwkit_fragment_reassembler_test fragment_reassembler.cpp)\n'
+                  'target_link_libraries(spwkit_fragment_reassembler_test PRIVATE SpWKit::spwkit)\n'
+                  'target_include_directories(spwkit_fragment_reassembler_test PRIVATE ${PROJECT_SOURCE_DIR}/src)\n'
+                  'target_compile_features(spwkit_fragment_reassembler_test PRIVATE cxx_std_17)\n'
+                  'spwkit_apply_no_throw_policy(spwkit_fragment_reassembler_test)\n',
+                  'add_executable(spwkit_fragment_reassembler_test fragment_reassembler.cpp)\n'
+                  'target_link_libraries(spwkit_fragment_reassembler_test PRIVATE SpWKit::spwkit)\n'
+                  'target_include_directories(spwkit_fragment_reassembler_test PRIVATE ${PROJECT_SOURCE_DIR}/src)\n'
+                  'target_compile_features(spwkit_fragment_reassembler_test PRIVATE cxx_std_17)\n'
+                  'spwkit_apply_no_throw_policy(spwkit_fragment_reassembler_test)\n\n'
+                  'add_executable(spwkit_virtual_link_timing_test virtual_link_timing.cpp)\n'
+                  'target_link_libraries(spwkit_virtual_link_timing_test PRIVATE SpWKit::spwkit)\n'
+                  'target_include_directories(spwkit_virtual_link_timing_test PRIVATE ${PROJECT_SOURCE_DIR}/src)\n'
+                  'target_compile_features(spwkit_virtual_link_timing_test PRIVATE cxx_std_17)\n'
+                  'spwkit_apply_no_throw_policy(spwkit_virtual_link_timing_test)\n')
+          replace('tests/CMakeLists.txt',
+                  '    add_executable(spwkit_udp_reordering_test udp_reordering.cpp)\n'
+                  '    target_link_libraries(spwkit_udp_reordering_test PRIVATE SpWKit::spwkit)\n'
+                  '    target_include_directories(spwkit_udp_reordering_test PRIVATE ${PROJECT_SOURCE_DIR}/src)\n'
+                  '    target_compile_features(spwkit_udp_reordering_test PRIVATE cxx_std_17)\n'
+                  '    spwkit_apply_no_throw_policy(spwkit_udp_reordering_test)\n',
+                  '    add_executable(spwkit_udp_reordering_test udp_reordering.cpp)\n'
+                  '    target_link_libraries(spwkit_udp_reordering_test PRIVATE SpWKit::spwkit)\n'
+                  '    target_include_directories(spwkit_udp_reordering_test PRIVATE ${PROJECT_SOURCE_DIR}/src)\n'
+                  '    target_compile_features(spwkit_udp_reordering_test PRIVATE cxx_std_17)\n'
+                  '    spwkit_apply_no_throw_policy(spwkit_udp_reordering_test)\n\n'
+                  '    add_executable(spwkit_udp_timing_test udp_timing.cpp)\n'
+                  '    target_link_libraries(spwkit_udp_timing_test PRIVATE SpWKit::spwkit)\n'
+                  '    target_compile_features(spwkit_udp_timing_test PRIVATE cxx_std_17)\n')
+          replace('tests/CMakeLists.txt',
+                  'add_test(NAME fragment_reassembler COMMAND spwkit_fragment_reassembler_test)\n'
+                  'set_tests_properties(fragment_reassembler PROPERTIES LABELS "unit;transport;edge")\n',
+                  'add_test(NAME fragment_reassembler COMMAND spwkit_fragment_reassembler_test)\n'
+                  'set_tests_properties(fragment_reassembler PROPERTIES LABELS "unit;transport;edge")\n'
+                  'add_test(NAME virtual_link_timing COMMAND spwkit_virtual_link_timing_test)\n'
+                  'set_tests_properties(virtual_link_timing PROPERTIES LABELS "unit;transport;timing")\n')
+          replace('tests/CMakeLists.txt',
+                  '    add_test(NAME udp_out_of_order_reassembly COMMAND spwkit_udp_reordering_test)\n'
+                  '    set_tests_properties(udp_out_of_order_reassembly PROPERTIES LABELS "transport;integration;d2d;edge")\n',
+                  '    add_test(NAME udp_out_of_order_reassembly COMMAND spwkit_udp_reordering_test)\n'
+                  '    set_tests_properties(udp_out_of_order_reassembly PROPERTIES LABELS "transport;integration;d2d;edge")\n'
+                  '    add_test(NAME udp_virtual_link_timing COMMAND spwkit_udp_timing_test)\n'
+                  '    set_tests_properties(udp_virtual_link_timing PROPERTIES LABELS "transport;integration;d2d;timing")\n')
+
+          replace('docs/configuration.md',
+                  'udp.peer_timeout_ms = SPW_UDP_DEFAULT_PEER_TIMEOUT_MS;\n',
+                  'udp.peer_timeout_ms = SPW_UDP_DEFAULT_PEER_TIMEOUT_MS;\n'
+                  'udp.virtual_link_bps = SPW_UDP_DEFAULT_VIRTUAL_LINK_BPS;\n'
+                  'udp.virtual_latency_us = SPW_UDP_DEFAULT_VIRTUAL_LATENCY_US;\n')
+          replace('docs/configuration.md',
+                  '`peer_timeout_ms`\n: Time without valid traffic from the configured peer before the backend maps the peer to `SPW_LINK_ERROR_WAIT`. Default: 3000 ms. It must be greater than the keepalive interval.\n\n### Cooperative progress\n',
+                  '`peer_timeout_ms`\n'
+                  ': Time without valid traffic from the configured peer before the backend maps the peer to `SPW_LINK_ERROR_WAIT`. Default: 3000 ms. It must be greater than the keepalive interval.\n\n'
+                  '### Virtual-link timing parameters\n\n'
+                  '`virtual_link_bps`\n'
+                  ': Effective simulated SpaceWire-side bit rate. `0` disables serialization delay, preserving pre-timing behavior. DATA serialization charges the logical payload plus one terminator octet; TIME_CODE charges its two-byte logical event. The model is deliberately not character/signal-accurate PHY simulation.\n\n'
+                  '`virtual_latency_us`\n'
+                  ': Fixed propagation/processing latency added once to each logical DATA or TIME_CODE event. `0` disables fixed latency. ACK, KEEPALIVE and reliability retransmissions are transport mechanisms and do not consume this SpaceWire-side timing budget.\n\n'
+                  'The virtual delay is applied before the first VSPW-TP transmission of a logical event. If the caller timeout is shorter than the required virtual delay, the send returns `SPW_ERR_TIMEOUT` without accepting the event into the reliable TX slot. A transport retransmission of an already accepted logical event does not reapply the simulated SpaceWire delay.\n\n'
+                  '### Cooperative progress\n')
+          replace('docs/configuration.md',
+                  '- default 1200-byte fragment payload.\n',
+                  '- default 1200-byte fragment payload;\n'
+                  '- optional deterministic SpaceWire-side virtual rate/latency timing.\n')
+          replace('docs/configuration.md',
+                  'Configurable virtual rate/latency, deterministic fault injection and capture/Wireshark tooling remain later v0.2 work.\n',
+                  'Deterministic fault injection and capture/Wireshark tooling remain later v0.2 work.\n')
+
+          replace('docs/vspw-tp.md',
+                  'This model deliberately avoids requiring a second thread merely to make two peers work. Blocking receive/wait operations and link-state polling also service keepalive/ACK/retry traffic. Their internal wake interval is bounded by the next keepalive or ACK timeout so retransmission is not delayed behind a longer receive wait.\n\n## Liveness\n',
+                  'This model deliberately avoids requiring a second thread merely to make two peers work. Blocking receive/wait operations and link-state polling also service keepalive/ACK/retry traffic. Their internal wake interval is bounded by the next keepalive or ACK timeout so retransmission is not delayed behind a longer receive wait.\n\n'
+                  '## Virtual-link timing\n\n'
+                  'The UDP backend can apply deterministic SpaceWire-side timing before the first transport transmission of each logical DATA or TIME_CODE event. `virtual_link_bps` controls effective serialization delay and `virtual_latency_us` adds one fixed propagation/processing delay. Both default to zero, preserving the previous immediate transport behavior.\n\n'
+                  'The timing model is intentionally logical rather than PHY-accurate: DATA charges payload bytes plus one logical terminator octet, while TIME_CODE charges its two-byte logical event. ACK and KEEPALIVE are VSPW-TP transport control frames, so they are not delayed by the virtual SpaceWire model. Likewise, retransmitting an already accepted logical message after an ACK timeout does not reapply SpaceWire serialization or propagation latency.\n\n'
+                  'Caller timeouts include this virtual delay. If the remaining timeout cannot cover the configured delay, the send fails with `SPW_ERR_TIMEOUT` before occupying the reliable TX slot. While a non-zero delay is being serviced, the backend can continue processing peer traffic and keepalives; no background worker is required.\n\n'
+                  '## Liveness\n')
+          replace('docs/vspw-tp.md',
+                  '- peer timeout.\n',
+                  '- peer timeout;\n'
+                  '- effective virtual link bit rate;\n'
+                  '- fixed virtual propagation/processing latency.\n')
+
+          replace('docs/roadmap.md',
+                  '- peer restart/session recovery;\n',
+                  '- peer restart/session recovery;\n'
+                  '- deterministic SpaceWire-side virtual link rate/latency timing for DATA and TIME_CODE;\n')
+          replace('docs/roadmap.md',
+                  '- configurable virtual link rate and latency;\n',
+                  '')
+          PY
+      - name: Build and test
+        shell: bash
+        run: |
+          cmake -S . -B build -DSPWKIT_BUILD_TESTS=ON -DSPWKIT_BUILD_EXAMPLES=ON
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Commit implementation
+        shell: bash
+        run: |
+          rm .github/workflows/patch-timing.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(spwkit): add virtual link timing model #29"
+          git push origin HEAD:agent/v0.2-virtual-link-timing
