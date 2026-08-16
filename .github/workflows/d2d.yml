@@ -8,7 +8,7 @@ on:
       - "cmake/**"
       - "include/spwkit/udp.h"
       - "src/backends/ethernet/**"
-      - "src/core/port.cpp"
+      - "src/core/port.c"
       - "tests/udp*.cpp"
       - "tests/contract/**"
       - "tests/d2d/**"
@@ -23,7 +23,7 @@ on:
       - "cmake/**"
       - "include/spwkit/udp.h"
       - "src/backends/ethernet/**"
-      - "src/core/port.cpp"
+      - "src/core/port.c"
       - "tests/udp*.cpp"
       - "tests/contract/**"
       - "tests/d2d/**"
@@ -54,10 +54,13 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/build-d2d/install
           -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_CPP_TESTS=ON
           -DSPWKIT_BUILD_EXAMPLES=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
           -DSPWKIT_BUILD_SIMULATOR=ON
           -DSPWKIT_BUILD_UDP=ON
           -DSPWKIT_ENABLE_HEAP=ON
+          -DSPWKIT_ENABLE_CPP=OFF
 
       - name: Build
         run: cmake --build build-d2d --parallel
@@ -68,11 +71,18 @@ jobs:
       - name: Install SpWKit
         run: cmake --install build-d2d
 
-      - name: Configure installed distributed peer example
-        run: >-
-          cmake -S examples/distributed -B build-distributed
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build-d2d/install
+      - name: Configure installed C-only distributed peer
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S examples/distributed -B build-distributed \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build-d2d/install
+          if grep -q '^CMAKE_CXX_COMPILER:' build-distributed/CMakeCache.txt; then
+            echo "Distributed C example unexpectedly enabled CXX" >&2
+            exit 1
+          fi
 
       - name: Build installed distributed peer example
         run: cmake --build build-distributed --parallel
