@@ -23,6 +23,7 @@ jobs:
           python3 .github/agent_spwctl_patch.py
           python3 .github/agent_spwctl_fix.py
           python3 .github/agent_spwctl_fix2.py
+          python3 .github/agent_spwctl_fix3.py
 
       - name: Configure pure-C management profile
         env:
