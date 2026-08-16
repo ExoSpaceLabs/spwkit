@@ -1,0 +1,25 @@
+name: Patch portable device validator
+on:
+  push:
+    branches:
+      - agent/v04-device-backend
+    paths:
+      - .github/patch_device_fix.py
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/v04-device-backend
+          fetch-depth: 0
+      - run: python3 .github/patch_device_fix.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(spwkit): keep device validation portable C11"
+          git push origin HEAD:agent/v04-device-backend
