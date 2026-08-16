@@ -33,7 +33,7 @@ public:
         covered_bytes_ = 0u;
         message_id_ = 0u;
         total_size_ = 0u;
-        eep_ = false;
+        terminator_flags_ = 0u;
         ack_required_ = false;
         seen_start_ = false;
         seen_end_ = false;
@@ -57,7 +57,7 @@ public:
     }
 
     bool eep() const noexcept {
-        return eep_;
+        return (terminator_flags_ & vspw_tp::FlagEep) != 0u;
     }
 
     bool ack_required() const noexcept {
@@ -79,7 +79,8 @@ public:
             return Result::Invalid;
         }
 
-        const bool eep = (header.flags & FlagEep) != 0u;
+        const std::uint8_t terminator_flags = static_cast<std::uint8_t>(
+            header.flags & static_cast<std::uint8_t>(FlagEop | FlagEep));
         const bool ack_required = (header.flags & FlagAckRequired) != 0u;
         const bool start = (header.flags & FlagFragmentStart) != 0u;
         const bool end = (header.flags & FlagFragmentEnd) != 0u;
@@ -88,10 +89,11 @@ public:
             active_ = true;
             message_id_ = header.message_id;
             total_size_ = header.total_size;
-            eep_ = eep;
+            terminator_flags_ = terminator_flags;
             ack_required_ = ack_required;
         } else if (header.message_id != message_id_ ||
-                   header.total_size != total_size_ || eep != eep_ ||
+                   header.total_size != total_size_ ||
+                   terminator_flags != terminator_flags_ ||
                    ack_required != ack_required_) {
             return Result::Conflict;
         }
@@ -151,7 +153,7 @@ private:
     std::size_t covered_bytes_{0u};
     std::uint32_t message_id_{0u};
     std::uint32_t total_size_{0u};
-    bool eep_{false};
+    std::uint8_t terminator_flags_{0u};
     bool ack_required_{false};
     bool seen_start_{false};
     bool seen_end_{false};
