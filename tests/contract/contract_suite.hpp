@@ -43,6 +43,19 @@ public:
     }
 
     /**
+     * Whether advertised queue depths are strict public non-blocking acceptance
+     * limits that can be validated with SPW_TIMEOUT_IMMEDIATE.
+     *
+     * Some hosted service backends report bounded transport/service capacity but
+     * synchronously confirm each public send across a process boundary. Those
+     * depths remain useful diagnostics, but they are not an immediate-send
+     * guarantee and therefore must not be tested as one.
+     */
+    virtual bool has_strict_bounded_queue_contract() const noexcept {
+        return true;
+    }
+
+    /**
      * Optional zero-copy contract hook.
      *
      * The shared suite calls this only when both endpoints advertise
