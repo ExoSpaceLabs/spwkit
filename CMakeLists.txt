@@ -200,6 +200,17 @@ if(SPWKIT_BUILD_TOOLS)
         C_STANDARD 11
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS OFF)
+
+    add_executable(spwmon
+        src/tools/spwmon.c
+        src/tools/vspd_management_client.c)
+    target_link_libraries(spwmon PRIVATE spwkit::spwkit)
+    target_include_directories(spwmon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(spwmon PRIVATE c_std_11)
+    set_target_properties(spwmon PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF)
 endif()
 
 if(SPWKIT_BUILD_EXAMPLES)
@@ -238,7 +249,7 @@ if(SPWKIT_BUILD_VSPWD)
     install(TARGETS vspwd RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 if(SPWKIT_BUILD_TOOLS)
-    install(TARGETS spwctl RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(TARGETS spwctl spwmon RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
 # C headers are always installed. The optional C++ convenience header is only

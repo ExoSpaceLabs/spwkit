@@ -15,25 +15,30 @@
 
 enum {
     VSPD_MANAGEMENT_TIMEOUT_MS = 2000,
-    VSPD_MANAGEMENT_FRAME_MAX = VSPD_HEADER_SIZE + VSPD_STATISTICS_PAYLOAD_SIZE
+    VSPD_MANAGEMENT_FRAME_MAX = VSPD_HEADER_SIZE + VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE
 };
 
-static bool wait_fd(int fd, short events) {
+static int wait_fd(int fd, short events, int timeout_ms) {
     struct pollfd descriptor;
     int result;
     descriptor.fd = fd;
     descriptor.events = events;
     descriptor.revents = 0;
     do {
-        result = poll(&descriptor, 1u, VSPD_MANAGEMENT_TIMEOUT_MS);
+        result = poll(&descriptor, 1u, timeout_ms);
     } while (result < 0 && errno == EINTR);
-    return result > 0 &&
-           (descriptor.revents & (events | POLLERR | POLLHUP | POLLNVAL)) == events;
+    if (result <= 0) {
+        return result;
+    }
+    if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+        return -1;
+    }
+    return (descriptor.revents & events) != 0 ? 1 : -1;
 }
 
 static bool send_record(int fd, const uint8_t* data, size_t size) {
     ssize_t sent;
-    if (!wait_fd(fd, POLLOUT)) {
+    if (wait_fd(fd, POLLOUT, VSPD_MANAGEMENT_TIMEOUT_MS) != 1) {
         return false;
     }
     do {
@@ -42,12 +47,27 @@ static bool send_record(int fd, const uint8_t* data, size_t size) {
     return sent == (ssize_t)size;
 }
 
-static ssize_t receive_record(int fd, uint8_t* frame, size_t capacity) {
+static ssize_t receive_record(int fd,
+                              uint8_t* frame,
+                              size_t capacity,
+                              int timeout_ms,
+                              bool* out_timed_out) {
     struct iovec iov;
     struct msghdr message;
     ssize_t received;
+    int ready;
 
-    if (!wait_fd(fd, POLLIN)) {
+    if (out_timed_out != NULL) {
+        *out_timed_out = false;
+    }
+    ready = wait_fd(fd, POLLIN, timeout_ms);
+    if (ready == 0) {
+        if (out_timed_out != NULL) {
+            *out_timed_out = true;
+        }
+        return -1;
+    }
+    if (ready != 1) {
         return -1;
     }
     memset(&message, 0, sizeof(message));
@@ -76,6 +96,57 @@ static uint32_t next_request_id(vspd_management_client_t* client) {
     return request_id;
 }
 
+static bool queue_event(vspd_management_client_t* client,
+                        uint32_t port_id,
+                        const vspd_port_snapshot_payload_t* snapshot) {
+    uint32_t i;
+    for (i = 0u; i < client->event_count; ++i) {
+        uint32_t index =
+            (client->event_head + i) % VSPD_MANAGEMENT_EVENT_QUEUE_DEPTH;
+        if (client->events[index].port_id == port_id) {
+            client->events[index].snapshot = *snapshot;
+            return true;
+        }
+    }
+    if (client->event_count >= VSPD_MANAGEMENT_EVENT_QUEUE_DEPTH) {
+        return false;
+    }
+    client->events[client->event_tail].port_id = port_id;
+    client->events[client->event_tail].snapshot = *snapshot;
+    client->event_tail =
+        (client->event_tail + 1u) % VSPD_MANAGEMENT_EVENT_QUEUE_DEPTH;
+    ++client->event_count;
+    return true;
+}
+
+static bool decode_snapshot_event(vspd_management_client_t* client,
+                                  const vspd_header_t* header,
+                                  const uint8_t* payload) {
+    vspd_port_snapshot_payload_t snapshot;
+    if (header->type != VSPD_MSG_PORT_SNAPSHOT_EVENT ||
+        header->payload_size != VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE ||
+        payload == NULL) {
+        return false;
+    }
+    memset(&snapshot, 0, sizeof(snapshot));
+    vspd_decode_port_snapshot(payload, &snapshot);
+    return queue_event(client, header->port_id, &snapshot);
+}
+
+static bool pop_event(vspd_management_client_t* client,
+                      uint32_t* out_port_id,
+                      vspd_port_snapshot_payload_t* out_snapshot) {
+    if (client->event_count == 0u) {
+        return false;
+    }
+    *out_port_id = client->events[client->event_head].port_id;
+    *out_snapshot = client->events[client->event_head].snapshot;
+    client->event_head =
+        (client->event_head + 1u) % VSPD_MANAGEMENT_EVENT_QUEUE_DEPTH;
+    --client->event_count;
+    return true;
+}
+
 static int32_t request(vspd_management_client_t* client,
                        uint8_t type,
                        uint32_t port_id,
@@ -86,9 +157,7 @@ static int32_t request(vspd_management_client_t* client,
                        uint32_t* out_response_size) {
     uint8_t frame[VSPD_MANAGEMENT_FRAME_MAX];
     vspd_header_t header;
-    vspd_header_t response;
     uint32_t request_id;
-    ssize_t received;
 
     if (client == NULL || client->fd < 0 ||
         payload_size > VSPD_HELLO_PAYLOAD_SIZE) {
@@ -117,28 +186,51 @@ static int32_t request(vspd_management_client_t* client,
         return VSPD_STATUS_BACKEND;
     }
 
-    received = receive_record(client->fd, frame, sizeof(frame));
-    if (received <= 0 ||
-        vspd_validate_frame(frame, (size_t)received, &response) != VSPD_CODEC_OK ||
-        (response.flags & VSPD_FLAG_RESPONSE) == 0u ||
-        response.type != type || response.request_id != request_id) {
-        return VSPD_STATUS_BACKEND;
+    for (;;) {
+        vspd_header_t response;
+        const uint8_t* record_payload;
+        ssize_t received;
+        bool timed_out = false;
+        received = receive_record(client->fd,
+                                  frame,
+                                  sizeof(frame),
+                                  VSPD_MANAGEMENT_TIMEOUT_MS,
+                                  &timed_out);
+        if (received <= 0) {
+            return timed_out ? VSPD_STATUS_TIMEOUT : VSPD_STATUS_BACKEND;
+        }
+        if (vspd_validate_frame(frame, (size_t)received, &response) !=
+            VSPD_CODEC_OK) {
+            return VSPD_STATUS_BACKEND;
+        }
+        record_payload = response.payload_size == 0u
+                             ? NULL
+                             : frame + VSPD_HEADER_SIZE;
+        if ((response.flags & VSPD_FLAG_RESPONSE) == 0u) {
+            if (!decode_snapshot_event(client, &response, record_payload)) {
+                return VSPD_STATUS_BACKEND;
+            }
+            continue;
+        }
+        if (response.type != type || response.request_id != request_id) {
+            return VSPD_STATUS_BACKEND;
+        }
+        if (out_response_size != NULL) {
+            *out_response_size = response.payload_size;
+        }
+        if (response.status != VSPD_STATUS_OK) {
+            return response.status;
+        }
+        if (response.payload_size > response_capacity) {
+            return VSPD_STATUS_BUFFER_TOO_SMALL;
+        }
+        if (response.payload_size != 0u && response_payload != NULL) {
+            memcpy(response_payload, record_payload, response.payload_size);
+        } else if (response.payload_size != 0u) {
+            return VSPD_STATUS_INVALID_ARGUMENT;
+        }
+        return VSPD_STATUS_OK;
     }
-    if (out_response_size != NULL) {
-        *out_response_size = response.payload_size;
-    }
-    if (response.status != VSPD_STATUS_OK) {
-        return response.status;
-    }
-    if (response.payload_size > response_capacity) {
-        return VSPD_STATUS_BUFFER_TOO_SMALL;
-    }
-    if (response.payload_size != 0u && response_payload != NULL) {
-        memcpy(response_payload, frame + VSPD_HEADER_SIZE, response.payload_size);
-    } else if (response.payload_size != 0u) {
-        return VSPD_STATUS_INVALID_ARGUMENT;
-    }
-    return VSPD_STATUS_OK;
 }
 
 int32_t vspd_management_open(vspd_management_client_t* client,
@@ -199,6 +291,7 @@ void vspd_management_close(vspd_management_client_t* client) {
     if (client->fd >= 0) {
         close(client->fd);
     }
+    memset(client, 0, sizeof(*client));
     client->fd = -1;
     client->next_request_id = 1u;
 }
@@ -302,4 +395,71 @@ int32_t vspd_management_clear_port_statistics(
         return VSPD_STATUS_BACKEND;
     }
     return status;
+}
+
+static int32_t subscription_request(vspd_management_client_t* client,
+                                    uint8_t type,
+                                    uint32_t port_id) {
+    uint32_t size = 0u;
+    int32_t status = request(client,
+                             type,
+                             port_id,
+                             NULL,
+                             0u,
+                             NULL,
+                             0u,
+                             &size);
+    if (status == VSPD_STATUS_OK && size != 0u) {
+        return VSPD_STATUS_BACKEND;
+    }
+    return status;
+}
+
+int32_t vspd_management_subscribe_port(vspd_management_client_t* client,
+                                       uint32_t port_id) {
+    return subscription_request(client, VSPD_MSG_SUBSCRIBE_PORT, port_id);
+}
+
+int32_t vspd_management_unsubscribe_port(vspd_management_client_t* client,
+                                         uint32_t port_id) {
+    return subscription_request(client, VSPD_MSG_UNSUBSCRIBE_PORT, port_id);
+}
+
+int32_t vspd_management_receive_snapshot(
+    vspd_management_client_t* client,
+    int timeout_ms,
+    uint32_t* out_port_id,
+    vspd_port_snapshot_payload_t* out_snapshot) {
+    uint8_t frame[VSPD_MANAGEMENT_FRAME_MAX];
+    vspd_header_t header;
+    const uint8_t* payload;
+    ssize_t received;
+    bool timed_out = false;
+
+    if (client == NULL || client->fd < 0 || timeout_ms < -1 ||
+        out_port_id == NULL || out_snapshot == NULL) {
+        return VSPD_STATUS_INVALID_ARGUMENT;
+    }
+    if (pop_event(client, out_port_id, out_snapshot)) {
+        return VSPD_STATUS_OK;
+    }
+
+    received = receive_record(client->fd,
+                              frame,
+                              sizeof(frame),
+                              timeout_ms,
+                              &timed_out);
+    if (received <= 0) {
+        return timed_out ? VSPD_STATUS_TIMEOUT : VSPD_STATUS_BACKEND;
+    }
+    if (vspd_validate_frame(frame, (size_t)received, &header) != VSPD_CODEC_OK ||
+        (header.flags & VSPD_FLAG_RESPONSE) != 0u) {
+        return VSPD_STATUS_BACKEND;
+    }
+    payload = header.payload_size == 0u ? NULL : frame + VSPD_HEADER_SIZE;
+    if (!decode_snapshot_event(client, &header, payload) ||
+        !pop_event(client, out_port_id, out_snapshot)) {
+        return VSPD_STATUS_BACKEND;
+    }
+    return VSPD_STATUS_OK;
 }

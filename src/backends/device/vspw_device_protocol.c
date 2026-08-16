@@ -38,13 +38,14 @@ static void vspd_write_be64(uint8_t* p, uint64_t value) {
 }
 
 static int vspd_type_valid(uint8_t type) {
-    return type >= VSPD_MSG_HELLO && type <= VSPD_MSG_CLEAR_PORT_STATISTICS;
+    return type >= VSPD_MSG_HELLO && type <= VSPD_MSG_PORT_SNAPSHOT_EVENT;
 }
 
 static int vspd_type_is_event(uint8_t type) {
     return type == VSPD_MSG_DATA_RX ||
            type == VSPD_MSG_TIME_CODE_RX ||
-           type == VSPD_MSG_LINK_STATE_EVENT;
+           type == VSPD_MSG_LINK_STATE_EVENT ||
+           type == VSPD_MSG_PORT_SNAPSHOT_EVENT;
 }
 
 static int vspd_type_allows_response(uint8_t type) {
@@ -211,6 +212,8 @@ static vspd_codec_result_t vspd_validate_payload_shape(const vspd_header_t* head
                 case VSPD_MSG_GET_PORT_INFO:
                 case VSPD_MSG_GET_PORT_STATISTICS:
                 case VSPD_MSG_CLEAR_PORT_STATISTICS:
+                case VSPD_MSG_SUBSCRIBE_PORT:
+                case VSPD_MSG_UNSUBSCRIBE_PORT:
                     if (header->payload_size != 0u) {
                         return VSPD_CODEC_INVALID_SHAPE;
                     }
@@ -223,6 +226,11 @@ static vspd_codec_result_t vspd_validate_payload_shape(const vspd_header_t* head
                     break;
                 case VSPD_MSG_LINK_STATE_EVENT:
                     if (header->payload_size != VSPD_LINK_STATE_PAYLOAD_SIZE) {
+                        return VSPD_CODEC_INVALID_SHAPE;
+                    }
+                    break;
+                case VSPD_MSG_PORT_SNAPSHOT_EVENT:
+                    if (header->payload_size != VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE) {
                         return VSPD_CODEC_INVALID_SHAPE;
                     }
                     break;
@@ -259,9 +267,11 @@ static vspd_codec_result_t vspd_validate_payload_shape(const vspd_header_t* head
                 return VSPD_CODEC_INVALID_SHAPE;
             }
         }
-        if (header->type == VSPD_MSG_GET_PORT_INFO && response &&
-            header->status == VSPD_STATUS_OK &&
-            header->payload_size == VSPD_PORT_INFO_PAYLOAD_SIZE) {
+        if ((header->type == VSPD_MSG_GET_PORT_INFO && response &&
+             header->status == VSPD_STATUS_OK &&
+             header->payload_size == VSPD_PORT_INFO_PAYLOAD_SIZE) ||
+            (header->type == VSPD_MSG_PORT_SNAPSHOT_EVENT &&
+             header->payload_size == VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE)) {
             const uint32_t flags = vspd_read_be32(payload + 0u);
             const uint32_t state = vspd_read_be32(payload + 4u);
             if ((flags & ~VSPD_PORT_INFO_KNOWN_MASK) != 0u ||
@@ -476,4 +486,26 @@ void vspd_decode_statistics(const uint8_t in[VSPD_STATISTICS_PAYLOAD_SIZE],
     out->eep_packets = vspd_read_be64(in + 48u);
     out->link_errors = vspd_read_be64(in + 56u);
     out->dropped_packets = vspd_read_be64(in + 64u);
+}
+
+void vspd_encode_port_snapshot(
+    const vspd_port_snapshot_payload_t* value,
+    uint8_t out[VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE]) {
+    if (value == NULL || out == NULL) {
+        return;
+    }
+    vspd_encode_port_info(&value->info, out);
+    vspd_encode_statistics(&value->statistics,
+                           out + VSPD_PORT_INFO_PAYLOAD_SIZE);
+}
+
+void vspd_decode_port_snapshot(
+    const uint8_t in[VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE],
+    vspd_port_snapshot_payload_t* out) {
+    if (in == NULL || out == NULL) {
+        return;
+    }
+    vspd_decode_port_info(in, &out->info);
+    vspd_decode_statistics(in + VSPD_PORT_INFO_PAYLOAD_SIZE,
+                           &out->statistics);
 }

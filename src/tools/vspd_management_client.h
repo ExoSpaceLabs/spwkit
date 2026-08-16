@@ -10,9 +10,20 @@
 extern "C" {
 #endif
 
+#define VSPD_MANAGEMENT_EVENT_QUEUE_DEPTH 8u
+
+typedef struct vspd_management_event {
+    uint32_t port_id;
+    vspd_port_snapshot_payload_t snapshot;
+} vspd_management_event_t;
+
 typedef struct vspd_management_client {
     int fd;
     uint32_t next_request_id;
+    uint32_t event_head;
+    uint32_t event_tail;
+    uint32_t event_count;
+    vspd_management_event_t events[VSPD_MANAGEMENT_EVENT_QUEUE_DEPTH];
 } vspd_management_client_t;
 
 int32_t vspd_management_open(vspd_management_client_t* client,
@@ -33,6 +44,17 @@ int32_t vspd_management_get_port_statistics(
 int32_t vspd_management_clear_port_statistics(
     vspd_management_client_t* client,
     uint32_t port_id);
+int32_t vspd_management_subscribe_port(
+    vspd_management_client_t* client,
+    uint32_t port_id);
+int32_t vspd_management_unsubscribe_port(
+    vspd_management_client_t* client,
+    uint32_t port_id);
+int32_t vspd_management_receive_snapshot(
+    vspd_management_client_t* client,
+    int timeout_ms,
+    uint32_t* out_port_id,
+    vspd_port_snapshot_payload_t* out_snapshot);
 
 #ifdef __cplusplus
 } /* extern "C" */
