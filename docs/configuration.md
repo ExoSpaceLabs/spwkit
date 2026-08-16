@@ -85,6 +85,7 @@ udp.keepalive_interval_ms = SPW_UDP_DEFAULT_KEEPALIVE_INTERVAL_MS;
 udp.peer_timeout_ms = SPW_UDP_DEFAULT_PEER_TIMEOUT_MS;
 udp.virtual_link_bps = SPW_UDP_DEFAULT_VIRTUAL_LINK_BPS;
 udp.virtual_latency_us = SPW_UDP_DEFAULT_VIRTUAL_LATENCY_US;
+udp.fault_seed = SPW_UDP_DEFAULT_FAULT_SEED;
 
 spw_port_config_t config =
     SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
@@ -131,6 +132,55 @@ The virtual delay is applied before the first VSPW-TP transmission of a logical 
 
 Caller send timeouts include the virtual delay. If the remaining timeout cannot cover the configured delay, `spw_port_send()` or `spw_port_send_time_code()` returns `SPW_ERR_TIMEOUT` before accepting the event into the reliable TX slot. Zero timing parameters preserve the previous behavior.
 
+### Deterministic fault injection
+
+Fault injection is disabled by default. `spw_udp_config_t` contains eight fixed `fault_rules`, copied into the backend at open time, plus a deterministic `fault_seed`. No dynamic rule storage or background worker is required.
+
+Each rule contains:
+
+- an `action`;
+- a target VSPW-TP event class;
+- `probability_per_10000` in the range 1..10000 for enabled rules;
+- `max_events`, where zero means unlimited firings;
+- `delay_us` for transport-delay rules only.
+
+Rules are evaluated in array order. Each matching rule has its own PRNG stream derived from `fault_seed`. Therefore the same configuration and event stream reproduce the same injections. `probability_per_10000 = 10000` gives a deterministic always-fire rule, useful for CI and targeted tests.
+
+Example: drop exactly the first outgoing ACK:
+
+```c
+udp.fault_rules[0] = (spw_udp_fault_rule_t) {
+    SPW_UDP_FAULT_ACTION_TRANSPORT_DROP,
+    SPW_UDP_FAULT_TARGET_ACK,
+    SPW_UDP_FAULT_PROBABILITY_SCALE,
+    1,
+    0,
+    0
+};
+```
+
+Transport-side actions are:
+
+- `SPW_UDP_FAULT_ACTION_TRANSPORT_DROP`;
+- `SPW_UDP_FAULT_ACTION_TRANSPORT_DUPLICATE`;
+- `SPW_UDP_FAULT_ACTION_TRANSPORT_REORDER`;
+- `SPW_UDP_FAULT_ACTION_TRANSPORT_DELAY`.
+
+Targets can be ANY, DATA, TIME_CODE, ACK or KEEPALIVE/control. Reorder uses one fixed datagram-sized holding slot and swaps the selected datagram with the next outgoing transport datagram. This keeps the implementation bounded; if the selected datagram is the final traffic for a while, normal retry/keepalive activity eventually supplies its swap partner.
+
+Transport delay is deliberately a transport fault, not virtual SpaceWire latency. It applies to the selected VSPW-TP datagram and consumes the caller's transport timeout where applicable.
+
+The explicitly SpaceWire-visible action is `SPW_UDP_FAULT_ACTION_SPACEWIRE_EEP`. It is valid only for DATA. When selected for an outgoing EOP packet, the logical packet is transmitted as EEP before VSPW-TP framing. This is intentionally different from UDP loss/reordering: ordinary transport faults never synthesize EEP.
+
+Fault-domain diagnostics are available through:
+
+```c
+spw_fault_statistics_t faults;
+spw_port_get_fault_statistics(port, &faults);
+```
+
+The counters keep transport drops, duplicates, reorders and delays separate from `spacewire_eep_injections`. Backends without fault injection return `SPW_ERR_UNSUPPORTED` from the fault-statistics operations.
+
 ### Cooperative progress
 
 The UDP backend intentionally does not require a hidden worker thread. It retains at most one unacknowledged logical outbound event and advances ACK processing, retransmission and keepalive/liveness work when normal SpWKit calls service the port.
@@ -154,11 +204,13 @@ If a second send arrives while the reliable TX slot is still occupied, the backe
 - receive timeouts and statistics;
 - up to 1 MiB logical packet payload;
 - default 1200-byte fragment payload;
-- optional deterministic SpaceWire-side virtual rate/latency timing.
+- deterministic SpaceWire-side virtual rate/latency timing;
+- deterministic seeded transport drop/duplicate/reorder/delay injection;
+- explicit SpaceWire EEP injection with separate fault-domain counters.
 
 Windows retains the public backend identifier/configuration ABI but currently reports the UDP backend as unsupported until a Winsock implementation is added.
 
-Deterministic fault injection and capture/Wireshark tooling remain later v0.2 work.
+Capture/Wireshark tooling and broader distributed contract/process isolation remain later v0.2 work.
 
 ## Backend isolation
 
@@ -171,4 +223,4 @@ The mandatory common configuration and operation signatures deliberately contain
 - RTOS handles;
 - vendor SDK handles.
 
-Backend-specific public configuration may contain portable descriptive values such as numeric IP addresses, ports, virtual link identifiers and timing/sizing limits. Platform-native implementation handles remain internal.
+Backend-specific public configuration may contain portable descriptive values such as numeric IP addresses, ports, virtual link identifiers and timing/fault limits. Platform-native implementation handles remain internal.
