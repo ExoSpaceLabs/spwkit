@@ -13,6 +13,17 @@ enum {
     SPW_LOOPBACK_TIME_CODE_QUEUE_DEPTH = 8
 };
 
+/*
+ * MSVC's C library does not expose max_align_t consistently in C mode.
+ * This private union gives the loopback capability a portable alignment for
+ * the fundamental scalar/pointer types without introducing a C++ dependency.
+ */
+typedef union spw_loopback_max_alignment {
+    long double long_double_value;
+    void* pointer_value;
+    uint64_t integer_value;
+} spw_loopback_max_alignment_t;
+
 typedef struct spw_loopback_packet_slot {
     uint8_t data[SPW_LOOPBACK_MAX_PACKET_SIZE];
     size_t length;
@@ -103,7 +114,7 @@ static spw_result_t loopback_get_capabilities(
     out_capabilities->max_packet_size = SPW_LOOPBACK_MAX_PACKET_SIZE;
     out_capabilities->tx_queue_depth = SPW_LOOPBACK_PACKET_QUEUE_DEPTH;
     out_capabilities->rx_queue_depth = SPW_LOOPBACK_PACKET_QUEUE_DEPTH;
-    out_capabilities->buffer_alignment = alignof(max_align_t);
+    out_capabilities->buffer_alignment = alignof(spw_loopback_max_alignment_t);
     return SPW_OK;
 }
 
