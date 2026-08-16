@@ -94,21 +94,26 @@ static int parse_u64(const char* text, uint64_t* out_value) {
 static void timestamp_utc(char out[32]) {
     struct timespec now;
     struct tm utc;
+    size_t length;
+    unsigned int milliseconds;
+
     if (clock_gettime(CLOCK_REALTIME, &now) != 0 ||
         gmtime_r(&now.tv_sec, &utc) == NULL) {
-        (void)snprintf(out, 32u, "unknown");
+        memcpy(out, "unknown", sizeof("unknown"));
         return;
     }
-    (void)snprintf(out,
-                   32u,
-                   "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
-                   utc.tm_year + 1900,
-                   utc.tm_mon + 1,
-                   utc.tm_mday,
-                   utc.tm_hour,
-                   utc.tm_min,
-                   utc.tm_sec,
-                   now.tv_nsec / 1000000L);
+    length = strftime(out, 32u, "%Y-%m-%dT%H:%M:%S", &utc);
+    if (length == 0u || length + 5u >= 32u) {
+        memcpy(out, "unknown", sizeof("unknown"));
+        return;
+    }
+    milliseconds = (unsigned int)(now.tv_nsec / 1000000L);
+    out[length++] = '.';
+    out[length++] = (char)('0' + (milliseconds / 100u) % 10u);
+    out[length++] = (char)('0' + (milliseconds / 10u) % 10u);
+    out[length++] = (char)('0' + milliseconds % 10u);
+    out[length++] = 'Z';
+    out[length] = '\0';
 }
 
 static const char* json_bool(uint32_t flags, uint32_t bit) {
