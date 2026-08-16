@@ -61,9 +61,10 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 - explicit SpaceWire-side EEP injection with transport/SpaceWire fault-domain counters;
 - reusable shared public backend contract plus distributed peer-loss/restart contract;
 - installed-package equal-peer example for independent processes/hosts;
-- active D2D CI exercising localhost processes and two Linux network namespaces in addition to transport/recovery/timing/fault tests.
+- active D2D CI exercising localhost processes and two Linux network namespaces in addition to transport/recovery/timing/fault tests;
+- VSPW-TP Wireshark/tshark capture tooling with deterministic real-dissector validation.
 
-Capture/Wireshark tooling and the final v0.2 UDP platform-support decision remain v0.2 work.
+The final v0.2 UDP platform-support decision remains before the distributed milestone is closed.
 
 ## Virtual SpaceWire
 
@@ -105,7 +106,9 @@ The optional virtual timing model adds deterministic SpaceWire-side serializatio
 
 The UDP backend also supports fixed-size seeded fault rules for transport drop, duplicate, adjacent reorder and delay. These operate on VSPW-TP carrier datagrams and remain distinct from explicit SpaceWire-side EEP injection. Ordinary transport loss or reordering never synthesizes EEP. `spw_port_get_fault_statistics()` exposes separate counters for the two fault domains.
 
-The distributed backend now runs the reusable public backend contract and is also exercised as genuinely separate applications. The D2D gate installs SpWKit, builds `examples/distributed` through `find_package(SpWKit)`, launches two peer processes, verifies peer loss/restart, and repeats the same 8 KiB EOP/EEP plus time-code exchange in two Linux network namespaces connected by a 1500-byte-MTU veth link. The applications never call VSPW-TP or socket-private APIs.
+The distributed backend runs the reusable public backend contract and is also exercised as genuinely separate applications. The D2D gate installs SpWKit, builds `examples/distributed` through `find_package(SpWKit)`, launches two peer processes, verifies peer loss/restart, and repeats the same 8 KiB EOP/EEP plus time-code exchange in two Linux network namespaces connected by a 1500-byte-MTU veth link. The applications never call VSPW-TP or socket-private APIs.
+
+Wire inspection is available separately under `tools/wireshark`: the Lua dissector recognizes VSPW-TP on configurable UDP ports, decodes v1 header/control fields, and is validated against a deterministic generated PCAP through tshark. This tooling is not linked into `libspwkit` and adds no runtime dependency.
 
 `/dev/vspwX` remains later roadmap work.
 
@@ -206,6 +209,7 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [Backend contract](docs/backend-contract.md)
 - [Local virtual simulator](docs/simulator.md)
 - [Distributed VSPW-TP transport](docs/vspw-tp.md)
+- [VSPW-TP capture and Wireshark tooling](tools/wireshark/README.md)
 - [Testing strategy](docs/testing.md)
 - [Architecture](docs/architecture.md)
 - [ECSS scope and compliance policy](docs/compliance.md)
