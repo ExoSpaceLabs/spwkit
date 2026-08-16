@@ -19,20 +19,23 @@ jobs:
           fetch-depth: 0
 
       - name: Apply targeted readiness implementation
-        run: python3 .github/agent_readiness_patch.py
-
-      - name: Publish implementation and remove helpers
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/agent-readiness-patch.yml .github/agent_readiness_patch.py
+          python3 .github/agent_readiness_patch.py
+          git checkout -- .github/workflows/device.yml
+
+      - name: Publish source, tests and docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/agent_readiness_patch.py
           git config user.name "Robert A Incze"
           git config user.email "98164670+Inczert@users.noreply.github.com"
           git add src/backends/device/device_backend.c \
                   include/spwkit/spwkit.hpp \
                   tests/public_edge_cases.c \
                   tests/contract/contract_suite.cpp \
-                  .github/workflows/device.yml \
                   README.md docs/vspwd.md
           git commit -m "feat(spwkit): implement backend-neutral receive readiness"
           git push origin HEAD:agent/develop
