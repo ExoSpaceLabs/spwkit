@@ -473,11 +473,34 @@ spw_result_t spw_port_get_capabilities(const spw_port_t* port,
         return SPW_ERR_INVALID_ARGUMENT;
     }
     result = port->ops->get_capabilities(port->backend_context, out_capabilities);
-    if (result == SPW_OK && port->ops->supports_zero_copy != NULL &&
-        port->ops->supports_zero_copy(port->backend_context)) {
-        out_capabilities->bits |= SPW_CAP_ZERO_COPY;
+    if (result == SPW_OK) {
+        if (port->ops->supports_zero_copy != NULL &&
+            port->ops->supports_zero_copy(port->backend_context)) {
+            out_capabilities->bits |= SPW_CAP_ZERO_COPY;
+        }
+        if (port->ops->wait != NULL) {
+            out_capabilities->bits |= SPW_CAP_READINESS;
+        }
     }
     return result;
+}
+
+spw_result_t spw_port_wait(spw_port_t* port,
+                           spw_ready_events_t interests,
+                           spw_timeout_us_t timeout_us,
+                           spw_ready_events_t* out_ready) {
+    if (validate_port(port) != SPW_OK || out_ready == NULL ||
+        interests == SPW_READY_NONE || (interests & ~SPW_READY_ALL) != 0u) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_ready = SPW_READY_NONE;
+    if (port->ops->wait == NULL) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    return port->ops->wait(port->backend_context,
+                           interests,
+                           timeout_us,
+                           out_ready);
 }
 
 spw_result_t spw_port_send(spw_port_t* port,
