@@ -111,6 +111,23 @@ struct spw_statistics {
     uint64_t dropped_packets;
 };
 
+/*
+ * Optional simulation/fault diagnostics. Backends without fault injection
+ * return SPW_ERR_UNSUPPORTED from the corresponding port operations.
+ *
+ * Transport counters describe VSPW-TP carrier manipulation. SpaceWire
+ * counters describe faults intentionally made visible through the logical
+ * SpaceWire API. Keeping these domains separate prevents network faults from
+ * being mistaken for simulated SpaceWire errors.
+ */
+struct spw_fault_statistics {
+    uint64_t transport_drops;
+    uint64_t transport_duplicates;
+    uint64_t transport_reorders;
+    uint64_t transport_delays;
+    uint64_t spacewire_eep_injections;
+};
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

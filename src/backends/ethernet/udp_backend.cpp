@@ -6,6 +6,7 @@
 #include <climits>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 
 #include <arpa/inet.h>
 #include <poll.h>
@@ -114,7 +115,8 @@ private:
 
 UdpBackend::UdpBackend(const spw_udp_config_t& config) noexcept
     : config_(config),
-      virtual_timing_(config.virtual_link_bps, config.virtual_latency_us) {}
+      virtual_timing_(config.virtual_link_bps, config.virtual_latency_us),
+      fault_injector_(config) {}
 
 UdpBackend::~UdpBackend() {
     close_socket();
@@ -131,6 +133,11 @@ spw_result_t UdpBackend::attach() noexcept {
         config_.peer_timeout_ms <= config_.keepalive_interval_ms ||
         config_.reserved != 0u) {
         return SPW_ERR_INVALID_ARGUMENT;
+    }
+    for (std::size_t i = 0u; i < SPW_UDP_FAULT_RULE_COUNT; ++i) {
+        if (!FaultInjector::valid_rule(config_.fault_rules[i])) {
+            return SPW_ERR_INVALID_ARGUMENT;
+        }
     }
 
     sockaddr_in local{};
@@ -205,6 +212,11 @@ void UdpBackend::clear_retired_sessions() noexcept {
     retired_session_count_ = 0u;
 }
 
+void UdpBackend::clear_reordered_datagram() noexcept {
+    reordered_datagram_size_ = 0u;
+    reordered_datagram_valid_ = false;
+}
+
 spw_result_t UdpBackend::start() noexcept {
     if (socket_fd_ < 0) {
         return SPW_ERR_INVALID_STATE;
@@ -214,6 +226,8 @@ spw_result_t UdpBackend::start() noexcept {
     clear_pending_tx();
     clear_recent_messages();
     clear_retired_sessions();
+    clear_reordered_datagram();
+    fault_injector_.reset();
     pending_packet_valid_ = false;
     time_code_head_ = 0u;
     time_code_count_ = 0u;
@@ -239,6 +253,7 @@ spw_result_t UdpBackend::stop() noexcept {
     clear_pending_tx();
     clear_recent_messages();
     clear_retired_sessions();
+    clear_reordered_datagram();
     pending_packet_valid_ = false;
     time_code_head_ = 0u;
     time_code_count_ = 0u;
@@ -251,11 +266,13 @@ spw_result_t UdpBackend::reset() noexcept {
     if (socket_fd_ < 0) {
         return SPW_ERR_INVALID_STATE;
     }
+    fault_injector_.reset();
     state_ = SPW_LINK_ERROR_RESET;
     clear_reassembly();
     clear_pending_tx();
     clear_recent_messages();
     clear_retired_sessions();
+    clear_reordered_datagram();
     pending_packet_valid_ = false;
     time_code_head_ = 0u;
     time_code_count_ = 0u;
@@ -311,7 +328,8 @@ spw_result_t UdpBackend::get_link_state(spw_link_state_t& state) const noexcept 
 }
 
 spw_result_t UdpBackend::get_capabilities(spw_capabilities_t& capabilities) const noexcept {
-    capabilities.bits = SPW_CAP_EEP | SPW_CAP_TIME_CODE | SPW_CAP_STATISTICS;
+    capabilities.bits = SPW_CAP_EEP | SPW_CAP_TIME_CODE | SPW_CAP_STATISTICS |
+                        SPW_CAP_RATE_CONTROL | SPW_CAP_FAULT_INJECTION;
     capabilities.max_packet_size = max_packet_size;
     capabilities.tx_queue_depth = 1u;
     capabilities.rx_queue_depth = 1u;
@@ -319,9 +337,9 @@ spw_result_t UdpBackend::get_capabilities(spw_capabilities_t& capabilities) cons
     return SPW_OK;
 }
 
-spw_result_t UdpBackend::send_datagram(const std::uint8_t* bytes,
-                                       std::size_t size,
-                                       spw_timeout_us_t timeout_us) noexcept {
+spw_result_t UdpBackend::send_datagram_raw(const std::uint8_t* bytes,
+                                           std::size_t size,
+                                           spw_timeout_us_t timeout_us) noexcept {
     if (socket_fd_ < 0) {
         return SPW_ERR_INVALID_STATE;
     }
@@ -351,6 +369,84 @@ spw_result_t UdpBackend::send_datagram(const std::uint8_t* bytes,
                                   reinterpret_cast<const sockaddr*>(&remote),
                                   sizeof(remote));
     return sent == static_cast<ssize_t>(size) ? SPW_OK : SPW_ERR_BACKEND;
+}
+
+spw_result_t UdpBackend::wait_transport_fault_delay(
+    std::uint32_t delay_us, spw_timeout_us_t timeout_us) noexcept {
+    if (delay_us == 0u) {
+        return SPW_OK;
+    }
+    if (timeout_us != SPW_TIMEOUT_INFINITE && timeout_us < delay_us) {
+        return SPW_ERR_TIMEOUT;
+    }
+
+    timespec request{};
+    request.tv_sec = static_cast<time_t>(delay_us / 1000000u);
+    request.tv_nsec = static_cast<long>((delay_us % 1000000u) * 1000u);
+    timespec remaining{};
+    while (::nanosleep(&request, &remaining) != 0) {
+        if (errno != EINTR) {
+            return SPW_ERR_BACKEND;
+        }
+        request = remaining;
+    }
+    return SPW_OK;
+}
+
+spw_result_t UdpBackend::send_datagram(const std::uint8_t* bytes,
+                                       std::size_t size,
+                                       spw_timeout_us_t timeout_us) noexcept {
+    if (reordered_datagram_valid_) {
+        const spw_result_t current = send_datagram_raw(bytes, size, timeout_us);
+        if (current != SPW_OK) {
+            return current;
+        }
+        const spw_result_t held = send_datagram_raw(
+            reordered_datagram_.data(), reordered_datagram_size_, timeout_us);
+        clear_reordered_datagram();
+        return held;
+    }
+
+    Header header{};
+    if (decode_header(bytes, size, header) != DecodeResult::Ok) {
+        return send_datagram_raw(bytes, size, timeout_us);
+    }
+
+    const FaultInjector::Decision decision = fault_injector_.transport(header.type);
+    switch (decision.action) {
+    case SPW_UDP_FAULT_ACTION_TRANSPORT_DROP:
+        ++fault_statistics_.transport_drops;
+        ++statistics_.dropped_packets;
+        return SPW_OK;
+
+    case SPW_UDP_FAULT_ACTION_TRANSPORT_DUPLICATE: {
+        ++fault_statistics_.transport_duplicates;
+        const spw_result_t first = send_datagram_raw(bytes, size, timeout_us);
+        return first == SPW_OK ? send_datagram_raw(bytes, size, timeout_us) : first;
+    }
+
+    case SPW_UDP_FAULT_ACTION_TRANSPORT_REORDER:
+        ++fault_statistics_.transport_reorders;
+        if (size > reordered_datagram_.size()) {
+            return SPW_ERR_BACKEND;
+        }
+        std::memcpy(reordered_datagram_.data(), bytes, size);
+        reordered_datagram_size_ = size;
+        reordered_datagram_valid_ = true;
+        return SPW_OK;
+
+    case SPW_UDP_FAULT_ACTION_TRANSPORT_DELAY: {
+        ++fault_statistics_.transport_delays;
+        const spw_result_t delay = wait_transport_fault_delay(
+            decision.delay_us, timeout_us);
+        return delay == SPW_OK ? send_datagram_raw(bytes, size, timeout_us) : delay;
+    }
+
+    case SPW_UDP_FAULT_ACTION_NONE:
+    case SPW_UDP_FAULT_ACTION_SPACEWIRE_EEP:
+        return send_datagram_raw(bytes, size, timeout_us);
+    }
+    return send_datagram_raw(bytes, size, timeout_us);
 }
 
 spw_result_t UdpBackend::wait_virtual_link_delay(
@@ -928,11 +1024,17 @@ spw_result_t UdpBackend::send(const spw_packet_t& packet,
         return timing_result;
     }
 
+    spw_terminator_t effective_terminator = packet.terminator;
+    if (packet.terminator == SPW_TERMINATOR_EOP && fault_injector_.spacewire_eep()) {
+        effective_terminator = SPW_TERMINATOR_EEP;
+        ++fault_statistics_.spacewire_eep_injections;
+    }
+
     if (packet.length != 0u) {
         std::memcpy(pending_tx_packet_.data(), packet.data, packet.length);
     }
     pending_tx_packet_size_ = packet.length;
-    pending_tx_terminator_ = packet.terminator;
+    pending_tx_terminator_ = effective_terminator;
     pending_tx_kind_ = PendingTxKind::Data;
     pending_tx_message_id_ = take_nonzero(next_message_id_);
     pending_tx_retries_ = 0u;
@@ -947,7 +1049,7 @@ spw_result_t UdpBackend::send(const spw_packet_t& packet,
 
     statistics_.tx_packets++;
     statistics_.tx_bytes += packet.length;
-    if (packet.terminator == SPW_TERMINATOR_EEP) {
+    if (pending_tx_terminator_ == SPW_TERMINATOR_EEP) {
         statistics_.eep_packets++;
     }
     return SPW_OK;
@@ -1073,6 +1175,17 @@ spw_result_t UdpBackend::get_statistics(spw_statistics_t& statistics) const noex
 
 spw_result_t UdpBackend::clear_statistics() noexcept {
     statistics_ = {};
+    return SPW_OK;
+}
+
+spw_result_t UdpBackend::get_fault_statistics(
+    spw_fault_statistics_t& statistics) const noexcept {
+    statistics = fault_statistics_;
+    return SPW_OK;
+}
+
+spw_result_t UdpBackend::clear_fault_statistics() noexcept {
+    fault_statistics_ = {};
     return SPW_OK;
 }
 

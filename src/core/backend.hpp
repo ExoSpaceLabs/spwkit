@@ -39,6 +39,16 @@ public:
     virtual spw_result_t get_statistics(spw_statistics_t& statistics) const noexcept = 0;
     virtual spw_result_t clear_statistics() noexcept = 0;
 
+    virtual spw_result_t get_fault_statistics(
+        spw_fault_statistics_t& statistics) const noexcept {
+        statistics = {};
+        return SPW_ERR_UNSUPPORTED;
+    }
+
+    virtual spw_result_t clear_fault_statistics() noexcept {
+        return SPW_ERR_UNSUPPORTED;
+    }
+
     /* Optional ownership-oriented packet path. */
     virtual spw_result_t acquire_tx_buffer(std::size_t,
                                            spw_timeout_us_t,

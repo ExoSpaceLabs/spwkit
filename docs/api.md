@@ -69,7 +69,7 @@ Implemented backend identifiers currently include:
 
 The common port operations do not change when the selected backend changes.
 
-The UDP backend configuration carries portable descriptive network values such as numeric IPv4 addresses, UDP ports, virtual `link_id`, and fragment payload size. Native socket handles and platform socket structures remain internal.
+The UDP backend configuration carries portable descriptive values such as numeric IPv4 addresses, UDP ports, virtual `link_id`, fragment payload size, virtual timing controls and fixed deterministic fault rules. Native socket handles and platform socket structures remain internal.
 
 ## Link state
 
@@ -211,9 +211,15 @@ The initial backend implements:
 - time-code transfer;
 - timeout/statistics support;
 - a 1 MiB backend logical packet/reassembly limit;
-- default 1200-byte transport fragments.
+- default 1200-byte transport fragments;
+- session-bound ACK/retransmission and duplicate suppression;
+- peer liveness/disconnect/restart recovery;
+- bounded arbitrary-order fragment reassembly;
+- deterministic virtual SpaceWire rate/latency timing;
+- deterministic seeded transport drop/duplicate/reorder/delay injection;
+- explicit SpaceWire-side EEP injection with separate fault-domain diagnostics.
 
-ACK/retransmission, peer liveness/disconnect detection, loss/reordering handling, configurable latency/rate and deterministic fault injection remain v0.2 work.
+Broader shared-contract coverage, stronger multi-process/network-namespace examples, capture tooling and final platform-scope decisions remain v0.2 work.
 
 ## Time codes
 
@@ -237,7 +243,16 @@ spw_port_get_statistics
 spw_port_clear_statistics
 ```
 
-Statistics are backend-independent counters intended for diagnostics and verification. Backend-specific counters may later be available through extension APIs without contaminating the common structure.
+Statistics are backend-independent counters intended for diagnostics and verification.
+
+Fault-capable backends additionally expose:
+
+```text
+spw_port_get_fault_statistics
+spw_port_clear_fault_statistics
+```
+
+`spw_fault_statistics_t` deliberately separates VSPW-TP transport drop/duplicate/reorder/delay counters from SpaceWire-visible EEP injection. Backends without `SPW_CAP_FAULT_INJECTION` return `SPW_ERR_UNSUPPORTED` for these operations. The existing `spw_statistics_t` layout remains unchanged.
 
 ## Blocking and timeouts
 

@@ -106,6 +106,33 @@ spw_result_t validate_simulator_config(const spw_port_config_t* config) noexcept
     return SPW_OK;
 }
 
+bool valid_udp_fault_rule(const spw_udp_fault_rule_t& rule) noexcept {
+    if (rule.reserved != 0u ||
+        rule.probability_per_10000 > SPW_UDP_FAULT_PROBABILITY_SCALE ||
+        rule.target > SPW_UDP_FAULT_TARGET_KEEPALIVE ||
+        rule.action > SPW_UDP_FAULT_ACTION_SPACEWIRE_EEP) {
+        return false;
+    }
+    if (rule.action == SPW_UDP_FAULT_ACTION_NONE) {
+        return rule.target == SPW_UDP_FAULT_TARGET_ANY &&
+               rule.probability_per_10000 == 0u && rule.max_events == 0u &&
+               rule.delay_us == 0u;
+    }
+    if (rule.probability_per_10000 == 0u) {
+        return false;
+    }
+    if (rule.action == SPW_UDP_FAULT_ACTION_TRANSPORT_DELAY) {
+        return rule.delay_us != 0u;
+    }
+    if (rule.delay_us != 0u) {
+        return false;
+    }
+    if (rule.action == SPW_UDP_FAULT_ACTION_SPACEWIRE_EEP) {
+        return rule.target == SPW_UDP_FAULT_TARGET_DATA;
+    }
+    return true;
+}
+
 spw_result_t validate_udp_config(const spw_port_config_t* config) noexcept {
     if (config->backend_config == nullptr ||
         config->backend_config_size < sizeof(spw_udp_config_t)) {
@@ -124,6 +151,11 @@ spw_result_t validate_udp_config(const spw_port_config_t* config) noexcept {
         udp->peer_timeout_ms <= udp->keepalive_interval_ms || udp->reserved != 0u ||
         udp->local_address[0] == '\0' || udp->remote_address[0] == '\0') {
         return SPW_ERR_INVALID_ARGUMENT;
+    }
+    for (size_t i = 0u; i < SPW_UDP_FAULT_RULE_COUNT; ++i) {
+        if (!valid_udp_fault_rule(udp->fault_rules[i])) {
+            return SPW_ERR_INVALID_ARGUMENT;
+        }
     }
     return SPW_OK;
 }
@@ -543,6 +575,20 @@ spw_result_t spw_port_get_statistics(const spw_port_t* port,
 spw_result_t spw_port_clear_statistics(spw_port_t* port) {
     return validate_port(port) == SPW_OK ? port->backend->clear_statistics()
                                          : SPW_ERR_INVALID_ARGUMENT;
+}
+
+spw_result_t spw_port_get_fault_statistics(
+    const spw_port_t* port, spw_fault_statistics_t* out_statistics) {
+    if (validate_port(port) != SPW_OK || out_statistics == nullptr) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    return port->backend->get_fault_statistics(*out_statistics);
+}
+
+spw_result_t spw_port_clear_fault_statistics(spw_port_t* port) {
+    return validate_port(port) == SPW_OK
+        ? port->backend->clear_fault_statistics()
+        : SPW_ERR_INVALID_ARGUMENT;
 }
 
 } // extern "C"

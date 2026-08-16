@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "backends/ethernet/deterministic_faults.hpp"
 #include "backends/ethernet/fragment_reassembler.hpp"
 #include "backends/ethernet/virtual_link_timing.hpp"
 #include "backends/ethernet/vspw_tp.hpp"
@@ -49,6 +50,9 @@ public:
 
     spw_result_t get_statistics(spw_statistics_t& statistics) const noexcept override;
     spw_result_t clear_statistics() noexcept override;
+    spw_result_t get_fault_statistics(
+        spw_fault_statistics_t& statistics) const noexcept override;
+    spw_result_t clear_fault_statistics() noexcept override;
 
 private:
     using Clock = std::chrono::steady_clock;
@@ -56,6 +60,7 @@ private:
     using MessageType = spwkit::ethernet::vspw_tp::MessageType;
     using Header = spwkit::ethernet::vspw_tp::Header;
     using FragmentReassembler = spwkit::ethernet::FragmentReassembler<max_packet_size>;
+    using FaultInjector = spwkit::ethernet::DeterministicFaultInjector;
     using VirtualLinkTiming = spwkit::ethernet::VirtualLinkTiming;
     using VirtualLinkEvent = spwkit::ethernet::VirtualLinkEvent;
 
@@ -83,6 +88,11 @@ private:
     spw_result_t send_datagram(const std::uint8_t* bytes,
                                std::size_t size,
                                spw_timeout_us_t timeout_us) noexcept;
+    spw_result_t send_datagram_raw(const std::uint8_t* bytes,
+                                   std::size_t size,
+                                   spw_timeout_us_t timeout_us) noexcept;
+    spw_result_t wait_transport_fault_delay(std::uint32_t delay_us,
+                                            spw_timeout_us_t timeout_us) noexcept;
     spw_result_t wait_virtual_link_delay(std::uint64_t delay_us,
                                          spw_timeout_us_t timeout_us) noexcept;
     spw_result_t send_ack(std::uint32_t message_id) noexcept;
@@ -103,6 +113,7 @@ private:
     void clear_pending_tx() noexcept;
     void clear_recent_messages() noexcept;
     void clear_retired_sessions() noexcept;
+    void clear_reordered_datagram() noexcept;
     void close_socket() noexcept;
 
     bool peer_is_current() const noexcept;
@@ -112,15 +123,20 @@ private:
 
     spw_udp_config_t config_{};
     VirtualLinkTiming virtual_timing_{};
+    FaultInjector fault_injector_;
     int socket_fd_{-1};
     spw_link_state_t state_{SPW_LINK_ERROR_RESET};
     spw_statistics_t statistics_{};
+    spw_fault_statistics_t fault_statistics_{};
     std::uint32_t next_sequence_{1u};
     std::uint32_t next_message_id_{1u};
 
     std::array<std::uint8_t, 65507u> tx_datagram_{};
     std::array<std::uint8_t, 65507u> rx_datagram_{};
     std::array<std::uint8_t, 64u> control_datagram_{};
+    std::array<std::uint8_t, 65507u> reordered_datagram_{};
+    std::size_t reordered_datagram_size_{0u};
+    bool reordered_datagram_valid_{false};
 
     FragmentReassembler reassembly_{};
     TimePoint reassembly_last_fragment_{};
