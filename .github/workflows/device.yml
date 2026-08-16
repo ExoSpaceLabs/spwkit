@@ -5,12 +5,18 @@ on:
     branches: [main]
     paths:
       - "CMakeLists.txt"
+      - "cmake/**"
       - "include/spwkit/api.h"
+      - "include/spwkit/config.h"
+      - "include/spwkit/device.h"
+      - "include/spwkit/spwkit.h"
+      - "src/core/port.c"
       - "src/backends/device/**"
       - "src/vspwd/**"
       - "tests/vspw_device_protocol.c"
       - "tests/vspw_seqpacket.c"
       - "tests/vspwd_*.c"
+      - "tests/device_public_peer.c"
       - "tests/device/**"
       - "tests/CMakeLists.txt"
       - "docs/vspw-device-protocol.md"
@@ -20,12 +26,18 @@ on:
     branches: [main]
     paths:
       - "CMakeLists.txt"
+      - "cmake/**"
       - "include/spwkit/api.h"
+      - "include/spwkit/config.h"
+      - "include/spwkit/device.h"
+      - "include/spwkit/spwkit.h"
+      - "src/core/port.c"
       - "src/backends/device/**"
       - "src/vspwd/**"
       - "tests/vspw_device_protocol.c"
       - "tests/vspw_seqpacket.c"
       - "tests/vspwd_*.c"
+      - "tests/device_public_peer.c"
       - "tests/device/**"
       - "tests/CMakeLists.txt"
       - "docs/vspw-device-protocol.md"
@@ -41,8 +53,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pure-c:
-    name: VSPD + vspwd C / ${{ matrix.compiler }}
+  daemon-core:
+    name: VSPD + vspwd core / ${{ matrix.compiler }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -54,10 +66,72 @@ jobs:
             cc: clang
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Configure pure-C device profile
+      - name: Configure daemon-only pure-C profile
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-daemon \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-daemon/CMakeCache.txt; then
+            echo "Daemon profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build protocol, daemon and raw clients
+        run: cmake --build build-daemon --parallel
+
+      - name: Run raw VSPD daemon tests
+        run: ctest --test-dir build-daemon -R '^vspwd_' --output-on-failure --no-tests=error
+
+      - name: Smoke installed daemon CLI
+        run: |
+          build-daemon/vspwd --help
+          cmake --install build-daemon --prefix "$PWD/install-daemon"
+          test -x "$PWD/install-daemon/bin/vspwd"
+          "$PWD/install-daemon/bin/vspwd" --help
+
+      - name: Verify daemon-only library stays hosted/C++ free
+        run: |
+          archive="build-daemon/libspwkit.a"
+          test -f "$archive"
+          if nm -u "$archive" | grep -Eq '(socket|send|recv|poll|pthread_|__cxa|_Z)'; then
+            echo "Daemon-only portable archive introduced hosted/C++ runtime references" >&2
+            nm -u "$archive"
+            exit 1
+          fi
+
+  public-c:
+    name: Public device C API / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+          - compiler: clang
+            cc: clang
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure hosted pure-C device profile
         env:
           CC: ${{ matrix.cc }}
           CXX: /bin/false
@@ -71,46 +145,34 @@ jobs:
             -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=OFF \
             -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
             -DSPWKIT_BUILD_VSPWD=ON \
             -DSPWKIT_BUILD_TOOLS=OFF \
-            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
             -DSPWKIT_ENABLE_CPP=OFF \
             -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
-
           if grep -q '^CMAKE_CXX_COMPILER:' build-device/CMakeCache.txt; then
-            echo "Virtual-device profile unexpectedly enabled CXX" >&2
+            echo "Public device profile unexpectedly enabled CXX" >&2
             exit 1
           fi
 
-      - name: Build protocol, daemon and raw C clients
+      - name: Build public backend and daemon
         run: cmake --build build-device --parallel
 
-      - name: Run VSPD and vspwd device tests
-        run: ctest --test-dir build-device -L device --output-on-failure --no-tests=error
+      - name: Run public API process contract
+        run: ctest --test-dir build-device -R '^device_public_api_' --output-on-failure --no-tests=error
 
-      - name: Smoke installed daemon CLI
+      - name: Verify package metadata
         run: |
-          build-device/vspwd --help
           cmake --install build-device --prefix "$PWD/install-device"
-          test -x "$PWD/install-device/bin/vspwd"
-          "$PWD/install-device/bin/vspwd" --help
-
-      - name: Verify portable library stays socket/C++ free
-        run: |
-          archive="build-device/libspwkit.a"
-          test -f "$archive"
-          if nm -u "$archive" | grep -Eq '(socket|send|recv|poll|pthread_|__cxa|_Z)'; then
-            echo "Portable SpWKit archive introduced hosted/C++ runtime references" >&2
-            nm -u "$archive"
-            exit 1
-          fi
+          grep -q 'SpWKit_DEVICE_RUNTIME_SUPPORTED ON' "$PWD/install-device/lib/cmake/SpWKit/SpWKitConfig.cmake"
+          test -f "$PWD/install-device/include/spwkit/device.h"
 
   sanitizers:
-    name: VSPD + vspwd ASan + UBSan
+    name: Public device + vspwd ASan + UBSan
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
       - name: Configure sanitized pure-C device profile
         env:
@@ -126,22 +188,22 @@ jobs:
             -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=OFF \
             -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
             -DSPWKIT_BUILD_VSPWD=ON \
             -DSPWKIT_BUILD_TOOLS=OFF \
-            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
             -DSPWKIT_ENABLE_CPP=OFF \
             -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
-
           if grep -q '^CMAKE_CXX_COMPILER:' build-device-san/CMakeCache.txt; then
-            echo "Sanitized virtual-device profile unexpectedly enabled CXX" >&2
+            echo "Sanitized device profile unexpectedly enabled CXX" >&2
             exit 1
           fi
 
       - name: Build
         run: cmake --build build-device-san --parallel
 
-      - name: Run protocol and daemon process tests under sanitizers
+      - name: Run all device tests under sanitizers
         env:
           ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
