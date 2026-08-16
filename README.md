@@ -151,7 +151,7 @@ The daemon is opt-in with `SPWKIT_BUILD_VSPWD=ON` and remains separate from the 
 
 The public `spw_device_config_t` contains only a daemon `port_id` and bounded endpoint path. Unix file descriptors, `sockaddr_un`, VSPD frames and daemon-private state remain implementation details.
 
-The device path preserves logical packet boundaries, EOP/EEP, zero-length packets, time codes, receive-too-small retry, statistics, peer loss and fresh-process restart recovery. CI runs the full path using pure C with `CXX=/bin/false`, plus the optional C++ wrapper over the exact same backend.
+The device path preserves logical packet boundaries, EOP/EEP, zero-length packets, time codes, receive-too-small retry, statistics, peer loss and fresh-process restart recovery. It also advertises `SPW_CAP_READINESS`: `spw_port_wait()` can wait for packet/time-code receive readiness without consuming the pending event and without exposing a file descriptor or Linux polling type. CI runs the full path using pure C with `CXX=/bin/false`, plus the optional C++ wrapper over the exact same backend.
 
 See `docs/vspw-device-protocol.md` for the VSPD wire contract and `docs/vspwd.md` for daemon/backend behavior and CI evidence.
 

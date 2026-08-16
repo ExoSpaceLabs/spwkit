@@ -121,6 +121,14 @@ public:
                    : SPW_ERR_INVALID_STATE;
     }
 
+    Result wait(spw_ready_events_t interests,
+                spw_ready_events_t& ready,
+                Timeout timeout = immediate) noexcept {
+        return handle_ != nullptr
+                   ? spw_port_wait(handle_, interests, timeout, &ready)
+                   : SPW_ERR_INVALID_STATE;
+    }
+
     Result send(const spw_packet_t& packet,
                 Timeout timeout = immediate) noexcept {
         return handle_ != nullptr

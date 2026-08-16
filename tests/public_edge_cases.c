@@ -75,6 +75,7 @@ int main(void) {
     spw_link_state_t state = 0xffu;
     spw_capabilities_t caps = {0};
     spw_statistics_t stats = {0};
+    spw_ready_events_t ready = SPW_READY_ALL;
     uint8_t byte = 0x42u;
     spw_packet_t packet = {&byte, 1u, 1u, SPW_TERMINATOR_EOP};
 
@@ -85,6 +86,10 @@ int main(void) {
     assert(spw_port_get_link_state(port, NULL) == SPW_ERR_INVALID_ARGUMENT);
     assert(spw_port_get_capabilities(NULL, &caps) == SPW_ERR_INVALID_ARGUMENT);
     assert(spw_port_get_capabilities(port, NULL) == SPW_ERR_INVALID_ARGUMENT);
+    assert(spw_port_wait(NULL, SPW_READY_RX_PACKET, 0u, &ready) == SPW_ERR_INVALID_ARGUMENT);
+    assert(spw_port_wait(port, SPW_READY_NONE, 0u, &ready) == SPW_ERR_INVALID_ARGUMENT);
+    assert(spw_port_wait(port, (spw_ready_events_t)(1u << 31), 0u, &ready) == SPW_ERR_INVALID_ARGUMENT);
+    assert(spw_port_wait(port, SPW_READY_RX_PACKET, 0u, NULL) == SPW_ERR_INVALID_ARGUMENT);
     assert(spw_port_send(NULL, &packet, 0u) == SPW_ERR_INVALID_ARGUMENT);
     assert(spw_port_send(port, NULL, 0u) == SPW_ERR_INVALID_ARGUMENT);
     assert(spw_port_receive(NULL, &packet, 0u) == SPW_ERR_INVALID_ARGUMENT);
@@ -102,6 +107,11 @@ int main(void) {
     assert(state == SPW_LINK_RUN);
     assert(spw_port_get_capabilities(port, &caps) == SPW_OK);
     assert(caps.max_packet_size > 0u && caps.max_packet_size <= TEST_STORAGE_SIZE);
+    assert((caps.bits & SPW_CAP_READINESS) == 0u);
+    ready = SPW_READY_ALL;
+    assert(spw_port_wait(port, SPW_READY_RX_PACKET, SPW_TIMEOUT_IMMEDIATE, &ready) ==
+           SPW_ERR_UNSUPPORTED);
+    assert(ready == SPW_READY_NONE);
 
     spw_packet_t invalid_packet = {&byte, 1u, 1u, (spw_terminator_t)9u};
     assert(spw_port_send(port, &invalid_packet, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_INVALID_PACKET);

@@ -104,11 +104,12 @@ This topology is intentionally small and deterministic. Router/topology manageme
 - `spw_port_get_link_state()` -> current daemon link state;
 - `spw_port_send/receive()` -> logical DATA with internal VSPD fragmentation/reassembly;
 - `spw_port_send_time_code/receive_time_code()` -> VSPD time-code events;
+- `spw_port_wait()` -> level-triggered, non-consuming packet/time-code readiness;
 - statistics -> daemon per-port statistics;
 - ordinary EOP/EEP and zero-length packet semantics are preserved;
 - zero-copy is currently unsupported by the hosted device backend and remains capability-gated.
 
-The backend is cooperative and has no mandatory worker thread. Synchronous requests may receive asynchronous DATA/TIME_CODE/LINK_STATE events first; those are serviced internally until the requested operation can complete.
+The backend is cooperative and has no mandatory worker thread. Synchronous requests may receive asynchronous DATA/TIME_CODE/LINK_STATE events first; those are serviced internally until the requested operation can complete. Readiness uses the same bounded event service path and existing packet/time-code caches: `spw_port_wait()` reports only requested receive events, leaves them available to the normal receive APIs, and keeps Linux `poll()`/socket descriptors private to the backend.
 
 If the daemon connection disappears, the backend reports link/service unavailability, preserves the public handle, and attempts reconnect/HELLO/ATTACH during subsequent normal API calls. A port that had been started before daemon loss requests START again after reattachment.
 
