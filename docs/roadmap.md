@@ -1,6 +1,6 @@
 # Roadmap
 
-SpWKit has completed its v0.1 portable-core milestone and is now implementing v0.2 distributed virtual SpaceWire. The ordering below continues to stabilize software semantics before hardware-specific details are allowed to dictate the application API.
+SpWKit has completed its v0.1 portable-core milestone and the planned v0.2 distributed virtual SpaceWire engineering scope is now complete pending final validation/release tagging. The ordering below continues to stabilize software semantics before hardware-specific details are allowed to dictate the application API.
 
 ## v0.1.0 — Portable core and local virtual link — complete
 
@@ -20,9 +20,9 @@ Delivered:
 
 `v0.1.0` is tagged at the completed portable-core boundary. Physical FPGA/HIL validation is deliberately outside that release because suitable hardware is not currently available.
 
-## v0.2.0 — Distributed virtual SpaceWire — in progress
+## v0.2.0 — Distributed virtual SpaceWire — implementation complete
 
-Implemented in v0.2 development:
+Delivered in v0.2 development:
 
 - versioned VSPW-TP v1 wire format with a 40-byte header carrying the sender session ID;
 - POSIX IPv4 UDP backend selected through `spw_port_*`;
@@ -50,13 +50,16 @@ Implemented in v0.2 development:
 - VSPW-TP v1 Wireshark Lua dissector with heuristic and Decode As support;
 - deterministic generated-PCAP/tshark validation covering DATA fragments, KEEPALIVE, ACK, TIME_CODE and invalid-version handling;
 - documented tcpdump/pcap capture and display-filter workflow;
+- explicit hosted platform policy: Linux primary, macOS supported POSIX host, Windows UDP runtime deferred;
+- installed-package metadata reporting whether the specific build contains the UDP runtime;
+- deterministic `SPW_ERR_UNSUPPORTED` UDP selection on builds without the hosted implementation;
 - development package version advanced to 0.2.0.
 
-Remaining v0.2 work:
+The v0.2 public SpaceWire API remains backend-neutral: applications do not call UDP, VSPW-TP, POSIX or Winsock APIs directly. Capture tooling remains development-only and adds no runtime dependency to `libspwkit`.
 
-- decide whether Winsock support belongs in v0.2 or a later portability slice and make the platform-support policy explicit.
+Native Winsock transport is intentionally deferred beyond v0.2 and can later reuse the same codec, reliability, timing, fault, capture and backend-contract work without changing application-facing semantics.
 
-The public SpaceWire API remains unchanged: applications do not call UDP or VSPW-TP directly. Capture tooling remains development-only and adds no runtime dependency to `libspwkit`.
+Release completion after this slice consists of final repository/status review and the v0.2.0 release/tag decision rather than additional planned runtime features.
 
 ## v0.3.0 — Linux virtual device
 
