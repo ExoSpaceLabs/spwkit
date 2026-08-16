@@ -7,7 +7,8 @@ on:
       - "include/spwkit/udp.h"
       - "src/backends/ethernet/**"
       - "src/core/port.cpp"
-      - "tests/udp_backend.cpp"
+      - "tests/udp*.cpp"
+      - "tests/contract/**"
       - "tests/CMakeLists.txt"
       - ".github/workflows/d2d.yml"
   pull_request:
@@ -16,7 +17,8 @@ on:
       - "include/spwkit/udp.h"
       - "src/backends/ethernet/**"
       - "src/core/port.cpp"
-      - "tests/udp_backend.cpp"
+      - "tests/udp*.cpp"
+      - "tests/contract/**"
       - "tests/CMakeLists.txt"
       - ".github/workflows/d2d.yml"
   workflow_dispatch:
