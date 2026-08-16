@@ -13,12 +13,12 @@ libspwkit public C ABI
     +--> loopback reference backend
     +--> process-local SpaceWire simulator
     +--> VSPW-TP / UDP distributed backend
-    +--> future /dev/spwX backend
+    +--> next: Linux virtual-device backend / vspwd
     +--> future bare-metal / RTOS backend
     +--> future FPGA / vendor backend
 ```
 
-The design goal is simple: application SpaceWire logic should not change just because the implementation underneath moves from a simulator to UDP transport or a DMA-capable FPGA implementation.
+The design goal is simple: application SpaceWire logic should not change just because the implementation underneath moves from a simulator to UDP transport, a Linux device, or a DMA-capable FPGA implementation.
 
 ## Release status
 
@@ -65,11 +65,13 @@ Physical FPGA/HIL verification is deliberately deferred until suitable hardware 
 - VSPW-TP Wireshark/tshark capture tooling with deterministic real-dissector validation;
 - explicit v0.2 platform policy and installed-package UDP runtime metadata.
 
-The v0.2 engineering scope is complete. Native Winsock UDP transport is intentionally deferred beyond this release and tracked separately in issue #42.
+Native Winsock UDP transport remains tracked separately in issue #42.
 
-### v0.3.0 development line — C11 runtime
+### v0.3.0 — C11 runtime and optional C++ wrapper
 
-The v0.3 engineering line converts the runtime implementation itself to C11 before Linux-device, RTOS and hardware backends expand the surface. `SpWKit::spwkit` now builds without a C++ compiler/runtime; `SPWKIT_ENABLE_CPP=ON` optionally installs a header-only C++17 `SpWKit::cpp` convenience target above the same C API. Static and shared builds use the standard `BUILD_SHARED_LIBS` switch. No `v0.3.0` tag is implied by the development version.
+The v0.3 engineering scope is complete and awaiting its release audit/tag. `spwkit::spwkit` is a C11 runtime and builds without a C++ compiler/linker/runtime. `SPWKIT_ENABLE_CPP=ON` optionally installs a header-only C++17 `spwkit::cpp` convenience target above the same C API. Static and shared builds use the standard `BUILD_SHARED_LIBS` switch.
+
+The C API is authoritative. C++ does not provide a second implementation or different SpaceWire semantics.
 
 ## Virtual SpaceWire
 
@@ -87,7 +89,7 @@ Application A                               Application B
 
 A/B are pairing labels, not server/client roles.
 
-The process-local simulator supports bidirectional/full-duplex packets, EOP/EEP, time codes, bounded queues, immediate/finite/infinite waits, link start/stop/reset, disconnect/recovery, statistics and zero-copy ownership emulation.
+The process-local simulator supports bidirectional/full-duplex packets, EOP/EEP, time codes, bounded queues, immediate/finite/infinite waits, link start/stop/reset, disconnect/recovery, statistics and zero-copy ownership emulation. The simulator itself is implemented in C and is exercised by a pure-C behavioral test/profile with `CXX=/bin/false`.
 
 ### Distributed UDP backend
 
@@ -111,19 +113,19 @@ The optional virtual timing model adds deterministic SpaceWire-side serializatio
 
 The UDP backend also supports fixed-size seeded fault rules for transport drop, duplicate, adjacent reorder and delay. These operate on VSPW-TP carrier datagrams and remain distinct from explicit SpaceWire-side EEP injection. Ordinary transport loss or reordering never synthesizes EEP. `spw_port_get_fault_statistics()` exposes separate counters for the two fault domains.
 
-The distributed backend runs the reusable public backend contract and is also exercised as genuinely separate applications. The D2D gate installs SpWKit, builds `examples/distributed` through `find_package(SpWKit)`, launches two peer processes, verifies peer loss/restart, and repeats the same 8 KiB EOP/EEP plus time-code exchange in two Linux network namespaces connected by a 1500-byte-MTU veth link. The applications never call VSPW-TP or socket-private APIs.
+The distributed backend runs the reusable public backend contract and is also exercised as genuinely separate applications. The D2D gate installs SpWKit, builds the **C-only** `examples/distributed` through `find_package(SpWKit)` with no C++ compiler, launches two peer processes, verifies peer loss/restart, and repeats the same 8 KiB EOP/EEP plus time-code exchange in two Linux network namespaces connected by a 1500-byte-MTU veth link. The applications never call VSPW-TP or socket-private APIs.
 
 Wire inspection is available separately under `tools/wireshark`: the Lua dissector recognizes VSPW-TP on configurable UDP ports, decodes v1 header/control fields, and is validated against a deterministic generated PCAP through tshark. This tooling is not linked into `libspwkit` and adds no runtime dependency.
 
-### v0.2 hosted platform scope
+### Hosted platform scope
 
-The v0.2 UDP runtime is **POSIX-only**. Linux is the primary fully exercised distributed platform; macOS is supported as a second POSIX host through the host/shared UDP contract matrix. Windows remains supported for the portable core API, simulator and installed package, but the UDP runtime backend is not implemented there in v0.2.
+The UDP runtime is currently **POSIX-only**. Linux is the primary fully exercised distributed platform; macOS is supported as a second POSIX host through the host/shared UDP contract matrix. Windows remains supported for the portable C core API, simulator and installed package, but the UDP runtime backend is not implemented there yet.
 
 Windows still installs `spwkit/udp.h` and exposes `SPW_BACKEND_UDP`/`spw_udp_config_t`. Selecting that backend with a structurally valid configuration returns `SPW_ERR_UNSUPPORTED`, rather than changing the public API by platform. The generated CMake package exports `SpWKit_UDP_RUNTIME_SUPPORTED` so hosted consumers can gate runtime-specific examples while still handling `SPW_ERR_UNSUPPORTED` at the API boundary.
 
-Native Winsock support is deferred to a later portability slice behind the same backend contract. See `docs/platform-support.md` for the exact validation matrix and rationale.
+Native Winsock support is deferred behind the same backend contract. See `docs/platform-support.md` and issue #42.
 
-`/dev/vspwX` remains later roadmap work.
+The next runtime milestone is the Linux virtual-device/userspace-service layer tracked by #54.
 
 ## Portable memory model
 
@@ -166,14 +168,34 @@ Scatter/gather is deferred beyond v0.1; one buffer currently represents one cont
 
 ## Build
 
+Pure-C runtime/tests/examples:
+
+```sh
+CC=gcc CXX=/bin/false cmake -S . -B build-c \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DSPWKIT_BUILD_TESTS=ON \
+  -DSPWKIT_BUILD_CPP_TESTS=OFF \
+  -DSPWKIT_BUILD_EXAMPLES=ON \
+  -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+  -DSPWKIT_BUILD_SIMULATOR=ON \
+  -DSPWKIT_BUILD_UDP=ON \
+  -DSPWKIT_ENABLE_CPP=OFF
+cmake --build build-c --parallel
+ctest --test-dir build-c --output-on-failure
+```
+
+C plus optional C++ wrapper/development tests:
+
 ```sh
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -DSPWKIT_BUILD_TESTS=ON \
+  -DSPWKIT_BUILD_CPP_TESTS=ON \
   -DSPWKIT_BUILD_EXAMPLES=ON \
+  -DSPWKIT_BUILD_CPP_EXAMPLES=ON \
   -DSPWKIT_BUILD_SIMULATOR=ON \
   -DSPWKIT_BUILD_UDP=ON \
-  -DSPWKIT_ENABLE_CPP=OFF
+  -DSPWKIT_ENABLE_CPP=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
@@ -184,29 +206,30 @@ Install:
 cmake --install build --prefix /path/to/spwkit-install
 ```
 
-Consumer CMake for the v0.3 development line:
+Consumer CMake:
 
 ```cmake
 find_package(SpWKit 0.3 CONFIG REQUIRED)
-target_link_libraries(my_target PRIVATE SpWKit::spwkit)
+target_link_libraries(my_target PRIVATE spwkit::spwkit)
 
 if(SpWKit_UDP_RUNTIME_SUPPORTED)
     # This installed library contains the hosted VSPW-TP/UDP backend.
 endif()
 ```
 
-Consumers pinned to the `v0.1.0` tag should request `SpWKit 0.1` instead.
+Optional C++ consumers link `spwkit::cpp` when the package was built with `SPWKIT_ENABLE_CPP=ON`.
 
 CI builds standalone installed-package consumers so exported package metadata cannot silently rot.
 
 ## Examples
 
 - `examples/c_loopback.c`: hosted C API, capabilities, packets, EEP and time codes;
-- `examples/cpp_no_heap.cpp`: C++ application using caller-owned workspace;
-- `examples/c_simulator_zero_copy.c`: paired simulator endpoints using zero-copy ownership;
+- `examples/c_simulator_zero_copy.c`: paired pure-C simulator endpoints using zero-copy ownership;
+- `examples/cpp_no_heap.cpp`: C++ source using the authoritative C API with caller-owned workspace;
+- `examples/cpp_wrapper_loopback.cpp`: optional `spwkit::Port` RAII wrapper over the same loopback runtime;
 - `examples/installed`: standalone **C-only** installed-package consumer that verifies package/runtime metadata without enabling C++;
-- `examples/installed_cpp`: optional C++17 wrapper consumer built against `SpWKit::cpp`;
-- `examples/distributed`: standalone installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios.
+- `examples/installed_cpp`: optional C++17 wrapper consumer built against `spwkit::cpp`;
+- `examples/distributed`: standalone **C-only** installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios.
 
 All examples use public headers only and require no physical SpaceWire hardware.
 
@@ -222,7 +245,7 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [Public API contract](docs/api.md)
 - [Core public types](docs/types.md)
 - [Port/backend configuration](docs/configuration.md)
-- [v0.2 platform support](docs/platform-support.md)
+- [Hosted platform support](docs/platform-support.md)
 - [Memory ownership](docs/memory.md)
 - [Zero-copy buffers](docs/buffers.md)
 - [C and C++ integration](docs/language-bindings.md)
