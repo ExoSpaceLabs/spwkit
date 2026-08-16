@@ -6,6 +6,12 @@
 #include <spwkit/udp.h>
 
 #include "backends/loopback/loopback_backend.h"
+#ifdef SPWKIT_HAS_SIMULATOR
+#include "backends/virtual/simulator_backend.h"
+#endif
+#ifdef SPWKIT_HAS_UDP
+#include "backends/ethernet/udp_backend.h"
+#endif
 #include "core/backend_c.h"
 #include "core/buffer_internal.h"
 
@@ -22,13 +28,6 @@
 
 #ifndef SPWKIT_ENABLE_HEAP
 #define SPWKIT_ENABLE_HEAP 1
-#endif
-
-#ifdef SPWKIT_HAS_SIMULATOR
-const spw_backend_factory_t* spw_cpp_simulator_backend_factory(void);
-#endif
-#ifdef SPWKIT_HAS_UDP
-const spw_backend_factory_t* spw_cpp_udp_backend_factory(void);
 #endif
 
 struct spw_port {
@@ -187,7 +186,7 @@ static spw_result_t select_factory(
             return result;
         }
 #ifdef SPWKIT_HAS_SIMULATOR
-        *out_factory = spw_cpp_simulator_backend_factory();
+        *out_factory = spw_simulator_backend_factory();
         return SPW_OK;
 #else
         return SPW_ERR_UNSUPPORTED;
@@ -199,7 +198,7 @@ static spw_result_t select_factory(
             return result;
         }
 #ifdef SPWKIT_HAS_UDP
-        *out_factory = spw_cpp_udp_backend_factory();
+        *out_factory = spw_udp_backend_factory();
         return SPW_OK;
 #else
         return SPW_ERR_UNSUPPORTED;

@@ -67,14 +67,12 @@ if(SPWKIT_BUILD_SIMULATOR)
     list(APPEND SPWKIT_SOURCES
         src/platform/host_sync.c
         src/backends/virtual/simulator_backend.c
-        src/backends/virtual/simulator_factory_compat.c
     )
 endif()
 
 if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     list(APPEND SPWKIT_SOURCES
         src/backends/ethernet/udp_backend.c
-        src/backends/ethernet/udp_factory_compat.c
     )
 endif()
 

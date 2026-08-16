@@ -67,6 +67,10 @@ Physical FPGA/HIL verification is deliberately deferred until suitable hardware 
 
 The v0.2 engineering scope is complete. Native Winsock UDP transport is intentionally deferred beyond this release and tracked separately in issue #42.
 
+### v0.3.0 development line — C11 runtime
+
+The v0.3 engineering line converts the runtime implementation itself to C11 before Linux-device, RTOS and hardware backends expand the surface. `SpWKit::spwkit` now builds without a C++ compiler/runtime; `SPWKIT_ENABLE_CPP=ON` optionally installs a header-only C++17 `SpWKit::cpp` convenience target above the same C API. Static and shared builds use the standard `BUILD_SHARED_LIBS` switch. No `v0.3.0` tag is implied by the development version.
+
 ## Virtual SpaceWire
 
 ### Process-local simulator
@@ -141,11 +145,11 @@ spw_port_open_in_place(&config, workspace, workspace_size, &port);
 
 `SPWKIT_ENABLE_HEAP=OFF` disables heap-backed open while preserving the in-place path.
 
-## No-throw policy
+## Language and error policy
 
-The `spwkit` library target is built with C++ exceptions and RTTI disabled on supported toolchains. Recoverable failures are reported through `spw_result_t`; library code does not depend on exception handling.
+`libspwkit` is implemented in C11 and reports recoverable failures through `spw_result_t`. It does not require a C++ compiler, linker or runtime. The optional C++17 wrapper is exception-free, remains move/RAII convenience only, and delegates to the same C API.
 
-This is a project-wide portability property, not just a special no-heap CI configuration.
+See [C and C++ integration](docs/language-bindings.md) for C-only, wrapper-enabled, static/shared and embedded build profiles.
 
 ## Zero-copy / future DMA
 
@@ -168,7 +172,8 @@ cmake -S . -B build \
   -DSPWKIT_BUILD_TESTS=ON \
   -DSPWKIT_BUILD_EXAMPLES=ON \
   -DSPWKIT_BUILD_SIMULATOR=ON \
-  -DSPWKIT_BUILD_UDP=ON
+  -DSPWKIT_BUILD_UDP=ON \
+  -DSPWKIT_ENABLE_CPP=OFF
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
@@ -179,10 +184,10 @@ Install:
 cmake --install build --prefix /path/to/spwkit-install
 ```
 
-Consumer CMake for v0.2.0:
+Consumer CMake for the v0.3 development line:
 
 ```cmake
-find_package(SpWKit 0.2 CONFIG REQUIRED)
+find_package(SpWKit 0.3 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE SpWKit::spwkit)
 
 if(SpWKit_UDP_RUNTIME_SUPPORTED)
@@ -199,7 +204,8 @@ CI builds standalone installed-package consumers so exported package metadata ca
 - `examples/c_loopback.c`: hosted C API, capabilities, packets, EEP and time codes;
 - `examples/cpp_no_heap.cpp`: C++ application using caller-owned workspace;
 - `examples/c_simulator_zero_copy.c`: paired simulator endpoints using zero-copy ownership;
-- `examples/installed`: standalone installed-package consumer that also verifies exported UDP-runtime availability metadata;
+- `examples/installed`: standalone **C-only** installed-package consumer that verifies package/runtime metadata without enabling C++;
+- `examples/installed_cpp`: optional C++17 wrapper consumer built against `SpWKit::cpp`;
 - `examples/distributed`: standalone installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios.
 
 All examples use public headers only and require no physical SpaceWire hardware.
@@ -219,7 +225,8 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [v0.2 platform support](docs/platform-support.md)
 - [Memory ownership](docs/memory.md)
 - [Zero-copy buffers](docs/buffers.md)
-- [No-throw and portability contract](docs/portability.md)
+- [C and C++ integration](docs/language-bindings.md)
+- [Portability contract](docs/portability.md)
 - [Backend contract](docs/backend-contract.md)
 - [Local virtual simulator](docs/simulator.md)
 - [Distributed VSPW-TP transport](docs/vspw-tp.md)
