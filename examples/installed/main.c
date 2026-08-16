@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <spwkit/spwkit.h>
+#include <spwkit/udp.h>
 
 #include <stdint.h>
 
