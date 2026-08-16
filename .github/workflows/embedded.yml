@@ -8,6 +8,7 @@ on:
       - "include/**"
       - "src/core/**"
       - "src/backends/loopback/**"
+      - "src/backends/device/**"
       - "tests/embedded/**"
       - ".github/workflows/embedded.yml"
   pull_request:
@@ -17,6 +18,7 @@ on:
       - "include/**"
       - "src/core/**"
       - "src/backends/loopback/**"
+      - "src/backends/device/**"
       - "tests/embedded/**"
       - ".github/workflows/embedded.yml"
   workflow_dispatch:
@@ -78,4 +80,5 @@ jobs:
         run: |
           echo "### Embedded portability" >> "$GITHUB_STEP_SUMMARY"
           echo "This gate is a real freestanding C/no-heap compile, not target-HIL evidence." >> "$GITHUB_STEP_SUMMARY"
+          echo "The VSPD codec is included because protocol encoding must remain portable C; the Linux socket transport is not." >> "$GITHUB_STEP_SUMMARY"
           echo "ARM/HardRT target toolchains remain v0.5 work and will be added as separate jobs." >> "$GITHUB_STEP_SUMMARY"
