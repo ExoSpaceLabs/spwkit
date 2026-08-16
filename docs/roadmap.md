@@ -43,12 +43,14 @@ Implemented in v0.2 development:
 - explicit SpaceWire-side EEP injection with separate fault-domain diagnostics;
 - reusable public backend contract running against the UDP backend;
 - reusable distributed peer-loss/restart contract using public operations only;
-- active device-to-device UDP CI including public contract, retry/dedup/recovery, timing and fault coverage;
+- standalone installed-package equal-peer UDP example for independent Linux processes/hosts;
+- active two-process restart integration using only public APIs;
+- active two-network-namespace integration across a 1500-byte-MTU veth link;
+- active device-to-device UDP CI including public contract, process/network isolation, retry/dedup/recovery, timing and fault coverage;
 - development package version advanced to 0.2.0.
 
 Remaining v0.2 work:
 
-- Linux-to-Linux distributed process/container examples and stronger namespace isolation tests;
 - Wireshark dissector or capture tooling;
 - decide whether Winsock support belongs in v0.2 or a later portability slice.
 
