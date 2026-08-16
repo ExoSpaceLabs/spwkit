@@ -148,6 +148,23 @@ Caller send timeouts include the virtual delay. If the remaining timeout cannot 
 
 Host Ethernet/UDP latency is not measured or folded into this model. It remains incidental carrier behavior and cannot redefine the configured virtual SpaceWire timing.
 
+## Deterministic fault injection
+
+The UDP backend can apply deterministic seeded fault rules without changing the VSPW-TP wire format. Rules are fixed-size configuration state and require no dynamic allocation or mandatory worker thread. Each matching rule advances its own reproducible PRNG stream derived from the configured seed; an always-fire probability is available for exact CI scenarios.
+
+Transport faults operate strictly on VSPW-TP carrier datagrams after framing:
+
+- **drop** suppresses a selected datagram while reporting local transport success so the normal reliability machinery can observe the loss and retry where appropriate;
+- **duplicate** transmits the selected datagram twice;
+- **reorder** holds one selected datagram in a fixed datagram-sized slot and sends the next outgoing datagram first, providing a bounded adjacent swap;
+- **delay** postpones one selected transport datagram by the configured microseconds and consumes the applicable transport timeout.
+
+Targets can distinguish DATA, TIME_CODE, ACK and KEEPALIVE/control traffic. This makes scenarios such as a dropped ACK reproducible without modifying application payloads or pretending that carrier loss is a SpaceWire event. Reliable retransmission and duplicate suppression continue to operate normally around injected transport faults.
+
+The explicitly SpaceWire-visible fault action is **EEP injection**. It applies to an outgoing logical DATA packet before VSPW-TP framing, converting a selected EOP terminator to EEP. This is intentionally a different fault domain: transport drop, duplicate, reorder or delay never synthesizes EEP.
+
+`spw_port_get_fault_statistics()` reports transport drops, duplicates, reorders and delays separately from SpaceWire EEP injections. This separation is part of the simulation contract rather than merely a diagnostic convention.
+
 ## Liveness
 
 Each started UDP backend chooses a new non-zero local session ID and advertises it through KEEPALIVE while stamping the same ID on all other frames. `keepalive_interval_ms` controls periodic advertisement while API calls are servicing the transport. `peer_timeout_ms` controls when lack of valid current-session traffic from the configured peer is mapped to `SPW_LINK_ERROR_WAIT`.
@@ -178,7 +195,8 @@ The UDP backend deliberately advertises a smaller 1 MiB maximum packet size so T
 - keepalive interval;
 - peer timeout;
 - effective virtual SpaceWire link bit rate;
-- fixed virtual propagation/processing latency.
+- fixed virtual propagation/processing latency;
+- deterministic fault seed and fixed transport/SpaceWire fault rules.
 
 Both endpoints are peers; there is no application-visible server/client role.
 
@@ -240,6 +258,10 @@ The distributed backend integration tests verify:
 - peer restart/session recovery back to `SPW_LINK_RUN`;
 - compile-time deterministic virtual timing calculations;
 - immediate send timeout when configured virtual delay is non-zero;
-- successful DATA and TIME_CODE delivery when the caller budget covers the virtual delay.
+- successful DATA and TIME_CODE delivery when the caller budget covers the virtual delay;
+- dropped ACK recovery without duplicate logical delivery;
+- deterministic DATA duplication and bounded adjacent fragment reordering;
+- transport-delay timeout behavior;
+- explicit EOP-to-EEP SpaceWire fault injection with separate fault-domain counters.
 
 The dedicated Device-to-device workflow executes the distributed tests as a real transport gate.

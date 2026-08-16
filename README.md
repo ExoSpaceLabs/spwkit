@@ -57,9 +57,11 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 - per-frame session identity, keepalive/peer timeout and restart recovery;
 - configured source address/port validation;
 - deterministic configurable SpaceWire-side virtual link rate and fixed latency;
-- active device-to-device CI exercising real UDP transfer, recovery and timing behavior.
+- deterministic seeded transport drop/duplicate/reorder/delay injection;
+- explicit SpaceWire-side EEP injection with transport/SpaceWire fault-domain counters;
+- active device-to-device CI exercising real UDP transfer, recovery, timing and fault behavior.
 
-Deterministic fault injection, stronger multi-process/container examples, broader distributed contract coverage and capture/Wireshark tooling remain v0.2 work.
+Stronger multi-process/container examples, broader distributed contract coverage and capture/Wireshark tooling remain v0.2 work.
 
 ## Virtual SpaceWire
 
@@ -98,6 +100,8 @@ UDP is an internal transport. Packet boundaries, EOP/EEP and time codes remain S
 Reliability is logical-message based. The backend retains at most one unacknowledged DATA/TIME_CODE event, retries it cooperatively after the configured ACK timeout, suppresses duplicate logical delivery, and uses transport keepalives/session IDs for peer liveness and restart recovery. No mandatory background thread is required.
 
 The optional virtual timing model adds deterministic SpaceWire-side serialization and fixed latency to logical DATA/TIME_CODE events without treating incidental host UDP delay as simulated link timing. ACKs, keepalives and retransmissions remain transport mechanics and do not reapply the logical SpaceWire delay.
+
+The UDP backend also supports fixed-size seeded fault rules for transport drop, duplicate, adjacent reorder and delay. These operate on VSPW-TP carrier datagrams and remain distinct from explicit SpaceWire-side EEP injection. Ordinary transport loss or reordering never synthesizes EEP. `spw_port_get_fault_statistics()` exposes separate counters for the two fault domains.
 
 `/dev/vspwX` remains later roadmap work.
 

@@ -39,12 +39,13 @@ Implemented in v0.2 development:
 - peer timeout mapping to public link state/errors;
 - peer restart/session recovery;
 - deterministic SpaceWire-side virtual link rate/latency timing for DATA and TIME_CODE;
-- active device-to-device UDP CI including forced retry/dedup/recovery and timing coverage;
+- deterministic seeded VSPW-TP transport drop/duplicate/reorder/delay injection;
+- explicit SpaceWire-side EEP injection with separate fault-domain diagnostics;
+- active device-to-device UDP CI including forced retry/dedup/recovery, timing and fault coverage;
 - development package version advanced to 0.2.0.
 
 Remaining v0.2 work:
 
-- deterministic SpaceWire-side and transport-side fault injection;
 - Linux-to-Linux distributed process/container examples and stronger namespace isolation tests;
 - Wireshark dissector or capture tooling;
 - broaden the shared backend contract for distributed backend semantics;
