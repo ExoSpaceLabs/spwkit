@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define SPWKIT_API_VERSION_MAJOR 0u
-#define SPWKIT_API_VERSION_MINOR 2u
+#define SPWKIT_API_VERSION_MINOR 3u
 #define SPWKIT_API_VERSION_PATCH 0u
 
 /** Result value returned by the public C API. */

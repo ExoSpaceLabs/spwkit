@@ -11,7 +11,7 @@
 int main(void)
 {
     assert(SPWKIT_API_VERSION_MAJOR == 0u);
-    assert(SPWKIT_API_VERSION_MINOR == 2u);
+    assert(SPWKIT_API_VERSION_MINOR == 3u);
     assert(SPWKIT_API_VERSION_PATCH == 0u);
 
     assert(SPW_OK == 0);

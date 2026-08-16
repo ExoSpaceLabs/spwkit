@@ -12,6 +12,7 @@ on:
       - "src/backends/loopback/**"
       - "src/backends/virtual/**"
       - "src/backends/ethernet/**"
+      - "examples/installed/**"
       - ".github/workflows/c-core.yml"
   pull_request:
     paths:
@@ -23,6 +24,7 @@ on:
       - "src/backends/loopback/**"
       - "src/backends/virtual/**"
       - "src/backends/ethernet/**"
+      - "examples/installed/**"
       - ".github/workflows/c-core.yml"
 
 jobs:
@@ -45,6 +47,7 @@ jobs:
             -DSPWKIT_BUILD_UDP=OFF \
             -DSPWKIT_BUILD_TOOLS=OFF \
             -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
             -DCMAKE_INSTALL_PREFIX="$PWD/install-c"
 
           if grep -q '^CMAKE_CXX_COMPILER:' build-c/CMakeCache.txt; then
@@ -63,49 +66,21 @@ jobs:
             nm -u "$archive"
             exit 1
           fi
+          test ! -f install-c/include/spwkit/spwkit.hpp
 
       - name: Build installed C-only consumer
+        env:
+          CC: gcc
+          CXX: /bin/false
         run: |
-          mkdir -p consumer
-          cat > consumer/CMakeLists.txt <<'CMAKE'
-          cmake_minimum_required(VERSION 3.20)
-          project(spwkit_c_only_consumer LANGUAGES C)
-          find_package(SpWKit CONFIG REQUIRED)
-          add_executable(c_consumer main.c)
-          target_link_libraries(c_consumer PRIVATE SpWKit::spwkit)
-          set_target_properties(c_consumer PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
-          CMAKE
-
-          cat > consumer/main.c <<'C'
-          #include <spwkit/port.h>
-          #include <stdint.h>
-          #include <string.h>
-
-          int main(void) {
-              spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_LOOPBACK);
-              spw_port_t* port = NULL;
-              uint8_t tx_data[4] = {1u, 2u, 3u, 4u};
-              uint8_t rx_data[4] = {0};
-              spw_packet_t tx = {tx_data, sizeof(tx_data), sizeof(tx_data), SPW_TERMINATOR_EOP};
-              spw_packet_t rx = {rx_data, 0u, sizeof(rx_data), SPW_TERMINATOR_EOP};
-
-              if (spw_port_open(&config, &port) != SPW_OK || port == NULL) return 1;
-              if (spw_port_start(port) != SPW_OK) return 2;
-              if (spw_port_send(port, &tx, SPW_TIMEOUT_IMMEDIATE) != SPW_OK) return 3;
-              if (spw_port_receive(port, &rx, SPW_TIMEOUT_IMMEDIATE) != SPW_OK) return 4;
-              if (rx.length != sizeof(tx_data) || memcmp(tx_data, rx_data, sizeof(tx_data)) != 0) return 5;
-              return spw_port_close(port) == SPW_OK ? 0 : 6;
-          }
-          C
-
-          CC=gcc CXX=/bin/false cmake -S consumer -B consumer/build \
+          cmake -S examples/installed -B consumer/build \
             -DCMAKE_PREFIX_PATH="$PWD/install-c"
           if grep -q '^CMAKE_CXX_COMPILER:' consumer/build/CMakeCache.txt; then
             echo "Installed C consumer enabled a C++ compiler" >&2
             exit 1
           fi
           cmake --build consumer/build --parallel
-          ./consumer/build/c_consumer
+          ctest --test-dir consumer/build --output-on-failure --no-tests=error
 
       - name: Configure and build complete C-only runtime
         env:
@@ -120,7 +95,8 @@ jobs:
             -DSPWKIT_BUILD_SIMULATOR=ON \
             -DSPWKIT_BUILD_UDP=ON \
             -DSPWKIT_BUILD_TOOLS=OFF \
-            -DSPWKIT_ENABLE_HEAP=ON
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF
           if grep -q '^CMAKE_CXX_COMPILER:' build-c-runtime/CMakeCache.txt; then
             echo "Complete runtime profile enabled a C++ compiler" >&2
             exit 1
@@ -133,6 +109,40 @@ jobs:
             nm -u "$archive"
             exit 1
           fi
+
+      - name: Configure and build installed shared C runtime
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-c-shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install-shared"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-c-shared/CMakeCache.txt; then
+            echo "Shared C runtime enabled a C++ compiler" >&2
+            exit 1
+          fi
+          cmake --build build-c-shared --parallel
+          cmake --install build-c-shared
+          test -f install-shared/lib/libspwkit.so
+
+          cmake -S examples/installed -B consumer-shared/build \
+            -DCMAKE_PREFIX_PATH="$PWD/install-shared"
+          if grep -q '^CMAKE_CXX_COMPILER:' consumer-shared/build/CMakeCache.txt; then
+            echo "Shared installed C consumer enabled a C++ compiler" >&2
+            exit 1
+          fi
+          cmake --build consumer-shared/build --parallel
+          LD_LIBRARY_PATH="$PWD/install-shared/lib:${LD_LIBRARY_PATH:-}" \
+            ctest --test-dir consumer-shared/build --output-on-failure --no-tests=error
 
       - name: Configure and build no-heap C-only core
         env:
@@ -147,7 +157,8 @@ jobs:
             -DSPWKIT_BUILD_SIMULATOR=OFF \
             -DSPWKIT_BUILD_UDP=OFF \
             -DSPWKIT_BUILD_TOOLS=OFF \
-            -DSPWKIT_ENABLE_HEAP=OFF
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF
           if grep -q '^CMAKE_CXX_COMPILER:' build-c-noheap/CMakeCache.txt; then
             echo "No-heap C profile enabled a C++ compiler" >&2
             exit 1

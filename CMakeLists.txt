@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
-# libspwkit is a C11 library. C++ is an optional consumer/test language and is
-# never required by the runtime implementation.
+# libspwkit is a C11 runtime. C++ is an optional convenience layer above the
+# public C ABI and is never required by the runtime implementation.
 project(
     spwkit
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "SpaceWire Development & Integration Toolkit"
     LANGUAGES C
 )
@@ -18,6 +18,7 @@ option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backe
 option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend when supported" ON)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
+option(SPWKIT_ENABLE_CPP "Enable/install the optional C++17 convenience wrapper" OFF)
 
 if(SPWKIT_BUILD_UDP AND UNIX)
     set(SPWKIT_UDP_RUNTIME_SUPPORTED ON)
@@ -31,11 +32,10 @@ if(SPWKIT_BUILD_UDP AND NOT UNIX)
         "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
 endif()
 
-# Runtime sources are C11. Enable CXX only for the existing C++ test/example
-# consumers; #49 will turn this into the explicit SPWKIT_ENABLE_CPP wrapper
-# option and independent SpWKit::cpp target.
+# Runtime sources are C11. Enable CXX only when a requested build product
+# actually needs a C++ compiler: the optional wrapper, C++ tests, or examples.
 set(SPWKIT_NEEDS_CXX OFF)
-if(SPWKIT_BUILD_TESTS OR SPWKIT_BUILD_EXAMPLES)
+if(SPWKIT_ENABLE_CPP OR SPWKIT_BUILD_TESTS OR SPWKIT_BUILD_EXAMPLES)
     set(SPWKIT_NEEDS_CXX ON)
 endif()
 if(SPWKIT_NEEDS_CXX)
@@ -78,6 +78,9 @@ if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     )
 endif()
 
+# BUILD_SHARED_LIBS is intentionally the standard switch. OFF (the CMake
+# default) gives the embedded/static profile; hosted builds may opt into a
+# shared library without changing the public target or API.
 add_library(spwkit ${SPWKIT_SOURCES})
 add_library(SpWKit::spwkit ALIAS spwkit)
 
@@ -119,6 +122,19 @@ set_target_properties(spwkit PROPERTIES
     EXPORT_NAME spwkit
 )
 
+# Optional header-only C++17 convenience layer. It contains no backend logic;
+# all operations delegate to the installed public C API in SpWKit::spwkit.
+if(SPWKIT_ENABLE_CPP)
+    add_library(spwkit_cpp INTERFACE)
+    add_library(SpWKit::cpp ALIAS spwkit_cpp)
+    target_link_libraries(spwkit_cpp INTERFACE SpWKit::spwkit)
+    target_compile_features(spwkit_cpp INTERFACE cxx_std_17)
+    target_include_directories(spwkit_cpp INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    set_target_properties(spwkit_cpp PROPERTIES EXPORT_NAME cpp)
+endif()
+
 if(SPWKIT_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
@@ -138,10 +154,23 @@ install(
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
+if(SPWKIT_ENABLE_CPP)
+    install(TARGETS spwkit_cpp EXPORT SpWKitTargets)
+endif()
+
+# C headers are always installed. The optional C++ convenience header is only
+# installed when explicitly requested, so a C-only package has no C++ surface.
 install(
     DIRECTORY include/spwkit
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    PATTERN "*.hpp" EXCLUDE
 )
+if(SPWKIT_ENABLE_CPP)
+    install(
+        FILES include/spwkit/spwkit.hpp
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/spwkit
+    )
+endif()
 
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SpWKitConfig.cmake.in
