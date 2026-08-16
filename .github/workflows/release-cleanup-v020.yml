@@ -1,0 +1,30 @@
+name: Release audit cleanup v0.2.0
+
+on:
+  push:
+    branches: [agent/v0.2-release-audit]
+    paths:
+      - ".github/workflows/release-cleanup-v020.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/v0.2-release-audit
+
+      - name: Remove generated audit artifacts and helper
+        run: |
+          rm -rf build-release-audit
+          rm .github/workflows/release-cleanup-v020.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+Inczert@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(spwkit): remove release audit build artifacts"
+          git push origin HEAD:agent/v0.2-release-audit
