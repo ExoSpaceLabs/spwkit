@@ -1,4 +1,4 @@
-name: C-only core
+name: C-only runtime
 
 on:
   push:
@@ -9,31 +9,43 @@ on:
       - "include/**"
       - "src/core/**"
       - "src/platform/**"
-      - "src/backends/loopback/**"
-      - "src/backends/virtual/**"
-      - "src/backends/ethernet/**"
+      - "src/backends/**"
+      - "tests/**"
+      - "examples/CMakeLists.txt"
+      - "examples/*.c"
       - "examples/installed/**"
       - ".github/workflows/c-core.yml"
   pull_request:
+    branches: [main]
     paths:
       - "CMakeLists.txt"
       - "cmake/**"
       - "include/**"
       - "src/core/**"
       - "src/platform/**"
-      - "src/backends/loopback/**"
-      - "src/backends/virtual/**"
-      - "src/backends/ethernet/**"
+      - "src/backends/**"
+      - "tests/**"
+      - "examples/CMakeLists.txt"
+      - "examples/*.c"
       - "examples/installed/**"
       - ".github/workflows/c-core.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c-only-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   c-only:
+    name: Pure C static/shared/runtime
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
-      - name: Configure C-only static core
+      - name: Configure and test C-only static core
         env:
           CC: gcc
           CXX: /bin/false
@@ -41,8 +53,10 @@ jobs:
           cmake -S . -B build-c \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
-            -DSPWKIT_BUILD_TESTS=OFF \
-            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=ON \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=OFF \
             -DSPWKIT_BUILD_UDP=OFF \
             -DSPWKIT_BUILD_TOOLS=OFF \
@@ -54,11 +68,10 @@ jobs:
             echo "CXX language/compiler was enabled by the C-only profile" >&2
             exit 1
           fi
-
-      - name: Build and install C-only static core
-        run: |
           cmake --build build-c --parallel
+          ctest --test-dir build-c --output-on-failure --no-tests=error
           cmake --install build-c
+
           archive="$(find install-c -type f -name 'libspwkit.a' -print -quit)"
           test -n "$archive"
           if nm -u "$archive" | grep -Eq '(__cxa|_Z|libstdc\+\+|cxxabi)'; then
@@ -68,7 +81,7 @@ jobs:
           fi
           test ! -f install-c/include/spwkit/spwkit.hpp
 
-      - name: Build installed C-only consumer
+      - name: Build and run installed C-only consumer
         env:
           CC: gcc
           CXX: /bin/false
@@ -82,7 +95,7 @@ jobs:
           cmake --build consumer/build --parallel
           ctest --test-dir consumer/build --output-on-failure --no-tests=error
 
-      - name: Configure and build complete C-only runtime
+      - name: Configure and test complete C-only simulator/UDP runtime
         env:
           CC: gcc
           CXX: /bin/false
@@ -90,8 +103,10 @@ jobs:
           cmake -S . -B build-c-runtime \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
-            -DSPWKIT_BUILD_TESTS=OFF \
-            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=ON \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=ON \
             -DSPWKIT_BUILD_UDP=ON \
             -DSPWKIT_BUILD_TOOLS=OFF \
@@ -102,6 +117,7 @@ jobs:
             exit 1
           fi
           cmake --build build-c-runtime --parallel
+          ctest --test-dir build-c-runtime -L c --output-on-failure --no-tests=error
           archive="build-c-runtime/libspwkit.a"
           test -f "$archive"
           if nm -u "$archive" | grep -Eq '(__cxa|_Z|libstdc\+\+|cxxabi)'; then
@@ -110,7 +126,7 @@ jobs:
             exit 1
           fi
 
-      - name: Configure and build installed shared C runtime
+      - name: Configure and test installed shared C runtime
         env:
           CC: gcc
           CXX: /bin/false
@@ -119,7 +135,9 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=ON \
             -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
             -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=ON \
             -DSPWKIT_BUILD_UDP=ON \
             -DSPWKIT_BUILD_TOOLS=OFF \
@@ -144,7 +162,7 @@ jobs:
           LD_LIBRARY_PATH="$PWD/install-shared/lib:${LD_LIBRARY_PATH:-}" \
             ctest --test-dir consumer-shared/build --output-on-failure --no-tests=error
 
-      - name: Configure and build no-heap C-only core
+      - name: Configure and test no-heap C-only core
         env:
           CC: gcc
           CXX: /bin/false
@@ -152,8 +170,10 @@ jobs:
           cmake -S . -B build-c-noheap \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
-            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
             -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=OFF \
             -DSPWKIT_BUILD_UDP=OFF \
             -DSPWKIT_BUILD_TOOLS=OFF \
@@ -164,3 +184,4 @@ jobs:
             exit 1
           fi
           cmake --build build-c-noheap --parallel
+          ctest --test-dir build-c-noheap -L noheap --output-on-failure --no-tests=error
