@@ -1,6 +1,6 @@
 # Roadmap
 
-SpWKit has completed the v0.1 portable-core release and v0.2 distributed virtual SpaceWire release. The v0.3 engineering scope makes the runtime itself match the portability model the public API was already promising: C11 first, C++ optional. The v0.4 line then builds Linux virtual-device/service integration on that C substrate.
+SpWKit has completed the v0.1 portable-core, v0.2 distributed virtual SpaceWire, and v0.3 C-first runtime releases. The v0.4 line builds Linux virtual-device/service integration on that C substrate.
 
 ## v0.1.0 — Portable core and local virtual link — released
 
@@ -40,7 +40,7 @@ Delivered:
 
 `v0.2.0` is tagged at the audited distributed-runtime boundary. Native Winsock UDP remains tracked separately in #42.
 
-## v0.3.0 — C11 runtime and optional C++ wrapper — engineering complete
+## v0.3.0 — C11 runtime and optional C++ wrapper — released
 
 Objective: make the implementation match the public portability contract before adding Linux-device, RTOS and hardware-specific layers.
 
@@ -67,7 +67,7 @@ Delivered:
 
 The C API remains authoritative. The C++ wrapper has no backend implementation and preserves `spw_result_t` error handling.
 
-No `v0.3.0` release tag is implied by engineering completion; release audit/tagging is a separate step.
+`v0.3.0` is tagged at the audited C-first runtime boundary.
 
 ## v0.4.0 — Linux virtual device and userspace service — active
 
@@ -75,8 +75,8 @@ Tracked by #54.
 
 Planned slices:
 
-- v0.3 naming/docs/CI reconciliation before expanding the surface (#55);
-- versioned userspace virtual-device protocol and documented `/dev/vspwX` semantics;
+- completed v0.3 naming/docs/CI reconciliation (#55);
+- versioned userspace virtual-device protocol and documented `/dev/vspwX` semantics (#57);
 - C `vspwd` service owning virtual ports;
 - C Linux-device backend selected through normal `spw_port_*` configuration;
 - unprivileged Unix-domain socket fallback for ordinary development/CI;
