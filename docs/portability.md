@@ -4,7 +4,7 @@ SpWKit's runtime portability baseline is **C11**. The library core and current r
 
 ## Language/toolchain policy
 
-`SpWKit::spwkit` must not require:
+`spwkit::spwkit` must not require:
 
 - a C++ compiler;
 - a C++ linker;
@@ -12,9 +12,9 @@ SpWKit's runtime portability baseline is **C11**. The library core and current r
 - exceptions or RTTI;
 - STL containers or allocators.
 
-CI configures the complete simulator + UDP runtime with `CXX=/bin/false` and scans the resulting static archive for C++ ABI/runtime references.
+CI configures the complete simulator + UDP runtime with `CXX=/bin/false`, executes pure-C behavior, and scans the resulting static archive for C++ ABI/runtime references.
 
-The optional `SpWKit::cpp` target requires C++17, but it is header-only and delegates to the same public C API. It does not contain a second backend implementation and does not use exceptions for recoverable errors.
+The optional `spwkit::cpp` target requires C++17, but it is header-only and delegates to the same public C API. It does not contain a second backend implementation and does not use exceptions for recoverable errors.
 
 ## Heap policy
 
@@ -23,7 +23,7 @@ Heap allocation is optional.
 - `spw_port_open()` is a hosted convenience API and may allocate when `SPWKIT_ENABLE_HEAP=ON`;
 - `spw_port_open_in_place()` constructs the port and backend in caller-owned storage;
 - `SPWKIT_ENABLE_HEAP=OFF` disables the hosted allocation path;
-- dedicated no-heap CI verifies the mandatory caller-owned core path.
+- dedicated C and C++ no-heap tests verify the mandatory caller-owned core path.
 
 Future embedded backends may request larger or differently aligned caller-owned workspace without changing the public ownership model.
 
@@ -57,6 +57,10 @@ The current hosted UDP runtime is C11 and POSIX-specific. Its sockets, `poll()` 
 
 The VSPW-TP codec, reassembly logic, virtual timing and deterministic fault engine are C modules separated from the application API. Future lwIP/raw-Ethernet or native Winsock transports can reuse the same public semantics without requiring C++.
 
+## Linux virtual-device direction
+
+The v0.4 Linux virtual-device/service layer must obey the same rule. Unix-domain socket, CUSE and device-node details stay private to the backend/daemon implementation. A C application still sees only `spw_port_*`, and optional C++ applications still execute through that same C API.
+
 ## Static and shared builds
 
 `BUILD_SHARED_LIBS=OFF` is the normal static/embedded-friendly build. Linux CI also validates `BUILD_SHARED_LIBS=ON`, installs `libspwkit.so`, and links a separate C-only consumer against the installed package.
@@ -67,4 +71,4 @@ The build artifact type does not change the C API. Backend availability is repor
 
 A backend is not considered compatible merely because it compiles. It must pass the shared public backend contract for every capability it advertises. Optional capabilities such as time codes, EEP and zero-copy are capability-gated, and advertising a capability without the corresponding contract behavior is a test failure.
 
-For language portability, the stronger rule is also enforced: a valid C-only profile must configure, build, install and link without discovering or invoking a C++ compiler at all.
+For language portability, the stronger rule is also enforced: a valid C-only profile must configure, build, execute its C tests/examples, install and link without discovering or invoking a C++ compiler at all.
