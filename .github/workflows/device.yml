@@ -1,0 +1,90 @@
+name: Virtual device
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "include/spwkit/api.h"
+      - "src/backends/device/**"
+      - "tests/vspw_device_protocol.c"
+      - "tests/vspw_seqpacket.c"
+      - "tests/CMakeLists.txt"
+      - "docs/vspw-device-protocol.md"
+      - ".github/workflows/device.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "include/spwkit/api.h"
+      - "src/backends/device/**"
+      - "tests/vspw_device_protocol.c"
+      - "tests/vspw_seqpacket.c"
+      - "tests/CMakeLists.txt"
+      - "docs/vspw-device-protocol.md"
+      - ".github/workflows/device.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: virtual-device-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    name: VSPD C / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+          - compiler: clang
+            cc: clang
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure pure-C device profile
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-device \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+
+          if grep -q '^CMAKE_CXX_COMPILER:' build-device/CMakeCache.txt; then
+            echo "Virtual-device protocol profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build-device --parallel
+
+      - name: Run VSPD device/protocol tests
+        run: ctest --test-dir build-device -L device --output-on-failure --no-tests=error
+
+      - name: Verify protocol codec stays socket-free
+        run: |
+          archive="build-device/libspwkit.a"
+          test -f "$archive"
+          if nm -u "$archive" | grep -Eq '(socket|send|recv|poll|pthread_|__cxa|_Z)'; then
+            echo "Portable VSPD codec introduced hosted/C++ runtime references" >&2
+            nm -u "$archive"
+            exit 1
+          fi
