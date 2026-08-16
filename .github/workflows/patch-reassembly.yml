@@ -1,0 +1,168 @@
+name: Patch out-of-order reassembly
+
+on:
+  push:
+    branches:
+      - agent/v0.2-out-of-order-reassembly
+    paths:
+      - .github/workflows/patch-reassembly.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/v0.2-out-of-order-reassembly
+      - name: Integrate bounded reassembler
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/backends/ethernet/udp_backend.cpp')
+          text = path.read_text()
+
+          old = '''void UdpBackend::clear_reassembly() noexcept {
+              reassembly_message_id_ = 0u;
+              reassembly_total_size_ = 0u;
+              reassembly_received_ = 0u;
+              reassembly_terminator_ = SPW_TERMINATOR_EOP;
+              reassembly_active_ = false;
+          }
+          '''
+          new = '''void UdpBackend::clear_reassembly() noexcept {
+              reassembly_.reset();
+              reassembly_last_fragment_ = {};
+          }
+
+          void UdpBackend::expire_reassembly() noexcept {
+              if (!reassembly_.active() || reassembly_last_fragment_ == TimePoint{}) {
+                  return;
+              }
+              const auto timeout = std::chrono::milliseconds(config_.peer_timeout_ms);
+              if (Clock::now() - reassembly_last_fragment_ >= timeout) {
+                  clear_reassembly();
+              }
+          }
+          '''
+          if old not in text:
+              raise SystemExit('clear_reassembly block not found')
+          text = text.replace(old, new, 1)
+
+          old = '''void UdpBackend::mark_peer_lost() noexcept {
+              if (state_ != SPW_LINK_ERROR_WAIT) {
+                  statistics_.link_errors++;
+              }
+              state_ = SPW_LINK_ERROR_WAIT;
+          }
+
+          void UdpBackend::refresh_peer_state() noexcept {
+              if (state_ == SPW_LINK_RUN && !peer_is_current()) {
+                  mark_peer_lost();
+              } else if (state_ == SPW_LINK_ERROR_WAIT && peer_is_current()) {
+                  state_ = SPW_LINK_RUN;
+              }
+          }
+          '''
+          new = '''void UdpBackend::mark_peer_lost() noexcept {
+              if (state_ != SPW_LINK_ERROR_WAIT) {
+                  statistics_.link_errors++;
+              }
+              clear_reassembly();
+              state_ = SPW_LINK_ERROR_WAIT;
+          }
+
+          void UdpBackend::refresh_peer_state() noexcept {
+              expire_reassembly();
+              if (state_ == SPW_LINK_RUN && !peer_is_current()) {
+                  mark_peer_lost();
+              } else if (state_ == SPW_LINK_ERROR_WAIT && peer_is_current()) {
+                  state_ = SPW_LINK_RUN;
+              }
+          }
+          '''
+          if old not in text:
+              raise SystemExit('peer-state block not found')
+          text = text.replace(old, new, 1)
+
+          start = text.index('spw_result_t UdpBackend::process_data(')
+          end = text.index('\nspw_result_t UdpBackend::pump_one(', start)
+          replacement = '''spw_result_t UdpBackend::process_data(const Header& header,
+                                                const std::uint8_t* payload) noexcept {
+              const bool ack_required = (header.flags & FlagAckRequired) != 0u;
+              if (ack_required && recently_delivered(MessageType::Data, header.message_id)) {
+                  (void)send_ack(header.message_id);
+                  return SPW_OK;
+              }
+
+              const bool fragmented = header.total_size != header.payload_size;
+              const spw_terminator_t terminator =
+                  (header.flags & FlagEep) != 0u ? SPW_TERMINATOR_EEP : SPW_TERMINATOR_EOP;
+
+              if (!fragmented) {
+                  if (pending_packet_valid_) {
+                      return SPW_ERR_RESOURCE_EXHAUSTED;
+                  }
+                  if (header.payload_size != 0u) {
+                      std::memcpy(pending_packet_.data(), payload, header.payload_size);
+                  }
+                  pending_packet_size_ = header.payload_size;
+                  pending_packet_terminator_ = terminator;
+                  pending_packet_valid_ = true;
+                  if (ack_required) {
+                      remember_delivered(MessageType::Data, header.message_id);
+                      (void)send_ack(header.message_id);
+                  }
+                  return SPW_OK;
+              }
+
+              expire_reassembly();
+              const FragmentReassembler::Result result = reassembly_.push(header, payload);
+              if (result == FragmentReassembler::Result::Invalid ||
+                  result == FragmentReassembler::Result::Conflict) {
+                  statistics_.dropped_packets++;
+                  return SPW_OK;
+              }
+
+              reassembly_last_fragment_ = Clock::now();
+              if (result != FragmentReassembler::Result::Complete) {
+                  return SPW_OK;
+              }
+
+              if (pending_packet_valid_) {
+                  return SPW_ERR_RESOURCE_EXHAUSTED;
+              }
+
+              const std::size_t completed_size = reassembly_.size();
+              const std::uint32_t completed_message_id = reassembly_.message_id();
+              const bool completed_ack_required = reassembly_.ack_required();
+              if (completed_size != 0u) {
+                  std::memcpy(pending_packet_.data(), reassembly_.data(), completed_size);
+              }
+              pending_packet_size_ = completed_size;
+              pending_packet_terminator_ =
+                  reassembly_.eep() ? SPW_TERMINATOR_EEP : SPW_TERMINATOR_EOP;
+              pending_packet_valid_ = true;
+              clear_reassembly();
+
+              if (completed_ack_required) {
+                  remember_delivered(MessageType::Data, completed_message_id);
+                  (void)send_ack(completed_message_id);
+              }
+              return SPW_OK;
+          }
+          '''
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text)
+          PY
+
+          rm .github/workflows/patch-reassembly.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/backends/ethernet/udp_backend.cpp .github/workflows/patch-reassembly.yml
+          git commit -m "feat(spwkit): support out-of-order fragment reassembly #28"
+          git push origin HEAD:agent/v0.2-out-of-order-reassembly
