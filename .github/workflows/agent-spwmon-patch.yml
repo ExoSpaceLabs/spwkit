@@ -19,7 +19,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply spwmon patch
-        run: python3 .github/agent_spwmon_patch.py
+        run: |
+          python3 .github/agent_spwmon_patch.py
+          python3 .github/agent_spwmon_fix.py
 
       - name: Configure pure-C tools profile
         env:
