@@ -191,6 +191,16 @@ A successful `spw_port_send()` or `spw_port_send_time_code()` means the event wa
 
 If a second send arrives while the reliable TX slot is still occupied, the backend services ACK/retry traffic up to the caller timeout. Retry exhaustion maps the link to `SPW_LINK_ERROR_WAIT` and subsequent service-dependent operations report `SPW_ERR_LINK_UNAVAILABLE` until valid peer traffic/acknowledgement recovers the link.
 
+### v0.2 host-platform policy
+
+The v0.2 hosted UDP runtime is intentionally POSIX-only. Linux is the primary fully exercised distributed platform and macOS is a supported second POSIX host. Native Windows/Winsock transport is deferred beyond v0.2.
+
+This does **not** remove the UDP public API on Windows. `SPW_BACKEND_UDP`, `spw_udp_config_t` and the normal `spw_port_*` entry points remain available from the same installed headers. A structurally valid UDP configuration on a Windows v0.2 build returns `SPW_ERR_UNSUPPORTED` when backend availability is queried/opened.
+
+`SPWKIT_BUILD_UDP` controls whether the hosted implementation is included when the build platform supports it. Disabling the option on a POSIX build also leaves the public API present while runtime UDP selection reports unsupported.
+
+The installed CMake package exports `SpWKit_UDP_RUNTIME_SUPPORTED` for the specific library build and `SpWKit_UDP_RUNTIME_SCOPE` (`POSIX` in v0.2). See `docs/platform-support.md` for the exact validation/support matrix and rationale.
+
 ### Current POSIX feature set
 
 - IPv4 UDP transport;
@@ -206,11 +216,10 @@ If a second send arrives while the reliable TX slot is still occupied, the backe
 - default 1200-byte fragment payload;
 - deterministic SpaceWire-side virtual rate/latency timing;
 - deterministic seeded transport drop/duplicate/reorder/delay injection;
-- explicit SpaceWire EEP injection with separate fault-domain counters.
-
-Windows retains the public backend identifier/configuration ABI but currently reports the UDP backend as unsupported until a Winsock implementation is added.
-
-Capture/Wireshark tooling and broader distributed contract/process isolation remain later v0.2 work.
+- explicit SpaceWire EEP injection with separate fault-domain counters;
+- reusable shared public contract coverage;
+- process/network-namespace integration on Linux;
+- VSPW-TP capture/Wireshark tooling.
 
 ## Backend isolation
 
