@@ -20,9 +20,20 @@ int main(void) {
     assert(requirements.size > 0u);
     assert(requirements.alignment > 0u);
 
-    alignas(max_align_t) uint8_t workspace[4096];
+    /*
+     * The loopback backend deliberately keeps its bounded queues inside the
+     * caller-owned workspace, so the advertised requirement is much larger
+     * than one packet. Keep a fixed test arena comfortably above the current
+     * contract while still failing if that contract grows unexpectedly.
+     */
+    alignas(max_align_t) static uint8_t workspace[64u * 1024u];
     assert(requirements.size <= sizeof(workspace));
-    assert(requirements.alignment <= alignof(max_align_t));
+    assert(((uintptr_t)workspace % requirements.alignment) == 0u);
+
+    assert(spw_port_open_in_place(
+               &config, workspace, requirements.size - 1u, &port) ==
+           SPW_ERR_BUFFER_TOO_SMALL);
+    assert(port == NULL);
 
     assert(spw_port_open_in_place(
                &config, workspace, sizeof(workspace), &port) == SPW_OK);
@@ -40,6 +51,19 @@ int main(void) {
     assert(rx.terminator == SPW_TERMINATOR_EEP);
     assert(memcmp(tx_data, rx_data, sizeof(tx_data)) == 0);
 
+    spw_time_code_t tx_time = {23u, 0u};
+    spw_time_code_t rx_time = {0u, 0u};
+    assert(spw_port_send_time_code(port, &tx_time, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
+    assert(spw_port_receive_time_code(port, &rx_time, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
+    assert(rx_time.time_count == tx_time.time_count);
+
+    assert(spw_port_close(port) == SPW_OK);
+
+    /* Closing an in-place port must make the same caller arena reusable. */
+    port = NULL;
+    assert(spw_port_open_in_place(
+               &config, workspace, sizeof(workspace), &port) == SPW_OK);
+    assert(spw_port_start(port) == SPW_OK);
     assert(spw_port_close(port) == SPW_OK);
     return 0;
 }
