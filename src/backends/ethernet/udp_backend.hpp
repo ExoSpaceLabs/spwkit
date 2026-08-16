@@ -2,6 +2,7 @@
 #pragma once
 
 #include "backends/ethernet/fragment_reassembler.hpp"
+#include "backends/ethernet/virtual_link_timing.hpp"
 #include "backends/ethernet/vspw_tp.hpp"
 #include "core/backend.hpp"
 
@@ -55,6 +56,8 @@ private:
     using MessageType = spwkit::ethernet::vspw_tp::MessageType;
     using Header = spwkit::ethernet::vspw_tp::Header;
     using FragmentReassembler = spwkit::ethernet::FragmentReassembler<max_packet_size>;
+    using VirtualLinkTiming = spwkit::ethernet::VirtualLinkTiming;
+    using VirtualLinkEvent = spwkit::ethernet::VirtualLinkEvent;
 
     enum class PendingTxKind : std::uint8_t {
         None = 0u,
@@ -80,6 +83,8 @@ private:
     spw_result_t send_datagram(const std::uint8_t* bytes,
                                std::size_t size,
                                spw_timeout_us_t timeout_us) noexcept;
+    spw_result_t wait_virtual_link_delay(std::uint64_t delay_us,
+                                         spw_timeout_us_t timeout_us) noexcept;
     spw_result_t send_ack(std::uint32_t message_id) noexcept;
     spw_result_t send_keepalive(spw_timeout_us_t timeout_us) noexcept;
     spw_result_t transmit_pending(spw_timeout_us_t timeout_us) noexcept;
@@ -106,6 +111,7 @@ private:
     void remember_delivered(MessageType type, std::uint32_t message_id) noexcept;
 
     spw_udp_config_t config_{};
+    VirtualLinkTiming virtual_timing_{};
     int socket_fd_{-1};
     spw_link_state_t state_{SPW_LINK_ERROR_RESET};
     spw_statistics_t statistics_{};
