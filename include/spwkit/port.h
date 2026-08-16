@@ -48,6 +48,21 @@ spw_result_t spw_port_get_link_state(const spw_port_t* port,
 spw_result_t spw_port_get_capabilities(const spw_port_t* port,
                                        spw_capabilities_t* out_capabilities);
 
+/**
+ * Wait until one or more requested receive events are ready without consuming
+ * them. `interests` must contain only SPW_READY_* bits and must not be zero.
+ *
+ * On success, `out_ready` contains one or more requested events that remain
+ * available to the normal receive APIs. A backend that does not advertise
+ * SPW_CAP_READINESS returns SPW_ERR_UNSUPPORTED. Timeout semantics match the
+ * rest of the port API, including SPW_TIMEOUT_IMMEDIATE and
+ * SPW_TIMEOUT_INFINITE.
+ */
+spw_result_t spw_port_wait(spw_port_t* port,
+                           spw_ready_events_t interests,
+                           spw_timeout_us_t timeout_us,
+                           spw_ready_events_t* out_ready);
+
 spw_result_t spw_port_send(spw_port_t* port,
                            const spw_packet_t* packet,
                            spw_timeout_us_t timeout_us);
