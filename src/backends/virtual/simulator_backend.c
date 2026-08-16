@@ -1028,7 +1028,8 @@ static const spw_backend_ops_t SIMULATOR_OPS = {
     simulator_reclaim_tx_buffer,
     simulator_release_tx_buffer,
     simulator_acquire_rx_buffer,
-    simulator_release_rx_buffer
+    simulator_release_rx_buffer,
+    NULL
 };
 
 static const spw_backend_factory_t SIMULATOR_FACTORY = {

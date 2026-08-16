@@ -283,6 +283,7 @@ static const spw_backend_ops_t LOOPBACK_OPS = {
     NULL,
     NULL,
     NULL,
+    NULL,
     NULL
 };
 
