@@ -13,6 +13,8 @@
 namespace spwkit::test {
 namespace {
 
+spw_timeout_us_t g_transfer_timeout_us = SPW_TIMEOUT_IMMEDIATE;
+
 [[noreturn]] void fail(const char* test, const char* message) {
     std::cerr << "[contract][FAIL] " << test << ": " << message << '\n';
     std::exit(EXIT_FAILURE);
@@ -68,7 +70,7 @@ void send_packet(spw_port_t* port,
                  spw_terminator_t terminator,
                  const char* test) {
     spw_packet_t packet{data, length, length, terminator};
-    require_result(spw_port_send(port, &packet, SPW_TIMEOUT_IMMEDIATE), SPW_OK,
+    require_result(spw_port_send(port, &packet, g_transfer_timeout_us), SPW_OK,
                    test, "packet send failed");
 }
 
@@ -79,7 +81,7 @@ void receive_packet(spw_port_t* port,
                     spw_terminator_t expected_terminator,
                     const char* test) {
     spw_packet_t packet{data, 0u, capacity, SPW_TERMINATOR_EOP};
-    require_result(spw_port_receive(port, &packet, SPW_TIMEOUT_IMMEDIATE), SPW_OK,
+    require_result(spw_port_receive(port, &packet, g_transfer_timeout_us), SPW_OK,
                    test, "packet receive failed");
     require(packet.length == expected_length, test, "received length mismatch");
     require(packet.terminator == expected_terminator, test,
@@ -147,11 +149,11 @@ void test_zero_length_packet(BackendContractFixture& fixture) {
     prepare_running(fixture, test);
 
     spw_packet_t tx{nullptr, 0u, 0u, SPW_TERMINATOR_EOP};
-    require_result(spw_port_send(fixture.endpoint_a(), &tx, SPW_TIMEOUT_IMMEDIATE),
+    require_result(spw_port_send(fixture.endpoint_a(), &tx, g_transfer_timeout_us),
                    SPW_OK, test, "zero-length send failed");
 
     spw_packet_t rx{nullptr, 0u, 0u, SPW_TERMINATOR_EEP};
-    require_result(spw_port_receive(fixture.endpoint_b(), &rx, SPW_TIMEOUT_IMMEDIATE),
+    require_result(spw_port_receive(fixture.endpoint_b(), &rx, g_transfer_timeout_us),
                    SPW_OK, test, "zero-length receive failed");
     require(rx.length == 0u, test, "zero-length packet acquired non-zero length");
     require(rx.terminator == SPW_TERMINATOR_EOP, test,
@@ -211,7 +213,7 @@ void test_receive_capacity_retention(BackendContractFixture& fixture,
     std::uint8_t tiny = 0u;
     spw_packet_t short_rx{&tiny, 0u, 1u, SPW_TERMINATOR_EOP};
     require_result(spw_port_receive(fixture.endpoint_b(), &short_rx,
-                                    SPW_TIMEOUT_IMMEDIATE),
+                                    g_transfer_timeout_us),
                    SPW_ERR_BUFFER_TOO_SMALL, test,
                    "undersized receive did not report BUFFER_TOO_SMALL");
     require(short_rx.length == tx.size(), test,
@@ -302,10 +304,10 @@ void test_time_codes(BackendContractFixture& fixture,
     spw_time_code_t tx{37u, 0u};
     spw_time_code_t rx{};
     require_result(spw_port_send_time_code(fixture.endpoint_a(), &tx,
-                                           SPW_TIMEOUT_IMMEDIATE),
+                                           g_transfer_timeout_us),
                    SPW_OK, test, "time-code send failed");
     require_result(spw_port_receive_time_code(fixture.endpoint_b(), &rx,
-                                              SPW_TIMEOUT_IMMEDIATE),
+                                              g_transfer_timeout_us),
                    SPW_OK, test, "time-code receive failed");
     require(rx.time_count == tx.time_count &&
                 rx.control_flags == tx.control_flags,
@@ -376,12 +378,14 @@ void print_profile(const BackendContractFixture& fixture,
               << " maxPacketB=" << caps_b.max_packet_size
               << " rxDepthA=" << caps_a.rx_queue_depth
               << " rxDepthB=" << caps_b.rx_queue_depth
+              << " transferTimeoutUs=" << fixture.transfer_timeout_us()
               << '\n';
 }
 
 } // namespace
 
 int run_backend_contract(BackendContractFixture& fixture) {
+    g_transfer_timeout_us = fixture.transfer_timeout_us();
     const spw_capabilities_t caps_a = capabilities(fixture.endpoint_a(), "capabilities");
     const spw_capabilities_t caps_b = capabilities(fixture.endpoint_b(), "capabilities");
     print_profile(fixture, caps_a, caps_b);

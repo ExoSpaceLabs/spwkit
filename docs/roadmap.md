@@ -41,14 +41,15 @@ Implemented in v0.2 development:
 - deterministic SpaceWire-side virtual link rate/latency timing for DATA and TIME_CODE;
 - deterministic seeded VSPW-TP transport drop/duplicate/reorder/delay injection;
 - explicit SpaceWire-side EEP injection with separate fault-domain diagnostics;
-- active device-to-device UDP CI including forced retry/dedup/recovery, timing and fault coverage;
+- reusable public backend contract running against the UDP backend;
+- reusable distributed peer-loss/restart contract using public operations only;
+- active device-to-device UDP CI including public contract, retry/dedup/recovery, timing and fault coverage;
 - development package version advanced to 0.2.0.
 
 Remaining v0.2 work:
 
 - Linux-to-Linux distributed process/container examples and stronger namespace isolation tests;
 - Wireshark dissector or capture tooling;
-- broaden the shared backend contract for distributed backend semantics;
 - decide whether Winsock support belongs in v0.2 or a later portability slice.
 
 The public SpaceWire API remains unchanged: applications do not call UDP or VSPW-TP directly.
@@ -101,52 +102,30 @@ The repository does not require the SpaceWire RTL implementation itself to be op
 
 - FreeRTOS adapter;
 - RTEMS adapter;
-- deterministic integration examples;
-- common backend conformance test suite across Linux, bare metal, HardRT, FreeRTOS and RTEMS where available.
+- Zephyr investigation;
+- shared embedded contract fixtures;
+- embedded Ethernet virtual-link examples.
 
-## v0.8.0 — Network/router simulation
+## v0.8.0 — Router simulation
 
-- virtual SpaceWire router;
-- path addressing;
+- multi-port router model;
 - logical addressing;
+- path addressing;
 - routing tables;
-- finite output buffering;
-- contention and blocking;
-- multi-node topology configuration.
+- port isolation and fault injection;
+- multi-node topology tests.
 
-## v0.9.0 — Upper-layer protocols
+## v0.9.0 — Upper protocols
 
-Candidate optional modules:
+- protocol-ID integration hooks;
+- RMAP module;
+- CCSDS packet-transfer helpers;
+- interoperability examples with external CCSDS/PUS stacks.
 
-- SpaceWire protocol identification;
-- RMAP;
-- CCSDS packet transfer over SpaceWire.
-
-These remain separate from the raw core API.
-
-## v1.0.0 — Stable software contract
-
-Target conditions:
+## v1.0.0 — Stable public contract
 
 - stable public C ABI;
-- stable C++ API;
-- local and distributed virtual backends;
-- Linux and embedded reference implementations;
-- physical hardware reference backend;
-- documented ECSS requirement mapping for implemented software-visible scope;
-- repeatable CI test matrix;
-- migration/versioning policy;
-- published integration documentation.
-
-## Beyond v1.0
-
-Potential areas include:
-
-- additional FPGA/vendor adapters;
-- richer DMA/scatter-gather extensions;
-- hardware-in-the-loop gateways;
-- record/replay tooling;
-- PCAP/Wireshark integration;
-- SpaceWire router performance simulation;
-- standardized topology/configuration format;
-- integration with mission simulation frameworks.
+- documented backend capability model;
+- Linux, simulator and embedded reference backends;
+- release-level conformance/contract evidence;
+- compatibility policy for future backends and protocol modules.

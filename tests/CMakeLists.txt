@@ -48,7 +48,9 @@ add_executable(spwkit_public_edge_cases_test public_edge_cases.c)
 target_link_libraries(spwkit_public_edge_cases_test PRIVATE SpWKit::spwkit)
 set_target_properties(spwkit_public_edge_cases_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
-add_library(spwkit_backend_contract_suite STATIC contract/contract_suite.cpp)
+add_library(spwkit_backend_contract_suite STATIC
+    contract/contract_suite.cpp
+    contract/distributed_contract.cpp)
 target_link_libraries(spwkit_backend_contract_suite PUBLIC SpWKit::spwkit)
 target_include_directories(spwkit_backend_contract_suite PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/contract)
 target_compile_features(spwkit_backend_contract_suite PUBLIC cxx_std_17)
@@ -97,6 +99,10 @@ if(SPWKIT_BUILD_UDP AND UNIX AND SPWKIT_ENABLE_HEAP)
     add_executable(spwkit_udp_faults_test udp_faults.cpp)
     target_link_libraries(spwkit_udp_faults_test PRIVATE SpWKit::spwkit)
     target_compile_features(spwkit_udp_faults_test PRIVATE cxx_std_17)
+
+    add_executable(spwkit_udp_contract_test contract/udp_contract.cpp)
+    target_link_libraries(spwkit_udp_contract_test PRIVATE spwkit_backend_contract_suite)
+    target_compile_features(spwkit_udp_contract_test PRIVATE cxx_std_17)
 endif()
 
 add_test(NAME api_headers_c_compile COMMAND ${CMAKE_COMMAND} -E echo "C API headers compiled successfully")
@@ -131,6 +137,8 @@ if(SPWKIT_BUILD_UDP AND UNIX AND SPWKIT_ENABLE_HEAP)
     set_tests_properties(udp_virtual_link_timing PROPERTIES LABELS "transport;integration;d2d;timing")
     add_test(NAME udp_deterministic_faults COMMAND spwkit_udp_faults_test)
     set_tests_properties(udp_deterministic_faults PROPERTIES LABELS "transport;integration;d2d;fault;edge")
+    add_test(NAME backend_contract_udp COMMAND spwkit_udp_contract_test)
+    set_tests_properties(backend_contract_udp PROPERTIES LABELS "contract;transport;integration;d2d")
 endif()
 
 if(SPWKIT_BUILD_EXAMPLES)

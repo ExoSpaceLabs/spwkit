@@ -21,7 +21,7 @@ CI also rejects explicit `throw`, `try`, and `catch` syntax in C++ sources. Reco
 
 The dedicated Simulator workflow builds with the local simulator enabled and runs simulator-labelled and public contract tests.
 
-The Device-to-device workflow is now active. It configures/builds the repository on Linux and runs the real VSPW-TP/UDP integration test rather than a staged placeholder.
+The Device-to-device workflow configures/builds the repository on Linux and runs the real VSPW-TP/UDP integration tests. It also runs `backend_contract_udp`, so the distributed backend is gated against the reusable public contract rather than only transport-specific tests.
 
 The Embedded workflow currently validates the target/toolchain harness where available; missing cross toolchains are reported and the corresponding build steps remain staged rather than being misrepresented as runtime embedded verification.
 
@@ -39,6 +39,8 @@ integration
 noheap
 transport
 d2d
+timing
+fault
 ```
 
 Future physical/standards work may additionally use `embedded`, `hil`, and `compliance` as runtime evidence categories.
@@ -60,7 +62,13 @@ The reusable public backend contract verifies, as applicable:
 
 Capabilities gate genuinely optional features. A backend that advertises `SPW_CAP_ZERO_COPY` must execute the zero-copy ownership contract; it cannot silently skip it.
 
-The loopback and local simulator execute the shared contract directly today. Distributed-backend coverage currently combines common public semantics with transport-specific integration tests and should continue converging on the reusable backend contract as v0.2 matures.
+Successful transfer operations additionally use a fixture-provided transfer-timeout profile. The default remains `SPW_TIMEOUT_IMMEDIATE`, preserving strict local behavior. Distributed fixtures may provide a finite success budget because socket/kernel delivery is asynchronous. Explicit non-blocking and finite-timeout contract tests remain fixed and therefore cannot be weakened by the fixture profile.
+
+The loopback, local simulator and VSPW-TP/UDP backend now execute the applicable shared contract directly. The UDP fixture is capability-driven and does not require backend-name conditionals; unsupported zero-copy is skipped because the backend does not advertise it.
+
+A reusable distributed-contract extension additionally checks peer loss and restart entirely through public operations: `SPW_LINK_ERROR_WAIT`, `SPW_ERR_LINK_UNAVAILABLE`, session/restart recovery to `SPW_LINK_RUN`, and successful packet transfer after recovery.
+
+The common UDP contract intentionally keeps its 4 KiB large-packet case in one VSPW-TP datagram. Dedicated distributed tests separately verify fragmentation/reassembly, arbitrary ordering, reliability, timing and fault-injection mechanics. The shared contract therefore stays application-facing instead of accumulating UDP implementation details.
 
 ## v0.1 edge-case suite
 
@@ -107,25 +115,29 @@ Simulator-specific edges additionally include:
 
 ## v0.2 distributed transport tests
 
-The current UDP integration test creates two localhost ports entirely through the public API and verifies:
+The UDP test layer now has two complementary responsibilities.
+
+The reusable public contract creates two localhost ports through the public API and verifies lifecycle, full-duplex copied packets, EOP/EEP, zero-length packets, large packets, no-truncation retry, timeout behavior, bounded resources, time codes, statistics, peer-loss reporting and peer restart recovery.
+
+Transport-specific D2D tests verify details that must remain invisible to ordinary applications:
 
 - VSPW-TP framing through the actual backend;
-- a 5 KiB EEP packet fragmented into 512-byte UDP payloads;
-- reassembly before the packet becomes application-visible;
-- payload and EEP preservation;
-- `SPW_ERR_BUFFER_TOO_SMALL` retry without consuming the completed packet;
-- reverse-direction packet traffic;
-- time-code round trip.
+- packets larger than the transport MTU fragmented/reassembled before delivery;
+- arbitrary-order fragments, exact duplicates and valid overlap handling;
+- EOP/EEP and time-code preservation;
+- session-bound ACK/retransmission and duplicate suppression;
+- peer loss and new-session restart recovery;
+- deterministic SpaceWire-side virtual rate/latency behavior;
+- deterministic transport drop/duplicate/reorder/delay injection;
+- explicit SpaceWire-side EEP injection kept distinct from transport failure.
 
 The VSPW-TP codec also has golden-vector and malformed-frame tests covering magic/version/type/header/flag/fragment validation.
-
-Additional v0.2 tests are required as ACK/retransmission, loss/reordering handling, liveness, latency/rate and fault injection are implemented.
 
 ## Determinism rules
 
 - no test depends on execution order or persistent runner state;
 - bounded resources have explicit advertised limits;
-- randomized tests must report their seed;
+- randomized tests must report or configure their seed;
 - finite timeout tests use bounded waits and do not claim timing conformance from CI wall-clock timing;
 - packet tests include binary data and exact boundary sizes;
 - failures should report the operation/result clearly.
