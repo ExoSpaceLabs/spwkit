@@ -1,0 +1,55 @@
+name: Release audit v0.2.0
+
+on:
+  push:
+    branches: [agent/v0.2-release-audit]
+    paths:
+      - ".github/release_audit_v020.py"
+      - ".github/workflows/release-audit-v020.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/v0.2-release-audit
+
+      - name: Apply release audit corrections
+        run: python3 .github/release_audit_v020.py
+
+      - name: Configure release candidate
+        run: >-
+          cmake -S . -B build-release-audit
+          -DCMAKE_BUILD_TYPE=Release
+          -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_EXAMPLES=ON
+          -DSPWKIT_BUILD_SIMULATOR=ON
+          -DSPWKIT_BUILD_UDP=ON
+          -DSPWKIT_ENABLE_HEAP=ON
+
+      - name: Build release candidate
+        run: cmake --build build-release-audit --parallel
+
+      - name: Test release candidate
+        run: ctest --test-dir build-release-audit --output-on-failure
+
+      - name: Verify package version and stale release markers
+        run: |
+          grep -F 'VERSION 0.2.0' CMakeLists.txt
+          grep -F '#define SPWKIT_API_VERSION_MINOR 2u' include/spwkit/api.h
+          ! git grep -n -E 'Current `main`: v0\.2 development|Current v0\.2 development|pending final validation/release tagging|remains? v0\.2 work|intended for the v0\.2 release' -- README.md docs src/backends/ethernet/README.md
+
+      - name: Commit audited release state
+        run: |
+          rm .github/release_audit_v020.py .github/workflows/release-audit-v020.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+Inczert@users.noreply.github.com"
+          git add -A
+          git commit -m "docs(spwkit): reconcile v0.2.0 release state"
+          git push origin HEAD:agent/v0.2-release-audit
