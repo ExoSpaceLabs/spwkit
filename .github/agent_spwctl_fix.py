@@ -1,9 +1,0 @@
-from pathlib import Path
-
-p = Path("tests/vspw_device_protocol.c")
-text = p.read_text()
-old = '''    {\n        uint8_t port_payload[VSPD_PORT_INFO_PAYLOAD_SIZE];\n        vspd_port_info_payload_t invalid_port_info = {\n            VSPD_PORT_INFO_KNOWN_MASK + 1u, VSPD_LINK_RUN, 0u, 0u};\n        header = header_for(VSPD_MSG_GET_PORT_INFO,\n                            VSPD_FLAG_RESPONSE,\n                            VSPD_PORT_INFO_PAYLOAD_SIZE,\n                            20u,\n                            0u);\n        vspd_encode_port_info(&invalid_port_info, port_payload);\n        assert(vspd_encode_header(&header, frame) == VSPD_CODEC_OK);\n        memcpy(frame + VSPD_HEADER_SIZE, port_payload, sizeof(port_payload));\n        assert(vspd_validate_frame(\n                   frame, VSPD_HEADER_SIZE + sizeof(port_payload), NULL) ==\n               VSPD_CODEC_INVALID_SHAPE);\n    }\n'''
-new = '''    {\n        uint8_t port_frame[VSPD_HEADER_SIZE + VSPD_PORT_INFO_PAYLOAD_SIZE];\n        uint8_t port_payload[VSPD_PORT_INFO_PAYLOAD_SIZE];\n        vspd_port_info_payload_t invalid_port_info = {\n            VSPD_PORT_INFO_KNOWN_MASK + 1u, VSPD_LINK_RUN, 0u, 0u};\n        header = header_for(VSPD_MSG_GET_PORT_INFO,\n                            VSPD_FLAG_RESPONSE,\n                            VSPD_PORT_INFO_PAYLOAD_SIZE,\n                            20u,\n                            0u);\n        vspd_encode_port_info(&invalid_port_info, port_payload);\n        assert(vspd_encode_header(&header, port_frame) == VSPD_CODEC_OK);\n        memcpy(port_frame + VSPD_HEADER_SIZE, port_payload, sizeof(port_payload));\n        assert(vspd_validate_frame(\n                   port_frame, sizeof(port_frame), NULL) ==\n               VSPD_CODEC_INVALID_SHAPE);\n    }\n'''
-if text.count(old) != 1:
-    raise SystemExit(f"expected one malformed management test block, got {text.count(old)}")
-p.write_text(text.replace(old, new, 1))
