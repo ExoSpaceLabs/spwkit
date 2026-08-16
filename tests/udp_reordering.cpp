@@ -164,15 +164,31 @@ int main() {
     ::usleep(100000u);
     keepalive.sequence = 7u;
     send_frame(raw, receiver_port, keepalive, nullptr);
+
+    /*
+     * A raw UDP send is not synchronously visible to the backend on every
+     * POSIX kernel. Service the receive path with a bounded wait so the
+     * KEEPALIVE is definitely consumed before asserting link state. The wait
+     * still keeps the peer well inside its 150 ms liveness horizon.
+     */
+    none.length = 0u;
+    assert(spw_port_receive(receiver, &none, 20000u) == SPW_ERR_TIMEOUT);
     spw_link_state_t state = SPW_LINK_ERROR_RESET;
     assert(spw_port_get_link_state(receiver, &state) == SPW_OK);
     assert(state == SPW_LINK_RUN);
 
-    ::usleep(70000u); /* >150 ms since the last DATA fragment, peer still current. */
+    ::usleep(50000u); /* >150 ms since the last DATA fragment, peer still current. */
+    keepalive.sequence = 8u;
+    send_frame(raw, receiver_port, keepalive, nullptr);
+    none.length = 0u;
+    assert(spw_port_receive(receiver, &none, 20000u) == SPW_ERR_TIMEOUT);
+    assert(spw_port_get_link_state(receiver, &state) == SPW_OK);
+    assert(state == SPW_LINK_RUN);
+
     const Header replacement_end = data_fragment(
-        link_id, session_id, 8u, 89u, 400u, 400u, 800u, FlagFragmentEnd);
+        link_id, session_id, 9u, 89u, 400u, 400u, 800u, FlagFragmentEnd);
     const Header replacement_start = data_fragment(
-        link_id, session_id, 9u, 89u, 0u, 400u, 800u, FlagFragmentStart);
+        link_id, session_id, 10u, 89u, 0u, 400u, 800u, FlagFragmentStart);
     send_frame(raw, receiver_port, replacement_end, payload.data() + 400u);
     send_frame(raw, receiver_port, replacement_start, payload.data());
 
