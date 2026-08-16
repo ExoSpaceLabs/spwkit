@@ -59,21 +59,19 @@ The mandatory common API does not expose transport-specific concepts such as UDP
 
 Backend-specific configuration structures may describe the selected implementation, but normal packet/link operations remain portable.
 
-## C ABI and C++ use
+## C runtime and optional C++ use
 
-The portability baseline is an implemented C ABI. This permits use from C flight software, C++ applications, hosted Linux software, and future bare-metal/RTOS integrations.
+The portability baseline is C11 end to end: the public ABI and `libspwkit` runtime are C. A project using only `SpWKit::spwkit` does not enable or link C++.
 
-The library implementation is currently C++17, but public ABI types and operation signatures remain C-compatible. An idiomatic higher-level C++ wrapper may be expanded later without requiring backend changes.
+`SPWKIT_ENABLE_CPP=ON` adds the header-only C++17 `SpWKit::cpp` target. It provides move-only RAII/convenience syntax over the same C handles, structures and `spw_result_t` values; it contains no backend implementation.
 
 ```text
-C / C++ application
-       |
-       v
-stable C ABI
-       |
-       v
-portable core
+C application -----------------------------+
+                                           |
+C++ application -> optional SpWKit::cpp ---+--> stable C ABI --> C11 core/backends
 ```
+
+See `docs/language-bindings.md` for the exact language/build contract.
 
 ## Backend model
 

@@ -1,14 +1,14 @@
 # Roadmap
 
-SpWKit has completed the v0.1 portable-core milestone and the v0.2 distributed virtual SpaceWire milestone. The ordering below continues to stabilize software semantics before hardware-specific details are allowed to dictate the application API.
+SpWKit has completed the v0.1 portable-core release and v0.2 distributed virtual SpaceWire release. The v0.3 engineering line converts the runtime implementation itself to the portability model the public API was already promising: C11 first, C++ optional.
 
-## v0.1.0 — Portable core and local virtual link — complete
+## v0.1.0 — Portable core and local virtual link — released
 
 Delivered:
 
 - public C ABI and opaque port handles;
 - packet, EOP/EEP, time-code, link-state, error and capability types;
-- deterministic in-process loopback backend;
+- deterministic loopback backend;
 - process-local two-peer simulator;
 - copied packet transfer and optional zero-copy ownership API;
 - caller-owned no-heap port construction;
@@ -18,50 +18,56 @@ Delivered:
 - C/C++ examples;
 - Linux GCC/Clang, macOS Clang, Windows MSVC, ASan/UBSan, no-heap and simulator CI.
 
-`v0.1.0` is tagged at the completed portable-core boundary. Physical FPGA/HIL validation is deliberately outside that release because suitable hardware is not currently available.
+`v0.1.0` is tagged at the completed portable-core boundary.
 
-## v0.2.0 — Distributed virtual SpaceWire — complete
+## v0.2.0 — Distributed virtual SpaceWire — released
 
-Delivered in v0.2.0:
+Delivered:
 
-- versioned VSPW-TP v1 wire format with a 40-byte header carrying the sender session ID;
-- POSIX IPv4 UDP backend selected through `spw_port_*`;
-- packet fragmentation/reassembly independent of Ethernet MTU;
-- bounded arbitrary-order fragment reassembly with duplicate/overlap validation;
-- EOP/EEP preservation across fragments;
-- time-code transport;
-- bounded 1 MiB receive/reassembly and reliable-TX storage;
-- logical-message ACK semantics for DATA/TIME_CODE;
-- bounded complete-message retransmission after ACK timeout;
-- duplicate logical-message suppression and ACK replay;
-- 64-bit sender session identity on every frame plus KEEPALIVE-driven session transitions;
-- configured peer address/port validation;
-- peer timeout mapping to public link state/errors;
-- peer restart/session recovery;
-- deterministic SpaceWire-side virtual link rate/latency timing for DATA and TIME_CODE;
-- deterministic seeded VSPW-TP transport drop/duplicate/reorder/delay injection;
-- explicit SpaceWire-side EEP injection with separate fault-domain diagnostics;
-- reusable public backend contract running against the UDP backend;
-- reusable distributed peer-loss/restart contract using public operations only;
-- standalone installed-package equal-peer UDP example for independent Linux processes/hosts;
-- active two-process restart integration using only public APIs;
-- active two-network-namespace integration across a 1500-byte-MTU veth link;
-- active device-to-device UDP CI including public contract, process/network isolation, retry/dedup/recovery, timing and fault coverage;
-- VSPW-TP v1 Wireshark Lua dissector with heuristic and Decode As support;
-- deterministic generated-PCAP/tshark validation covering DATA fragments, KEEPALIVE, ACK, TIME_CODE and invalid-version handling;
-- documented tcpdump/pcap capture and display-filter workflow;
-- explicit hosted platform policy: Linux primary, macOS supported POSIX host, Windows UDP runtime deferred;
-- installed-package metadata reporting whether the specific build contains the UDP runtime;
-- deterministic `SPW_ERR_UNSUPPORTED` UDP selection on builds without the hosted implementation;
-- development package version advanced to 0.2.0.
+- VSPW-TP v1 with the fixed 40-byte session-aware wire header;
+- POSIX IPv4 UDP backend through `spw_port_*`;
+- bounded arbitrary-order fragmentation/reassembly;
+- EOP/EEP and time-code preservation;
+- logical-message ACK/retry and duplicate suppression;
+- session/KEEPALIVE peer liveness and restart recovery;
+- 1 MiB backend packet/reassembly/reliable-TX bound;
+- deterministic virtual SpaceWire rate/latency;
+- deterministic transport fault injection and explicit SpaceWire EEP injection;
+- shared UDP backend contract and peer-loss/restart contract;
+- independent-process and Linux network-namespace D2D integration;
+- VSPW-TP Wireshark/tshark tooling;
+- explicit POSIX UDP platform policy and installed package metadata.
 
-The v0.2 public SpaceWire API remains backend-neutral: applications do not call UDP, VSPW-TP, POSIX or Winsock APIs directly. Capture tooling remains development-only and adds no runtime dependency to `libspwkit`.
+`v0.2.0` is tagged at the audited distributed-runtime boundary. Native Winsock UDP remains tracked separately in #42.
 
-Native Winsock transport is intentionally deferred beyond v0.2 and can later reuse the same codec, reliability, timing, fault, capture and backend-contract work without changing application-facing semantics.
+## v0.3.0 — C11 runtime and optional C++ wrapper — engineering complete
 
-`v0.2.0` is the released distributed virtual SpaceWire milestone. Post-v0.2 portability work, including native Winsock UDP support, remains outside this release boundary.
+Objective: make the implementation match the public portability contract before adding Linux-device, RTOS and hardware-specific layers.
 
-## v0.3.0 — Linux virtual device
+Delivered:
+
+- C11 backend vtable/context substrate replacing internal C++ inheritance;
+- C11 port dispatch, workspace ownership and opaque buffer representation;
+- C11 loopback backend;
+- C11 process-local simulator with private POSIX/Windows hosted synchronization;
+- C11 simulator zero-copy ownership path;
+- C11 VSPW-TP codec preserving the released v1 wire format;
+- C11 bounded fragment reassembly;
+- C11 virtual timing and deterministic fault engines;
+- C11 POSIX UDP distributed backend preserving v0.2 sessions/retry/liveness semantics;
+- complete simulator + UDP runtime build with `CXX=/bin/false` and no C++ ABI/runtime symbols;
+- C-only installed package consumer using `project(... LANGUAGES C)`;
+- optional header-only C++17 convenience layer exported as `SpWKit::cpp`;
+- wrapper build switch `SPWKIT_ENABLE_CPP`, independent from runtime/backend selection;
+- standard `BUILD_SHARED_LIBS` static/shared selection;
+- Linux C-only static and shared installed-package validation;
+- documented C versus C++ integration contract and embedded/hosted build profiles.
+
+The C API remains authoritative. The C++ wrapper has no backend implementation and preserves `spw_result_t` error handling.
+
+No `v0.3.0` release tag is implied by engineering completion; release audit/tagging is a separate step.
+
+## v0.4.0 — Linux virtual device
 
 - `vspwd` simulator service;
 - `/dev/vspwX` device model investigation/implementation;
@@ -71,7 +77,7 @@ Native Winsock transport is intentionally deferred beyond v0.2 and can later reu
 - `spwctl` management utility;
 - `spwmon` monitoring utility.
 
-## v0.4.0 — Embedded and HardRT
+## v0.5.0 — Embedded and HardRT
 
 - bare-metal platform adapter;
 - polling mode;
@@ -81,7 +87,7 @@ Native Winsock transport is intentionally deferred beyond v0.2 and can later reu
 - HardRT synchronization and task/event adapter;
 - Linux <-> HardRT virtual-link example.
 
-## v0.5.0 — Physical FPGA reference backend
+## v0.6.0 — Physical FPGA reference backend
 
 Reference target: AMD SoC evaluation platform.
 
@@ -95,7 +101,7 @@ Reference target: AMD SoC evaluation platform.
 
 The repository does not require the SpaceWire RTL implementation itself to be open source. The software contract should support independent open, commercial, or vendor hardware implementations.
 
-## v0.6.0 — Link behavioural simulation
+## v0.7.0 — Link behavioural simulation
 
 - ECSS-oriented link state model;
 - finite receive credit;
@@ -105,7 +111,7 @@ The repository does not require the SpaceWire RTL implementation itself to be op
 - configurable character/link timing model;
 - character/link error injection.
 
-## v0.7.0 — RTOS adapters
+## v0.8.0 — RTOS adapters
 
 - FreeRTOS adapter;
 - RTEMS adapter;
@@ -113,7 +119,7 @@ The repository does not require the SpaceWire RTL implementation itself to be op
 - shared embedded contract fixtures;
 - embedded Ethernet virtual-link examples.
 
-## v0.8.0 — Router simulation
+## v0.9.0 — Router simulation
 
 - multi-port router model;
 - logical addressing;
@@ -122,7 +128,7 @@ The repository does not require the SpaceWire RTL implementation itself to be op
 - port isolation and fault injection;
 - multi-node topology tests.
 
-## v0.9.0 — Upper protocols
+## v0.10.0 — Upper protocols
 
 - protocol-ID integration hooks;
 - RMAP module;

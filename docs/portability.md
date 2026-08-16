@@ -1,17 +1,20 @@
-# Portability and no-throw contract
+# Portability contract
 
-SpWKit's portable library code is designed for bare-metal and RTOS integration even though some v0.1 backends, especially the process-local simulator, are hosted implementations.
+SpWKit's runtime portability baseline is **C11**. The library core and current runtime backends are implemented in C; C++ is optional and sits above the public C API as a convenience wrapper.
 
-## Exception policy
+## Language/toolchain policy
 
-SpWKit library sources are compiled with C++ exceptions disabled on every supported toolchain, not only in a special embedded profile.
+`SpWKit::spwkit` must not require:
 
-- GCC/Clang/AppleClang: `-fno-exceptions -fno-rtti`;
-- MSVC: exception handling and RTTI are disabled for the `spwkit` target.
+- a C++ compiler;
+- a C++ linker;
+- libstdc++, libc++ or the C++ ABI runtime;
+- exceptions or RTTI;
+- STL containers or allocators.
 
-CI also rejects explicit `throw`, `try`, or `catch` syntax in C++ source files. Public APIs return `spw_result_t`; recoverable failures must be represented by result codes rather than exceptions.
+CI configures the complete simulator + UDP runtime with `CXX=/bin/false` and scans the resulting static archive for C++ ABI/runtime references.
 
-The portable backend contract uses `noexcept` operations internally.
+The optional `SpWKit::cpp` target requires C++17, but it is header-only and delegates to the same public C API. It does not contain a second backend implementation and does not use exceptions for recoverable errors.
 
 ## Heap policy
 
@@ -20,7 +23,7 @@ Heap allocation is optional.
 - `spw_port_open()` is a hosted convenience API and may allocate when `SPWKIT_ENABLE_HEAP=ON`;
 - `spw_port_open_in_place()` constructs the port and backend in caller-owned storage;
 - `SPWKIT_ENABLE_HEAP=OFF` disables the hosted allocation path;
-- a dedicated CI test traps global C++ allocation and proves zero allocations for the mandatory no-heap loopback path.
+- dedicated no-heap CI verifies the mandatory caller-owned core path.
 
 Future embedded backends may request larger or differently aligned caller-owned workspace without changing the public ownership model.
 
@@ -33,16 +36,35 @@ Mandatory public API signatures must not expose:
 - DMA descriptors or physical addresses;
 - AXI/MMIO addresses;
 - vendor SDK handles;
-- C++ exceptions or RTTI-dependent types.
+- C++ classes, exceptions or RTTI-dependent types.
 
-Backend-specific configuration may describe implementation choices, but common packet/link operations remain portable.
+Backend-specific configuration may describe implementation choices, but common packet/link operations remain portable C types and functions.
 
 ## Hosted simulator versus portable core
 
-The process-local simulator uses hosted synchronization primitives to provide blocking waits and concurrent peer behavior. It is a runtime reference backend, not the bare-metal portability reference.
+The process-local simulator is implemented in C11 but uses hosted synchronization internally to provide blocking waits and concurrent peer behavior:
 
-Bare-metal/RTOS backends are expected to replace hosted synchronization with polling, interrupts, events, scheduler primitives or hardware queues while preserving the same public results, ownership transitions and timeout semantics.
+- pthread mutexes/condition variables on POSIX hosts;
+- native SRW locks/condition variables on Windows.
+
+Those primitives are private to the simulator backend. A core-only or embedded build with the simulator disabled has no hosted-thread dependency.
+
+Bare-metal/RTOS backends are expected to use polling, interrupts, events, scheduler primitives or hardware queues behind the same backend vtable/context contract.
+
+## Distributed UDP backend
+
+The current hosted UDP runtime is C11 and POSIX-specific. Its sockets, `poll()` calls and timing primitives are private implementation details; no POSIX socket type enters the public ABI.
+
+The VSPW-TP codec, reassembly logic, virtual timing and deterministic fault engine are C modules separated from the application API. Future lwIP/raw-Ethernet or native Winsock transports can reuse the same public semantics without requiring C++.
+
+## Static and shared builds
+
+`BUILD_SHARED_LIBS=OFF` is the normal static/embedded-friendly build. Linux CI also validates `BUILD_SHARED_LIBS=ON`, installs `libspwkit.so`, and links a separate C-only consumer against the installed package.
+
+The build artifact type does not change the C API. Backend availability is reported through capabilities and installed package metadata rather than through a different application surface.
 
 ## Verification rule
 
 A backend is not considered compatible merely because it compiles. It must pass the shared public backend contract for every capability it advertises. Optional capabilities such as time codes, EEP and zero-copy are capability-gated, and advertising a capability without the corresponding contract behavior is a test failure.
+
+For language portability, the stronger rule is also enforced: a valid C-only profile must configure, build, install and link without discovering or invoking a C++ compiler at all.

@@ -15,7 +15,12 @@ static_assert(sizeof(spw_timeout_us_t) == sizeof(std::uint64_t));
 static_assert(sizeof(spw_terminator_t) == sizeof(std::uint8_t));
 static_assert(sizeof(spw_link_state_t) == sizeof(std::uint8_t));
 static_assert(sizeof(spw_capability_bits_t) == sizeof(std::uint64_t));
+static_assert(spwkit::version.major == 0u);
+static_assert(spwkit::version.minor == 3u);
+static_assert(spwkit::version.patch == 0u);
+static_assert(!std::is_copy_constructible_v<spwkit::Port>);
+static_assert(std::is_move_constructible_v<spwkit::Port>);
 
 int spwkit_api_cpp_compile_probe() {
-    return SPWKIT_API_VERSION_MAJOR == 0u && SPWKIT_API_VERSION_MINOR == 1u ? 0 : 1;
+    return SPWKIT_API_VERSION_MAJOR == 0u && SPWKIT_API_VERSION_MINOR == 3u ? 0 : 1;
 }

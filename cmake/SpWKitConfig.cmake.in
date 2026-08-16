@@ -3,20 +3,17 @@
 include(CMakeFindDependencyMacro)
 
 # Recreate private static-library dependencies that remain part of the final
-# consumer link interface. The process-local hosted simulator uses the native
-# host thread primitives internally; builds without that simulator do not gain
-# a thread dependency.
+# consumer link interface. The process-local hosted simulator uses native host
+# thread primitives internally; builds without that simulator do not gain a
+# thread dependency.
 if(@SPWKIT_HOST_THREADS_REQUIRED@)
     find_dependency(Threads)
 endif()
 
-# Runtime metadata describes whether this installed library actually contains
-# the hosted VSPW-TP/UDP backend. Public UDP headers and backend identifiers are
-# installed regardless, so consumers can remain source-compatible and gate
-# runtime use explicitly.
 set(SpWKit_UDP_RUNTIME_SUPPORTED @SPWKIT_UDP_RUNTIME_SUPPORTED@)
 set(SpWKit_UDP_RUNTIME_SCOPE "POSIX")
 set(SpWKit_SIMULATOR_RUNTIME_SUPPORTED @SPWKIT_BUILD_SIMULATOR@)
+set(SpWKit_CPP_WRAPPER_AVAILABLE @SPWKIT_ENABLE_CPP@)
 
 include("${CMAKE_CURRENT_LIST_DIR}/SpWKitTargets.cmake")
 
