@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
       - "include/spwkit/udp.h"
       - "src/backends/ethernet/**"
       - "src/core/port.cpp"
@@ -12,10 +14,13 @@ on:
       - "tests/d2d/**"
       - "tests/CMakeLists.txt"
       - "examples/distributed/**"
+      - "examples/installed/**"
       - ".github/workflows/d2d.yml"
   pull_request:
     branches: [main]
     paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
       - "include/spwkit/udp.h"
       - "src/backends/ethernet/**"
       - "src/core/port.cpp"
@@ -24,6 +29,7 @@ on:
       - "tests/d2d/**"
       - "tests/CMakeLists.txt"
       - "examples/distributed/**"
+      - "examples/installed/**"
       - ".github/workflows/d2d.yml"
   workflow_dispatch:
 
