@@ -13,7 +13,9 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 option(SPWKIT_BUILD_TESTS "Build SpWKit tests" ON)
+option(SPWKIT_BUILD_CPP_TESTS "Build C++ test fixtures/wrapper tests" ON)
 option(SPWKIT_BUILD_EXAMPLES "Build SpWKit examples" ON)
+option(SPWKIT_BUILD_CPP_EXAMPLES "Build C++ examples" ON)
 option(SPWKIT_BUILD_SIMULATOR "Build the local virtual SpaceWire simulator backend" ON)
 option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend when supported" ON)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
@@ -32,10 +34,18 @@ if(SPWKIT_BUILD_UDP AND NOT UNIX)
         "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
 endif()
 
-# Runtime sources are C11. Enable CXX only when a requested build product
-# actually needs a C++ compiler: the optional wrapper, C++ tests, or examples.
+# Enable CXX only when an explicitly requested build product needs it. This is
+# deliberately independent from SPWKIT_BUILD_TESTS/SPWKIT_BUILD_EXAMPLES so a
+# pure-C project can build and execute the C test/example surface with no C++
+# compiler installed.
 set(SPWKIT_NEEDS_CXX OFF)
-if(SPWKIT_ENABLE_CPP OR SPWKIT_BUILD_TESTS OR SPWKIT_BUILD_EXAMPLES)
+if(SPWKIT_ENABLE_CPP)
+    set(SPWKIT_NEEDS_CXX ON)
+endif()
+if(SPWKIT_BUILD_TESTS AND SPWKIT_BUILD_CPP_TESTS)
+    set(SPWKIT_NEEDS_CXX ON)
+endif()
+if(SPWKIT_BUILD_EXAMPLES AND SPWKIT_BUILD_CPP_EXAMPLES)
     set(SPWKIT_NEEDS_CXX ON)
 endif()
 if(SPWKIT_NEEDS_CXX)
@@ -80,7 +90,7 @@ endif()
 # default) gives the embedded/static profile; hosted builds may opt into a
 # shared library without changing the public target or API.
 add_library(spwkit ${SPWKIT_SOURCES})
-add_library(SpWKit::spwkit ALIAS spwkit)
+add_library(spwkit::spwkit ALIAS spwkit)
 
 target_compile_features(spwkit PRIVATE c_std_11)
 
@@ -121,11 +131,11 @@ set_target_properties(spwkit PROPERTIES
 )
 
 # Optional header-only C++17 convenience layer. It contains no backend logic;
-# all operations delegate to the installed public C API in SpWKit::spwkit.
+# all operations delegate to the installed public C API in spwkit::spwkit.
 if(SPWKIT_ENABLE_CPP)
     add_library(spwkit_cpp INTERFACE)
-    add_library(SpWKit::cpp ALIAS spwkit_cpp)
-    target_link_libraries(spwkit_cpp INTERFACE SpWKit::spwkit)
+    add_library(spwkit::cpp ALIAS spwkit_cpp)
+    target_link_libraries(spwkit_cpp INTERFACE spwkit::spwkit)
     target_compile_features(spwkit_cpp INTERFACE cxx_std_17)
     target_include_directories(spwkit_cpp INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -185,7 +195,7 @@ write_basic_package_version_file(
 install(
     EXPORT SpWKitTargets
     FILE SpWKitTargets.cmake
-    NAMESPACE SpWKit::
+    NAMESPACE spwkit::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SpWKit
 )
 
