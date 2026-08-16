@@ -2,6 +2,41 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
+## v0.3.0 — unreleased
+
+C-first runtime and packaging architecture. The public C API remains authoritative while the implementation no longer requires a C++ toolchain.
+
+### Changed
+
+- converted port dispatch, workspace ownership and backend polymorphism to a C11 vtable/context model;
+- converted loopback, process-local simulator, zero-copy simulator path, VSPW-TP codec, fragment reassembly, virtual timing, deterministic fault logic and POSIX UDP backend to C11;
+- preserved the released VSPW-TP v1 wire format and v0.2 session/reliability semantics through the implementation-language conversion;
+- exported installed/runtime targets as lowercase `spwkit::spwkit` and optional `spwkit::cpp`, while retaining `find_package(SpWKit)` as the package lookup name;
+- separated pure-C tests/examples from optional C++ development fixtures so CTest can execute meaningful behavior with `CXX=/bin/false`;
+- made the installed distributed VSPW-TP example a genuine C-only project instead of forcing a C++ linker;
+- replaced the previous placeholder embedded workflow with a real freestanding C/no-heap portability build.
+
+### Added
+
+- optional header-only C++17 `spwkit::Port` RAII/convenience wrapper controlled by `SPWKIT_ENABLE_CPP`, with no alternate backend implementation;
+- independent `SPWKIT_BUILD_CPP_TESTS` and `SPWKIT_BUILD_CPP_EXAMPLES` switches;
+- pure-C two-peer simulator behavioral coverage for EOP/EEP and time codes;
+- pure-C no-heap caller-owned workspace behavior and workspace-reuse coverage;
+- C++ wrapper loopback example;
+- Linux C-only static and shared installed-package validation;
+- repository hygiene checks rejecting stale pre-C11 target names, forced C++ linker workarounds, obsolete package requests and removed runtime source paths;
+- explicit freestanding C/no-heap compile evidence separate from future ARM/HardRT target-HIL claims.
+
+### Portability contract
+
+- `spwkit::spwkit` configures/builds with no C++ compiler, linker or runtime;
+- the complete simulator + UDP runtime is exercised in a pure-C profile;
+- static archives are checked for accidental C++ ABI/runtime references;
+- the optional C++ wrapper remains exception-free and delegates exclusively to the public C API;
+- hosted simulator thread primitives and POSIX socket details remain private implementation dependencies.
+
+The v0.3 engineering scope is complete, but this section remains `unreleased` until the dedicated release audit freezes and tags `v0.3.0`.
+
 ## v0.2.0 — 2026-08-16
 
 Distributed virtual SpaceWire over the existing portable application API.
