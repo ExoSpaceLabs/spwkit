@@ -14,6 +14,16 @@ if(SPWKIT_BUILD_SIMULATOR)
     )
 endif()
 
+if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
+    add_executable(spwkit_example_c_device_peer c_device_peer.c)
+    target_link_libraries(spwkit_example_c_device_peer PRIVATE spwkit::spwkit)
+    set_target_properties(spwkit_example_c_device_peer PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF
+    )
+endif()
+
 if(SPWKIT_BUILD_CPP_EXAMPLES)
     add_executable(spwkit_example_cpp_no_heap cpp_no_heap.cpp)
     target_link_libraries(spwkit_example_cpp_no_heap PRIVATE spwkit::spwkit)
@@ -25,5 +35,12 @@ if(SPWKIT_BUILD_CPP_EXAMPLES)
         target_link_libraries(spwkit_example_cpp_wrapper_loopback PRIVATE spwkit::cpp)
         target_compile_features(spwkit_example_cpp_wrapper_loopback PRIVATE cxx_std_17)
         spwkit_apply_no_throw_policy(spwkit_example_cpp_wrapper_loopback)
+
+        if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
+            add_executable(spwkit_example_cpp_device_peer cpp_device_peer.cpp)
+            target_link_libraries(spwkit_example_cpp_device_peer PRIVATE spwkit::cpp)
+            target_compile_features(spwkit_example_cpp_device_peer PRIVATE cxx_std_17)
+            spwkit_apply_no_throw_policy(spwkit_example_cpp_device_peer)
+        endif()
     endif()
 endif()
