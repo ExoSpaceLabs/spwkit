@@ -47,14 +47,16 @@ Implemented in v0.2 development:
 - active two-process restart integration using only public APIs;
 - active two-network-namespace integration across a 1500-byte-MTU veth link;
 - active device-to-device UDP CI including public contract, process/network isolation, retry/dedup/recovery, timing and fault coverage;
+- VSPW-TP v1 Wireshark Lua dissector with heuristic and Decode As support;
+- deterministic generated-PCAP/tshark validation covering DATA fragments, KEEPALIVE, ACK, TIME_CODE and invalid-version handling;
+- documented tcpdump/pcap capture and display-filter workflow;
 - development package version advanced to 0.2.0.
 
 Remaining v0.2 work:
 
-- Wireshark dissector or capture tooling;
-- decide whether Winsock support belongs in v0.2 or a later portability slice.
+- decide whether Winsock support belongs in v0.2 or a later portability slice and make the platform-support policy explicit.
 
-The public SpaceWire API remains unchanged: applications do not call UDP or VSPW-TP directly.
+The public SpaceWire API remains unchanged: applications do not call UDP or VSPW-TP directly. Capture tooling remains development-only and adds no runtime dependency to `libspwkit`.
 
 ## v0.3.0 — Linux virtual device
 
