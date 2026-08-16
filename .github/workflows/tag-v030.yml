@@ -1,0 +1,45 @@
+name: Tag v0.3.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/tag-v030.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create and verify lightweight tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="169528e568261148c7ab480da5629a5a9c81d116"
+          git fetch --tags --force
+          if git show-ref --verify --quiet refs/tags/v0.3.0; then
+            actual="$(git rev-parse refs/tags/v0.3.0^{commit})"
+            test "$actual" = "$target"
+          else
+            git tag v0.3.0 "$target"
+            git push origin refs/tags/v0.3.0
+          fi
+          actual="$(git rev-parse refs/tags/v0.3.0^{commit})"
+          test "$actual" = "$target"
+
+      - name: Remove tag helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tag-v030.yml
+          git commit -m "chore(spwkit): remove v0.3.0 tag helper"
+          git push origin HEAD:main
