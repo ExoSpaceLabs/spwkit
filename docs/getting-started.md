@@ -2,7 +2,7 @@
 
 SpWKit exposes one portable C ABI. C++ applications can use the same public headers directly; an optional higher-level C++ wrapper can remain layered above the ABI without changing backend implementations.
 
-The released v0.1 baseline contains loopback and the process-local simulator. Current `main` has moved into v0.2 development and additionally contains the first VSPW-TP/UDP distributed backend.
+The v0.2.0 release contains the v0.1 portable-core baseline plus the VSPW-TP/UDP distributed backend, reliability/liveness, deterministic timing and fault injection, distributed contract coverage, process/network isolation examples, and capture tooling.
 
 ## Build from source
 
@@ -30,7 +30,7 @@ Consumer project:
 cmake_minimum_required(VERSION 3.20)
 project(my_spw_application LANGUAGES C CXX)
 
-find_package(SpWKit 0.1 CONFIG REQUIRED)
+find_package(SpWKit 0.2 CONFIG REQUIRED)
 add_executable(my_app main.c)
 target_link_libraries(my_app PRIVATE SpWKit::spwkit)
 set_target_properties(my_app PROPERTIES LINKER_LANGUAGE CXX)
@@ -182,9 +182,9 @@ sim_b.endpoint = SPW_SIMULATOR_ENDPOINT_B;
 
 A and B are equal SpaceWire peers, not server/client roles.
 
-## Distributed UDP peers on current main
+## Distributed UDP peers in v0.2.0
 
-The v0.2 development backend uses the same public port API. Only backend configuration changes:
+The v0.2.0 backend uses the same public port API. Only backend configuration changes:
 
 ```c
 spw_udp_config_t udp_a = SPW_UDP_CONFIG_INITIALIZER(42000, 42001, 42);
@@ -202,7 +202,7 @@ The initializer uses numeric localhost by default. The current backend uses nume
 
 Applications still call `spw_port_start`, `spw_port_send`, `spw_port_receive`, time-code operations and statistics exactly as they do with other backends.
 
-ACK/retransmission, peer keepalive/disconnect detection, configurable virtual latency/rate and deterministic fault injection remain v0.2 work.
+The v0.2.0 backend includes logical-message ACK/retransmission, duplicate suppression, peer session/keepalive/disconnect detection and restart recovery, configurable virtual latency/rate, deterministic transport fault injection, and explicit SpaceWire-side EEP injection. Linux is the primary fully exercised distributed host and macOS is a supported POSIX host; Windows retains the public API/package but returns `SPW_ERR_UNSUPPORTED` for the UDP runtime in v0.2.0.
 
 ## Errors and timeouts
 
@@ -220,6 +220,7 @@ Finite timeout values are expressed in microseconds.
 - `examples/c_loopback.c`: hosted C API, capabilities, copied packets, EEP and time codes;
 - `examples/cpp_no_heap.cpp`: C++ consumer using caller-owned workspace;
 - `examples/c_simulator_zero_copy.c`: paired simulator endpoints and the zero-copy ownership lifecycle;
-- `examples/installed`: standalone `find_package(SpWKit)` consumer used by CI.
+- `examples/installed`: standalone `find_package(SpWKit)` consumer used by CI;
+- `examples/distributed`: installed-package equal-peer UDP application used for two-process and Linux network-namespace scenarios.
 
-The repository's device-to-device test provides the current executable UDP example/verification path until a dedicated user-facing distributed example is added during v0.2.
+The D2D workflow builds the distributed example against the installed package, exercises full-duplex >MTU packets and time codes, then verifies peer loss and new-session restart recovery.

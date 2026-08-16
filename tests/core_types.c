@@ -2,10 +2,18 @@
 #include <assert.h>
 #include <stdint.h>
 
+#ifdef NDEBUG
+#error "SpWKit tests require assert() to remain enabled"
+#endif
+
 #include "spwkit/types.h"
 
 int main(void)
 {
+    assert(SPWKIT_API_VERSION_MAJOR == 0u);
+    assert(SPWKIT_API_VERSION_MINOR == 2u);
+    assert(SPWKIT_API_VERSION_PATCH == 0u);
+
     assert(SPW_OK == 0);
     assert(SPW_ERR_INVALID_ARGUMENT < 0);
     assert(SPW_ERR_BACKEND < 0);

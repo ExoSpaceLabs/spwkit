@@ -1,6 +1,6 @@
 # Core public types
 
-This document defines the v0.1 software-visible value types used by `libspwkit`.
+This document defines the v0.2.0 software-visible value types used by `libspwkit`, including the v0.1 portable-core baseline and additive v0.2 fault diagnostics.
 
 The types are intentionally independent from simulator internals, operating systems, DMA engines, RTOS objects, and vendor SDKs.
 
@@ -8,7 +8,7 @@ The types are intentionally independent from simulator internals, operating syst
 
 `spw_result_t` is a signed 32-bit integer. `SPW_OK` is zero and failures are negative.
 
-The v0.1 common results are:
+The common result set is:
 
 | Result | Meaning |
 |---|---|
@@ -181,6 +181,8 @@ The v0.1 common statistics baseline contains:
 - dropped packet count.
 
 The counters are diagnostic and verification-facing. Additional hardware-specific counters belong in backend extension APIs rather than the portable structure.
+
+v0.2.0 additionally defines `spw_fault_statistics_t` for backends advertising `SPW_CAP_FAULT_INJECTION`. It separates VSPW-TP transport drops, duplicates, reorders and delays from explicit SpaceWire-visible EEP injections so carrier faults are not misreported as SpaceWire errors.
 
 ## Zero-copy relationship
 

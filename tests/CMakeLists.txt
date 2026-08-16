@@ -1,3 +1,14 @@
+# Test sources use assert() as executable test assertions, including around calls
+# whose side effects establish test state. Release builds define NDEBUG by
+# default, so explicitly undefine it for every target created in this directory.
+# The library itself keeps the normal build configuration; this only hardens
+# the test harness.
+if(MSVC)
+    add_compile_options(/UNDEBUG)
+else()
+    add_compile_options(-UNDEBUG)
+endif()
+
 add_library(spwkit_api_c_compile OBJECT api_c_compile.c)
 target_link_libraries(spwkit_api_c_compile PRIVATE SpWKit::spwkit)
 set_target_properties(spwkit_api_c_compile PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
