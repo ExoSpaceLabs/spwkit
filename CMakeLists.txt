@@ -97,9 +97,11 @@ target_include_directories(spwkit
 
 spwkit_apply_no_throw_policy(spwkit)
 
+set(SPWKIT_HOST_THREADS_REQUIRED OFF)
 if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit PRIVATE SPWKIT_HAS_SIMULATOR=1)
     if(UNIX)
+        set(SPWKIT_HOST_THREADS_REQUIRED ON)
         find_package(Threads REQUIRED)
         target_link_libraries(spwkit PRIVATE Threads::Threads)
     endif()
