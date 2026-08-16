@@ -48,7 +48,7 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 
 - versioned VSPW-TP v1 framing with a fixed 40-byte header carrying a 64-bit sender session ID;
 - POSIX IPv4 UDP backend selected through the normal `spw_port_*` API;
-- bounded fragmentation/reassembly;
+- bounded fragmentation plus arbitrary-order reassembly with exact duplicate/overlap handling;
 - EOP/EEP and time-code transport;
 - deterministic 1 MiB backend packet/reassembly/reliable-TX bound;
 - default 1200-byte UDP fragment payload;
@@ -58,7 +58,7 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 - configured source address/port validation;
 - active device-to-device CI exercising real UDP transfer and recovery behavior.
 
-Arbitrary fragment reordering support, configurable latency/rate, deterministic fault injection, stronger multi-process/container examples and capture/Wireshark tooling remain v0.2 work.
+Configurable latency/rate, deterministic fault injection, stronger multi-process/container examples, broader distributed contract coverage and capture/Wireshark tooling remain v0.2 work.
 
 ## Virtual SpaceWire
 

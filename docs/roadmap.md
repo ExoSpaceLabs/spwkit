@@ -27,6 +27,7 @@ Implemented in v0.2 development:
 - versioned VSPW-TP v1 wire format with a 40-byte header carrying the sender session ID;
 - POSIX IPv4 UDP backend selected through `spw_port_*`;
 - packet fragmentation/reassembly independent of Ethernet MTU;
+- bounded arbitrary-order fragment reassembly with duplicate/overlap validation;
 - EOP/EEP preservation across fragments;
 - time-code transport;
 - bounded 1 MiB receive/reassembly and reliable-TX storage;
@@ -42,7 +43,6 @@ Implemented in v0.2 development:
 
 Remaining v0.2 work:
 
-- improve fragmented reassembly policy for arbitrary transport reordering rather than relying on retry of a contiguous retransmission;
 - configurable virtual link rate and latency;
 - deterministic SpaceWire-side and transport-side fault injection;
 - Linux-to-Linux distributed process/container examples and stronger namespace isolation tests;
