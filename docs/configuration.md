@@ -83,6 +83,8 @@ udp.ack_timeout_ms = SPW_UDP_DEFAULT_ACK_TIMEOUT_MS;
 udp.max_retries = SPW_UDP_DEFAULT_MAX_RETRIES;
 udp.keepalive_interval_ms = SPW_UDP_DEFAULT_KEEPALIVE_INTERVAL_MS;
 udp.peer_timeout_ms = SPW_UDP_DEFAULT_PEER_TIMEOUT_MS;
+udp.virtual_link_bps = SPW_UDP_DEFAULT_VIRTUAL_LINK_BPS;
+udp.virtual_latency_us = SPW_UDP_DEFAULT_VIRTUAL_LATENCY_US;
 
 spw_port_config_t config =
     SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
@@ -117,11 +119,23 @@ The backend validates incoming source address, source port and `link_id`; a matc
 `peer_timeout_ms`
 : Time without valid traffic from the configured peer before the backend maps the peer to `SPW_LINK_ERROR_WAIT`. Default: 3000 ms. It must be greater than the keepalive interval.
 
+### Virtual-link timing parameters
+
+`virtual_link_bps`
+: Effective simulated SpaceWire-side bit rate. `0` disables serialization delay, preserving the previous immediate behavior. DATA serialization charges the logical payload plus one terminator octet. TIME_CODE serialization charges its two-byte logical event. This is an effective logical timing model, not character- or signal-accurate PHY simulation.
+
+`virtual_latency_us`
+: Fixed propagation/processing latency added once to each logical DATA or TIME_CODE event. `0` disables fixed latency.
+
+The virtual delay is applied before the first VSPW-TP transmission of a logical event. ACK, KEEPALIVE and reliability retransmissions are transport mechanisms and do not consume the SpaceWire-side timing budget. In particular, losing an ACK and retransmitting a packet does not serialize the same logical SpaceWire packet a second time in the timing model.
+
+Caller send timeouts include the virtual delay. If the remaining timeout cannot cover the configured delay, `spw_port_send()` or `spw_port_send_time_code()` returns `SPW_ERR_TIMEOUT` before accepting the event into the reliable TX slot. Zero timing parameters preserve the previous behavior.
+
 ### Cooperative progress
 
 The UDP backend intentionally does not require a hidden worker thread. It retains at most one unacknowledged logical outbound event and advances ACK processing, retransmission and keepalive/liveness work when normal SpWKit calls service the port.
 
-Blocking receive calls and `spw_port_get_link_state()` also service transport control traffic. An application that performs no SpWKit calls at all does not run transport timers in the background. This keeps the design portable to future bare-metal and RTOS adapters instead of quietly making POSIX threads a dependency.
+Blocking receive calls and `spw_port_get_link_state()` also service transport control traffic. The virtual timing wait follows the same rule and pumps peer/control traffic while the logical delay elapses. An application that performs no SpWKit calls at all does not run transport timers in the background. This keeps the design portable to future bare-metal and RTOS adapters instead of quietly making POSIX threads a dependency.
 
 A successful `spw_port_send()` or `spw_port_send_time_code()` means the event was accepted into the backend's bounded reliable TX slot and its first transmission completed. It does not mean the remote application has consumed the event.
 
@@ -139,11 +153,12 @@ If a second send arrives while the reliable TX slot is still occupied, the backe
 - peer-loss mapping into public link state/errors;
 - receive timeouts and statistics;
 - up to 1 MiB logical packet payload;
-- default 1200-byte fragment payload.
+- default 1200-byte fragment payload;
+- optional deterministic SpaceWire-side virtual rate/latency timing.
 
 Windows retains the public backend identifier/configuration ABI but currently reports the UDP backend as unsupported until a Winsock implementation is added.
 
-Configurable virtual rate/latency, deterministic fault injection and capture/Wireshark tooling remain later v0.2 work.
+Deterministic fault injection and capture/Wireshark tooling remain later v0.2 work.
 
 ## Backend isolation
 

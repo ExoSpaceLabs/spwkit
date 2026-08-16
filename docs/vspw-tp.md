@@ -136,6 +136,18 @@ For one port:
 
 This model deliberately avoids requiring a second thread merely to make two peers work. Blocking receive/wait operations and link-state polling also service keepalive/ACK/retry traffic. Their internal wake interval is bounded by the next keepalive or ACK timeout so retransmission is not delayed behind a longer receive wait.
 
+## Virtual-link timing
+
+The UDP backend can apply deterministic **SpaceWire-side** timing before the first transport transmission of each logical DATA or TIME_CODE event. `virtual_link_bps` controls effective serialization delay and `virtual_latency_us` adds one fixed propagation/processing delay. Both default to zero, preserving the previous immediate behavior.
+
+The model is intentionally logical rather than PHY-accurate. DATA serialization charges the payload plus one logical terminator octet. TIME_CODE serialization charges its two-byte logical event. Serialization delay is rounded up to the next microsecond.
+
+ACK and KEEPALIVE are VSPW-TP transport control frames, so they do not consume the virtual SpaceWire timing budget. Likewise, retransmitting an already accepted logical message after an ACK timeout does not reapply SpaceWire serialization or propagation latency. The transport may repeat datagrams; the simulated SpaceWire application event occurred once.
+
+Caller send timeouts include the virtual delay. If the remaining timeout cannot cover the configured delay, the send returns `SPW_ERR_TIMEOUT` before occupying the reliable TX slot. While a non-zero delay elapses, the backend continues cooperative peer/control servicing through the normal pump path; no background worker is introduced.
+
+Host Ethernet/UDP latency is not measured or folded into this model. It remains incidental carrier behavior and cannot redefine the configured virtual SpaceWire timing.
+
 ## Liveness
 
 Each started UDP backend chooses a new non-zero local session ID and advertises it through KEEPALIVE while stamping the same ID on all other frames. `keepalive_interval_ms` controls periodic advertisement while API calls are servicing the transport. `peer_timeout_ms` controls when lack of valid current-session traffic from the configured peer is mapped to `SPW_LINK_ERROR_WAIT`.
@@ -164,7 +176,9 @@ The UDP backend deliberately advertises a smaller 1 MiB maximum packet size so T
 - ACK timeout;
 - maximum retransmissions;
 - keepalive interval;
-- peer timeout.
+- peer timeout;
+- effective virtual SpaceWire link bit rate;
+- fixed virtual propagation/processing latency.
 
 Both endpoints are peers; there is no application-visible server/client role.
 
@@ -212,7 +226,7 @@ After structural validation, non-KEEPALIVE frames from a session other than the 
 
 The codec has golden-vector and malformed-frame tests for the 40-byte session-aware header, DATA, TIME_CODE, session-bound ACK and header-only KEEPALIVE framing.
 
-The distributed backend integration test creates two localhost peers through the public `spw_port_*` API and verifies:
+The distributed backend integration tests verify:
 
 - 5 KiB EEP transfer using 512-byte fragments;
 - deliberately reordered and duplicated UDP fragments reassembling into one packet;
@@ -223,6 +237,9 @@ The distributed backend integration test creates two localhost peers through the
 - forced ACK timeout and logical-message retransmission;
 - duplicate suppression after retry;
 - peer timeout mapping to `SPW_LINK_ERROR_WAIT`;
-- peer restart/session recovery back to `SPW_LINK_RUN`.
+- peer restart/session recovery back to `SPW_LINK_RUN`;
+- compile-time deterministic virtual timing calculations;
+- immediate send timeout when configured virtual delay is non-zero;
+- successful DATA and TIME_CODE delivery when the caller budget covers the virtual delay.
 
-The dedicated Device-to-device workflow executes this test as a real transport gate.
+The dedicated Device-to-device workflow executes the distributed tests as a real transport gate.

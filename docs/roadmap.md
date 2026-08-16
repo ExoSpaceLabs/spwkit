@@ -38,12 +38,12 @@ Implemented in v0.2 development:
 - configured peer address/port validation;
 - peer timeout mapping to public link state/errors;
 - peer restart/session recovery;
-- active device-to-device UDP CI including forced retry/dedup/recovery coverage;
+- deterministic SpaceWire-side virtual link rate/latency timing for DATA and TIME_CODE;
+- active device-to-device UDP CI including forced retry/dedup/recovery and timing coverage;
 - development package version advanced to 0.2.0.
 
 Remaining v0.2 work:
 
-- configurable virtual link rate and latency;
 - deterministic SpaceWire-side and transport-side fault injection;
 - Linux-to-Linux distributed process/container examples and stronger namespace isolation tests;
 - Wireshark dissector or capture tooling;

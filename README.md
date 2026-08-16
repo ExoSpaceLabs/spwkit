@@ -56,9 +56,10 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 - duplicate logical-message suppression;
 - per-frame session identity, keepalive/peer timeout and restart recovery;
 - configured source address/port validation;
-- active device-to-device CI exercising real UDP transfer and recovery behavior.
+- deterministic configurable SpaceWire-side virtual link rate and fixed latency;
+- active device-to-device CI exercising real UDP transfer, recovery and timing behavior.
 
-Configurable latency/rate, deterministic fault injection, stronger multi-process/container examples, broader distributed contract coverage and capture/Wireshark tooling remain v0.2 work.
+Deterministic fault injection, stronger multi-process/container examples, broader distributed contract coverage and capture/Wireshark tooling remain v0.2 work.
 
 ## Virtual SpaceWire
 
@@ -95,6 +96,8 @@ Application A                         Application B
 UDP is an internal transport. Packet boundaries, EOP/EEP and time codes remain SpaceWire-facing semantics and are not replaced by datagram boundaries.
 
 Reliability is logical-message based. The backend retains at most one unacknowledged DATA/TIME_CODE event, retries it cooperatively after the configured ACK timeout, suppresses duplicate logical delivery, and uses transport keepalives/session IDs for peer liveness and restart recovery. No mandatory background thread is required.
+
+The optional virtual timing model adds deterministic SpaceWire-side serialization and fixed latency to logical DATA/TIME_CODE events without treating incidental host UDP delay as simulated link timing. ACKs, keepalives and retransmissions remain transport mechanics and do not reapply the logical SpaceWire delay.
 
 `/dev/vspwX` remains later roadmap work.
 

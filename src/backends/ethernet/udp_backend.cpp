@@ -112,7 +112,9 @@ private:
 
 } // namespace
 
-UdpBackend::UdpBackend(const spw_udp_config_t& config) noexcept : config_(config) {}
+UdpBackend::UdpBackend(const spw_udp_config_t& config) noexcept
+    : config_(config),
+      virtual_timing_(config.virtual_link_bps, config.virtual_latency_us) {}
 
 UdpBackend::~UdpBackend() {
     close_socket();
@@ -349,6 +351,41 @@ spw_result_t UdpBackend::send_datagram(const std::uint8_t* bytes,
                                   reinterpret_cast<const sockaddr*>(&remote),
                                   sizeof(remote));
     return sent == static_cast<ssize_t>(size) ? SPW_OK : SPW_ERR_BACKEND;
+}
+
+spw_result_t UdpBackend::wait_virtual_link_delay(
+    std::uint64_t delay_us, spw_timeout_us_t timeout_us) noexcept {
+    if (delay_us == 0u) {
+        return SPW_OK;
+    }
+    if (timeout_us != SPW_TIMEOUT_INFINITE &&
+        static_cast<std::uint64_t>(timeout_us) < delay_us) {
+        return SPW_ERR_TIMEOUT;
+    }
+
+    Deadline deadline(timeout_us);
+    const TimePoint target = Clock::now() + std::chrono::microseconds(delay_us);
+    while (Clock::now() < target) {
+        const auto now = Clock::now();
+        const auto remaining_count =
+            std::chrono::duration_cast<std::chrono::microseconds>(target - now).count();
+        const spw_timeout_us_t timing_slice = remaining_count <= 0
+            ? SPW_TIMEOUT_IMMEDIATE
+            : static_cast<spw_timeout_us_t>(remaining_count);
+        const spw_result_t result = pump_one(
+            min_timeout(deadline.remaining(), timing_slice));
+        if (result != SPW_OK && result != SPW_ERR_TIMEOUT &&
+            result != SPW_ERR_RESOURCE_EXHAUSTED) {
+            return result;
+        }
+        if (Clock::now() >= target) {
+            return SPW_OK;
+        }
+        if (deadline.expired()) {
+            return SPW_ERR_TIMEOUT;
+        }
+    }
+    return SPW_OK;
 }
 
 spw_result_t UdpBackend::send_ack(std::uint32_t message_id) noexcept {
@@ -884,6 +921,13 @@ spw_result_t UdpBackend::send(const spw_packet_t& packet,
         return slot_result;
     }
 
+    const spw_result_t timing_result = wait_virtual_link_delay(
+        virtual_timing_.delay_us(VirtualLinkEvent::Data, packet.length),
+        deadline.remaining());
+    if (timing_result != SPW_OK) {
+        return timing_result;
+    }
+
     if (packet.length != 0u) {
         std::memcpy(pending_tx_packet_.data(), packet.data, packet.length);
     }
@@ -964,6 +1008,13 @@ spw_result_t UdpBackend::send_time_code(const spw_time_code_t& time_code,
     const spw_result_t slot_result = wait_for_tx_slot(deadline.remaining());
     if (slot_result != SPW_OK) {
         return slot_result;
+    }
+
+    const spw_result_t timing_result = wait_virtual_link_delay(
+        virtual_timing_.delay_us(VirtualLinkEvent::TimeCode, kTimeCodePayloadSize),
+        deadline.remaining());
+    if (timing_result != SPW_OK) {
+        return timing_result;
     }
 
     pending_tx_time_code_ = time_code;
