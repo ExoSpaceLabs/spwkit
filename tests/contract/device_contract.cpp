@@ -85,6 +85,10 @@ public:
         return UINT64_C(5000000);
     }
 
+    spw_timeout_us_t peer_loss_send_timeout_us() const noexcept override {
+        return transfer_timeout_us();
+    }
+
     void start_link() override {
         require_true(a_ != nullptr && b_ != nullptr, "start with missing endpoint");
         require_ok("start endpoint A", spw_port_start(a_));
