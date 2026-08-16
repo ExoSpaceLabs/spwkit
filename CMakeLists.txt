@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.20)
 # public C ABI and is never required by the runtime implementation.
 project(
     spwkit
-    VERSION 0.3.0
+    VERSION 0.4.0
     DESCRIPTION "SpaceWire Development & Integration Toolkit"
     LANGUAGES C
 )
@@ -67,6 +67,7 @@ endfunction()
 set(SPWKIT_SOURCES
     src/core/port.c
     src/backends/loopback/loopback_backend.c
+    src/backends/device/vspw_device_protocol.c
     src/backends/ethernet/vspw_tp.c
     src/backends/ethernet/fragment_reassembler.c
     src/backends/ethernet/virtual_link_timing.c
