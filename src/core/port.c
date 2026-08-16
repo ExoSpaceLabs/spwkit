@@ -105,7 +105,11 @@ static spw_result_t validate_device_config(const spw_port_config_t* config) {
     if (device->reserved != 0u || device->endpoint[0] == '\0') {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    endpoint_length = strnlen(device->endpoint, SPW_DEVICE_ENDPOINT_CAPACITY);
+    endpoint_length = 0u;
+    while (endpoint_length < SPW_DEVICE_ENDPOINT_CAPACITY &&
+           device->endpoint[endpoint_length] != '\0') {
+        ++endpoint_length;
+    }
     if (endpoint_length == 0u || endpoint_length >= SPW_DEVICE_ENDPOINT_CAPACITY) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
