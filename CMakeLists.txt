@@ -1,10 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 
+# The implementation baseline is C. C++ is enabled only when a selected
+# backend/test/example still needs it during the v0.3 migration. Once the
+# simulator and UDP conversions land, normal library builds no longer enable
+# CXX unless the optional wrapper or C++ tests/examples are requested.
 project(
     spwkit
     VERSION 0.2.0
     DESCRIPTION "SpaceWire Development & Integration Toolkit"
-    LANGUAGES C CXX
+    LANGUAGES C
 )
 
 include(GNUInstallDirs)
@@ -17,10 +21,10 @@ option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend when supporte
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 
-# v0.2 runtime platform policy: the distributed UDP backend is implemented on
-# POSIX hosts only. The public UDP configuration/API remains available on every
-# platform so source/package compatibility does not depend on native socket
-# types. Unsupported builds reject UDP backend selection with
+# v0.2/v0.3 transition runtime platform policy: the distributed UDP backend is
+# currently implemented on POSIX hosts only. The public UDP configuration/API
+# remains available on every platform so source/package compatibility does not
+# depend on native socket types. Unsupported builds reject UDP selection with
 # SPW_ERR_UNSUPPORTED.
 if(SPWKIT_BUILD_UDP AND UNIX)
     set(SPWKIT_UDP_RUNTIME_SUPPORTED ON)
@@ -30,26 +34,40 @@ endif()
 
 if(SPWKIT_BUILD_UDP AND NOT UNIX)
     message(STATUS
-        "SpWKit v0.2 UDP runtime is POSIX-only; public UDP API will be installed, "
+        "SpWKit UDP runtime is currently POSIX-only; public UDP API will be installed, "
         "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
 endif()
 
-# Apply the same exception/RTTI policy to library code and any internal C++
-# test that directly instantiates implementation classes. Public consumers are
-# not forced to use these flags.
+# Transitional language enablement. The core + loopback path is already C11.
+# Simulator/UDP implementations and much of the current test suite are still
+# C++ while #47/#48 migrate them. A C-only library build therefore needs no CXX
+# compiler when those components and C++ tests/examples are disabled.
+set(SPWKIT_NEEDS_CXX OFF)
+if(SPWKIT_BUILD_SIMULATOR OR SPWKIT_UDP_RUNTIME_SUPPORTED OR
+   SPWKIT_BUILD_TESTS OR SPWKIT_BUILD_EXAMPLES)
+    set(SPWKIT_NEEDS_CXX ON)
+endif()
+if(SPWKIT_NEEDS_CXX)
+    enable_language(CXX)
+endif()
+
+# Apply exception/RTTI policy only to C++ translation units. C sources remain
+# ordinary C11 and never inherit C++-specific compiler flags.
 function(spwkit_apply_no_throw_policy target_name)
     if(MSVC)
-        target_compile_options(${target_name} PRIVATE /EHs-c- /GR-)
+        target_compile_options(${target_name} PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:/EHs-c->
+            $<$<COMPILE_LANGUAGE:CXX>:/GR->)
     else()
-        target_compile_options(${target_name} PRIVATE -fno-exceptions -fno-rtti)
+        target_compile_options(${target_name} PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
+            $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
     endif()
 endfunction()
 
 set(SPWKIT_SOURCES
-    src/core/spwkit.cpp
-    src/core/port.cpp
-    src/backends/loopback/loopback_backend.cpp
-    src/backends/ethernet/vspw_tp.cpp
+    src/core/port.c
+    src/backends/loopback/loopback_backend.c
 )
 
 if(SPWKIT_BUILD_SIMULATOR)
@@ -61,14 +79,29 @@ endif()
 
 if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     list(APPEND SPWKIT_SOURCES
+        src/backends/ethernet/vspw_tp.cpp
         src/backends/ethernet/udp_backend.cpp
     )
+elseif(SPWKIT_BUILD_TESTS)
+    # Internal codec tests still exercise the v0.2 C++ VSPW-TP implementation
+    # until #48 moves it into the C runtime.
+    list(APPEND SPWKIT_SOURCES src/backends/ethernet/vspw_tp.cpp)
 endif()
 
-add_library(spwkit STATIC ${SPWKIT_SOURCES})
+if(SPWKIT_BUILD_SIMULATOR OR SPWKIT_UDP_RUNTIME_SUPPORTED)
+    list(APPEND SPWKIT_SOURCES src/core/cpp_backend_bridge.cpp)
+endif()
+
+# Respect the standard CMake BUILD_SHARED_LIBS switch. Static remains the
+# default and is the natural embedded profile; hosted builds may opt into a
+# shared library without changing the target name or public API.
+add_library(spwkit ${SPWKIT_SOURCES})
 add_library(SpWKit::spwkit ALIAS spwkit)
 
-target_compile_features(spwkit PUBLIC cxx_std_17)
+target_compile_features(spwkit PRIVATE c_std_11)
+if(SPWKIT_NEEDS_CXX)
+    target_compile_features(spwkit PRIVATE cxx_std_17)
+endif()
 
 target_include_directories(spwkit
     PUBLIC
@@ -95,10 +128,15 @@ else()
 endif()
 
 set_target_properties(spwkit PROPERTIES
-    CXX_EXTENSIONS OFF
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS OFF
     POSITION_INDEPENDENT_CODE ON
     EXPORT_NAME spwkit
 )
+if(SPWKIT_NEEDS_CXX)
+    set_target_properties(spwkit PROPERTIES CXX_EXTENSIONS OFF)
+endif()
 
 if(SPWKIT_BUILD_EXAMPLES)
     add_subdirectory(examples)

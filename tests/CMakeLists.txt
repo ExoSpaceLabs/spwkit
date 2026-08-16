@@ -21,11 +21,9 @@ add_executable(spwkit_core_types_test core_types.c)
 target_link_libraries(spwkit_core_types_test PRIVATE SpWKit::spwkit)
 set_target_properties(spwkit_core_types_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
-add_executable(spwkit_loopback_backend_test loopback_backend.cpp)
+add_executable(spwkit_loopback_backend_test loopback_backend.c)
 target_link_libraries(spwkit_loopback_backend_test PRIVATE SpWKit::spwkit)
-target_include_directories(spwkit_loopback_backend_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
-target_compile_features(spwkit_loopback_backend_test PRIVATE cxx_std_17)
-spwkit_apply_no_throw_policy(spwkit_loopback_backend_test)
+set_target_properties(spwkit_loopback_backend_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
 add_executable(spwkit_vspw_tp_test vspw_tp.cpp)
 target_link_libraries(spwkit_vspw_tp_test PRIVATE SpWKit::spwkit)
