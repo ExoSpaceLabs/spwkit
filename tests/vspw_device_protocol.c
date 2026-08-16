@@ -40,7 +40,7 @@ static void encode_frame(const vspd_header_t* header,
 static void test_golden_data_vector(void) {
     static const uint8_t expected_header[VSPD_HEADER_SIZE] = {
         0x56u, 0x53u, 0x50u, 0x44u,
-        0x01u, 0x01u, 0x09u, 0x0eu,
+        0x01u, 0x02u, 0x09u, 0x0eu,
         0x00u, 0x28u, 0x00u, 0x00u,
         0x00u, 0x00u, 0x00u, 0x04u,
         0x00u, 0x00u, 0x00u, 0x11u,
@@ -182,8 +182,8 @@ static void assert_statistics_equal(const vspd_statistics_payload_t* expected,
 }
 
 static void test_control_payloads(void) {
-    uint8_t frame[VSPD_HEADER_SIZE + VSPD_STATISTICS_PAYLOAD_SIZE];
-    uint8_t payload[VSPD_STATISTICS_PAYLOAD_SIZE];
+    uint8_t frame[VSPD_HEADER_SIZE + VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE];
+    uint8_t payload[VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE];
     vspd_header_t header;
     vspd_capabilities_payload_t capabilities = {
         UINT64_C(0x1122334455667788), 1048576u, 8u, 9u, 64u};
@@ -198,6 +198,8 @@ static void test_control_payloads(void) {
             VSPD_PORT_INFO_EVER_ATTACHED,
         VSPD_LINK_RUN, 1u, 2u};
     vspd_port_info_payload_t decoded_port_info;
+    vspd_port_snapshot_payload_t snapshot;
+    vspd_port_snapshot_payload_t decoded_snapshot;
 
     vspd_encode_capabilities(&capabilities, payload);
     memset(&decoded_capabilities, 0, sizeof(decoded_capabilities));
@@ -286,6 +288,28 @@ static void test_control_payloads(void) {
     assert(vspd_validate_frame(
                frame, VSPD_HEADER_SIZE + VSPD_STATISTICS_PAYLOAD_SIZE, NULL) ==
            VSPD_CODEC_OK);
+
+    snapshot.info = port_info;
+    snapshot.statistics = statistics;
+    memset(&decoded_snapshot, 0, sizeof(decoded_snapshot));
+    vspd_encode_port_snapshot(&snapshot, payload);
+    vspd_decode_port_snapshot(payload, &decoded_snapshot);
+    assert(decoded_snapshot.info.flags == snapshot.info.flags);
+    assert(decoded_snapshot.info.link_state == snapshot.info.link_state);
+    assert_statistics_equal(&snapshot.statistics, &decoded_snapshot.statistics);
+    header = header_for(VSPD_MSG_PORT_SNAPSHOT_EVENT,
+                        0u,
+                        VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE,
+                        0u,
+                        1u);
+    encode_frame(&header, payload, frame, sizeof(frame));
+    assert(vspd_validate_frame(
+               frame, VSPD_HEADER_SIZE + VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE, NULL) ==
+           VSPD_CODEC_OK);
+
+    header = header_for(VSPD_MSG_SUBSCRIBE_PORT, 0u, 0u, 21u, 1u);
+    encode_frame(&header, NULL, frame, sizeof(frame));
+    assert(vspd_validate_frame(frame, VSPD_HEADER_SIZE, NULL) == VSPD_CODEC_OK);
 }
 
 static void test_malformed_frames(void) {

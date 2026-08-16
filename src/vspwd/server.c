@@ -29,6 +29,9 @@ enum {
     VSPWD_FRAME_MAX = VSPD_HEADER_SIZE + VSPD_MAX_FRAME_PAYLOAD
 };
 
+_Static_assert(VSPWD_PORT_COUNT <= 32,
+               "monitor subscription mask supports at most 32 ports");
+
 typedef struct vspwd_packet_slot {
     uint8_t data[VSPD_MAX_LOGICAL_PACKET];
     uint32_t length;
@@ -78,6 +81,8 @@ typedef struct vspwd_client {
     int fd;
     bool hello_done;
     int port_id;
+    uint32_t monitor_mask;
+    uint32_t monitor_pending_mask;
     bool response_pending;
     size_t response_size;
     uint8_t response[VSPWD_RESPONSE_MAX];
@@ -92,6 +97,8 @@ typedef struct vspwd_server {
 } vspwd_server_t;
 
 static volatile sig_atomic_t vspwd_stop_requested = 0;
+
+static void vspwd_mark_port_changed(vspwd_server_t* server, int port_id);
 
 static void vspwd_signal_handler(int signal_number) {
     (void)signal_number;
@@ -179,6 +186,7 @@ static void vspwd_update_states(vspwd_server_t* server) {
             }
             port->state = next_state;
             port->state_event_pending = true;
+            vspwd_mark_port_changed(server, port_id);
         }
     }
 }
@@ -295,6 +303,50 @@ static void vspwd_statistics_to_wire(const spw_statistics_t* source,
     destination->dropped_packets = source->dropped_packets;
 }
 
+static void vspwd_port_info_to_wire(const vspwd_port_t* port,
+                                    vspd_port_info_payload_t* info) {
+    memset(info, 0, sizeof(*info));
+    if (port->client_index >= 0) {
+        info->flags |= VSPD_PORT_INFO_ATTACHED;
+    }
+    if (port->started) {
+        info->flags |= VSPD_PORT_INFO_STARTED;
+    }
+    if (port->reset_latched) {
+        info->flags |= VSPD_PORT_INFO_RESET_LATCHED;
+    }
+    if (port->ever_attached) {
+        info->flags |= VSPD_PORT_INFO_EVER_ATTACHED;
+    }
+    info->link_state = port->state;
+    info->packet_queue_count = port->packets.count;
+    info->time_code_queue_count = port->time_codes.count;
+}
+
+static void vspwd_port_snapshot_to_wire(
+    const vspwd_port_t* port,
+    vspd_port_snapshot_payload_t* snapshot) {
+    memset(snapshot, 0, sizeof(*snapshot));
+    vspwd_port_info_to_wire(port, &snapshot->info);
+    vspwd_statistics_to_wire(&port->statistics, &snapshot->statistics);
+}
+
+static void vspwd_mark_port_changed(vspwd_server_t* server, int port_id) {
+    uint32_t bit;
+    int i;
+    if (port_id < 0 || port_id >= VSPWD_PORT_COUNT) {
+        return;
+    }
+    bit = UINT32_C(1) << (uint32_t)port_id;
+    for (i = 0; i < VSPWD_CLIENT_COUNT; ++i) {
+        vspwd_client_t* client = &server->clients[i];
+        if (client->fd >= 0 && client->hello_done && client->port_id < 0 &&
+            (client->monitor_mask & bit) != 0u) {
+            client->monitor_pending_mask |= bit;
+        }
+    }
+}
+
 static void vspwd_detach_client(vspwd_server_t* server, int client_index) {
     vspwd_client_t* client = &server->clients[client_index];
     if (client->port_id >= 0 && client->port_id < VSPWD_PORT_COUNT) {
@@ -306,6 +358,7 @@ static void vspwd_detach_client(vspwd_server_t* server, int client_index) {
             port->state = SPW_LINK_ERROR_RESET;
             port->state_event_pending = false;
             vspwd_clear_port_queues(port);
+            vspwd_mark_port_changed(server, client->port_id);
         }
     }
     client->port_id = -1;
@@ -355,6 +408,8 @@ static bool vspwd_enqueue_packet(vspwd_server_t* server,
     if (reassembly->terminator == SPW_TERMINATOR_EEP) {
         ++source->statistics.eep_packets;
     }
+    vspwd_mark_port_changed(server, source_port_id);
+    vspwd_mark_port_changed(server, vspwd_peer_port(source_port_id));
     return true;
 }
 
@@ -406,6 +461,7 @@ static int32_t vspwd_accept_data_fragment(vspwd_server_t* server,
     if (server->ports[vspwd_peer_port(client->port_id)].packets.count >=
         VSPWD_PACKET_QUEUE_DEPTH) {
         ++server->ports[client->port_id].statistics.dropped_packets;
+        vspwd_mark_port_changed(server, client->port_id);
         return VSPD_STATUS_RESOURCE_EXHAUSTED;
     }
     if (!vspwd_enqueue_packet(server, client->port_id, reassembly)) {
@@ -430,6 +486,8 @@ static bool vspwd_enqueue_time_code(vspwd_server_t* server,
         (destination->time_codes.tail + 1u) % VSPWD_TIME_CODE_QUEUE_DEPTH;
     ++destination->time_codes.count;
     ++source->statistics.tx_time_codes;
+    vspwd_mark_port_changed(server, source_port_id);
+    vspwd_mark_port_changed(server, vspwd_peer_port(source_port_id));
     return true;
 }
 
@@ -452,7 +510,8 @@ static bool vspwd_handle_request(vspwd_server_t* server,
     if ((header.flags & VSPD_FLAG_RESPONSE) != 0u ||
         header.type == VSPD_MSG_DATA_RX ||
         header.type == VSPD_MSG_TIME_CODE_RX ||
-        header.type == VSPD_MSG_LINK_STATE_EVENT) {
+        header.type == VSPD_MSG_LINK_STATE_EVENT ||
+        header.type == VSPD_MSG_PORT_SNAPSHOT_EVENT) {
         return false;
     }
     payload = header.payload_size == 0u ? NULL : frame + VSPD_HEADER_SIZE;
@@ -606,6 +665,7 @@ static bool vspwd_handle_request(vspwd_server_t* server,
                 if (server->ports[vspwd_peer_port(client->port_id)].time_codes.count >=
                     VSPWD_TIME_CODE_QUEUE_DEPTH) {
                     ++server->ports[client->port_id].statistics.dropped_packets;
+                    vspwd_mark_port_changed(server, client->port_id);
                     status = VSPD_STATUS_RESOURCE_EXHAUSTED;
                 } else if (!vspwd_enqueue_time_code(server,
                                                     client->port_id,
@@ -638,6 +698,7 @@ static bool vspwd_handle_request(vspwd_server_t* server,
                 memset(&server->ports[client->port_id].statistics,
                        0,
                        sizeof(server->ports[client->port_id].statistics));
+                vspwd_mark_port_changed(server, client->port_id);
             }
             return vspwd_queue_response(client, &header, status, NULL, 0u);
 
@@ -667,21 +728,7 @@ static bool vspwd_handle_request(vspwd_server_t* server,
             memset(&info, 0, sizeof(info));
             if (status == VSPD_STATUS_OK) {
                 port = &server->ports[header.port_id];
-                if (port->client_index >= 0) {
-                    info.flags |= VSPD_PORT_INFO_ATTACHED;
-                }
-                if (port->started) {
-                    info.flags |= VSPD_PORT_INFO_STARTED;
-                }
-                if (port->reset_latched) {
-                    info.flags |= VSPD_PORT_INFO_RESET_LATCHED;
-                }
-                if (port->ever_attached) {
-                    info.flags |= VSPD_PORT_INFO_EVER_ATTACHED;
-                }
-                info.link_state = port->state;
-                info.packet_queue_count = port->packets.count;
-                info.time_code_queue_count = port->time_codes.count;
+                vspwd_port_info_to_wire(port, &info);
                 vspd_encode_port_info(&info, response_payload);
             }
             return vspwd_queue_response(client,
@@ -713,6 +760,25 @@ static bool vspwd_handle_request(vspwd_server_t* server,
                 memset(&server->ports[header.port_id].statistics,
                        0,
                        sizeof(server->ports[header.port_id].statistics));
+                vspwd_mark_port_changed(server, (int)header.port_id);
+            }
+            return vspwd_queue_response(client, &header, status, NULL, 0u);
+
+        case VSPD_MSG_SUBSCRIBE_PORT:
+            status = vspwd_validate_management_request(client, &header, true);
+            if (status == VSPD_STATUS_OK) {
+                uint32_t bit = UINT32_C(1) << header.port_id;
+                client->monitor_mask |= bit;
+                client->monitor_pending_mask |= bit;
+            }
+            return vspwd_queue_response(client, &header, status, NULL, 0u);
+
+        case VSPD_MSG_UNSUBSCRIBE_PORT:
+            status = vspwd_validate_management_request(client, &header, true);
+            if (status == VSPD_STATUS_OK) {
+                uint32_t bit = UINT32_C(1) << header.port_id;
+                client->monitor_mask &= ~bit;
+                client->monitor_pending_mask &= ~bit;
             }
             return vspwd_queue_response(client, &header, status, NULL, 0u);
 
@@ -818,6 +884,7 @@ static bool vspwd_flush_packet_event(vspwd_server_t* server,
     port->statistics.rx_bytes += slot->length;
     port->packets.head = (port->packets.head + 1u) % VSPWD_PACKET_QUEUE_DEPTH;
     --port->packets.count;
+    vspwd_mark_port_changed(server, client->port_id);
     return true;
 }
 
@@ -859,6 +926,44 @@ static bool vspwd_flush_time_code_event(vspwd_server_t* server,
         (port->time_codes.head + 1u) % VSPWD_TIME_CODE_QUEUE_DEPTH;
     --port->time_codes.count;
     ++port->statistics.rx_time_codes;
+    vspwd_mark_port_changed(server, client->port_id);
+    return true;
+}
+
+static bool vspwd_flush_monitor_event(vspwd_server_t* server,
+                                      int client_index) {
+    vspwd_client_t* client = &server->clients[client_index];
+    uint8_t frame[VSPD_HEADER_SIZE + VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE];
+    vspd_port_snapshot_payload_t snapshot;
+    vspd_header_t header;
+    uint32_t port_id;
+
+    if (client->port_id >= 0 || client->monitor_pending_mask == 0u) {
+        return true;
+    }
+    for (port_id = 0u; port_id < VSPWD_PORT_COUNT; ++port_id) {
+        uint32_t bit = UINT32_C(1) << port_id;
+        if ((client->monitor_pending_mask & bit) != 0u) {
+            memset(&header, 0, sizeof(header));
+            header.magic = VSPD_MAGIC;
+            header.version_major = VSPD_VERSION_MAJOR;
+            header.version_minor = VSPD_VERSION_MINOR;
+            header.type = VSPD_MSG_PORT_SNAPSHOT_EVENT;
+            header.header_size = VSPD_HEADER_SIZE;
+            header.payload_size = VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE;
+            header.port_id = port_id;
+            if (vspd_encode_header(&header, frame) != VSPD_CODEC_OK) {
+                return false;
+            }
+            vspwd_port_snapshot_to_wire(&server->ports[port_id], &snapshot);
+            vspd_encode_port_snapshot(&snapshot, frame + VSPD_HEADER_SIZE);
+            if (!vspwd_send_record(client->fd, frame, sizeof(frame))) {
+                return false;
+            }
+            client->monitor_pending_mask &= ~bit;
+            return true;
+        }
+    }
     return true;
 }
 
@@ -870,7 +975,7 @@ static bool vspwd_client_has_output(const vspwd_server_t* server,
         return true;
     }
     if (client->port_id < 0) {
-        return false;
+        return client->monitor_pending_mask != 0u;
     }
     port = &server->ports[client->port_id];
     return port->state_event_pending || port->packets.count != 0u ||
@@ -881,6 +986,9 @@ static bool vspwd_flush_client(vspwd_server_t* server, int client_index) {
     vspwd_client_t* client = &server->clients[client_index];
     if (client->response_pending) {
         return vspwd_flush_response(client);
+    }
+    if (client->port_id < 0) {
+        return vspwd_flush_monitor_event(server, client_index);
     }
     if (!vspwd_flush_state_event(server, client_index)) {
         return false;

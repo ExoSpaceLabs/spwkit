@@ -16,7 +16,7 @@ extern "C" {
  */
 #define VSPD_MAGIC UINT32_C(0x56535044) /* "VSPD" */
 #define VSPD_VERSION_MAJOR 1u
-#define VSPD_VERSION_MINOR 1u
+#define VSPD_VERSION_MINOR 2u
 #define VSPD_HEADER_SIZE 40u
 
 /* Conservative per-SOCK_SEQPACKET record bound. Logical DATA can span records. */
@@ -43,6 +43,9 @@ extern "C" {
 #define VSPD_MSG_GET_PORT_INFO         17u
 #define VSPD_MSG_GET_PORT_STATISTICS   18u
 #define VSPD_MSG_CLEAR_PORT_STATISTICS 19u
+#define VSPD_MSG_SUBSCRIBE_PORT        20u
+#define VSPD_MSG_UNSUBSCRIBE_PORT      21u
+#define VSPD_MSG_PORT_SNAPSHOT_EVENT   22u
 
 /* Generic/message-shape flags. */
 #define VSPD_FLAG_RESPONSE       0x01u
@@ -60,6 +63,8 @@ extern "C" {
 #define VSPD_STATISTICS_PAYLOAD_SIZE   72u
 #define VSPD_SERVER_INFO_PAYLOAD_SIZE  20u
 #define VSPD_PORT_INFO_PAYLOAD_SIZE    16u
+#define VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE \
+    (VSPD_PORT_INFO_PAYLOAD_SIZE + VSPD_STATISTICS_PAYLOAD_SIZE)
 
 #define VSPD_PORT_INFO_ATTACHED      UINT32_C(0x01)
 #define VSPD_PORT_INFO_STARTED       UINT32_C(0x02)
@@ -158,6 +163,11 @@ typedef struct vspd_statistics_payload {
     uint64_t dropped_packets;
 } vspd_statistics_payload_t;
 
+typedef struct vspd_port_snapshot_payload {
+    vspd_port_info_payload_t info;
+    vspd_statistics_payload_t statistics;
+} vspd_port_snapshot_payload_t;
+
 vspd_codec_result_t vspd_encode_header(const vspd_header_t* header,
                                        uint8_t out[VSPD_HEADER_SIZE]);
 
@@ -192,6 +202,13 @@ void vspd_encode_statistics(const vspd_statistics_payload_t* value,
                             uint8_t out[VSPD_STATISTICS_PAYLOAD_SIZE]);
 void vspd_decode_statistics(const uint8_t in[VSPD_STATISTICS_PAYLOAD_SIZE],
                             vspd_statistics_payload_t* out);
+
+void vspd_encode_port_snapshot(
+    const vspd_port_snapshot_payload_t* value,
+    uint8_t out[VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE]);
+void vspd_decode_port_snapshot(
+    const uint8_t in[VSPD_PORT_SNAPSHOT_PAYLOAD_SIZE],
+    vspd_port_snapshot_payload_t* out);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -99,6 +99,17 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
         set_tests_properties(spwctl_management_non_owning PROPERTIES
             LABELS "device;tools;management;integration;process;c"
             TIMEOUT 45)
+
+        add_test(
+            NAME spwmon_passive_push_observation
+            COMMAND bash
+                    ${CMAKE_CURRENT_SOURCE_DIR}/run_spwmon.sh
+                    $<TARGET_FILE:vspwd>
+                    $<TARGET_FILE:spwmon>
+                    $<TARGET_FILE:spwkit_device_hold_peer>)
+        set_tests_properties(spwmon_passive_push_observation PROPERTIES
+            LABELS "device;tools;management;monitor;integration;process;c"
+            TIMEOUT 45)
     endif()
 
     if(SPWKIT_BUILD_CPP_TESTS AND SPWKIT_ENABLE_HEAP)

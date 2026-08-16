@@ -1,4 +1,4 @@
-# VSPD v1.1 — virtual SpaceWire device protocol
+# VSPD v1.2 — virtual SpaceWire device protocol
 
 VSPD is the private protocol between a hosted SpWKit Linux-device backend and the `vspwd` userspace service.
 
@@ -52,13 +52,13 @@ Native structures are never transmitted with `send(sizeof(struct))`. No pointer,
 
 ## Fixed 40-byte header
 
-VSPD v1.1 uses the same fixed 40-byte header:
+VSPD v1.2 uses the same fixed 40-byte header:
 
 | Offset | Size | Field | Meaning |
 |---:|---:|---|---|
 | 0 | 4 | magic | ASCII `VSPD`, `0x56535044` |
 | 4 | 1 | version_major | `1` |
-| 5 | 1 | version_minor | `1` |
+| 5 | 1 | version_minor | `2` |
 | 6 | 1 | type | message type |
 | 7 | 1 | flags | response/fragment/terminator bits |
 | 8 | 2 | header_size | `40` |
@@ -110,6 +110,9 @@ The final DATA fragment carries exactly one of EOP or EEP. Non-final fragments c
 | 17 | `GET_PORT_INFO` | non-owning management request/response |
 | 18 | `GET_PORT_STATISTICS` | non-owning management request/response |
 | 19 | `CLEAR_PORT_STATISTICS` | non-owning management request/response |
+| 20 | `SUBSCRIBE_PORT` | non-owning management request/response |
+| 21 | `UNSUBSCRIBE_PORT` | non-owning management request/response |
+| 22 | `PORT_SNAPSHOT_EVENT` | asynchronous non-owning monitor event |
 
 Synchronous requests use a non-zero `request_id`. Their response repeats the message type and request ID and sets `RESPONSE`.
 
@@ -144,12 +147,12 @@ Payload, exactly four bytes:
 
 ```text
 byte 0  major = 1
-byte 1  minor = 1
+byte 1  minor = 2
 byte 2  reserved = 0
 byte 3  reserved = 0
 ```
 
-The v1.1 codec currently requires an exact 1.1 match. Version-range negotiation can be introduced in a later protocol revision rather than inferred from native package versions.
+The v1.2 codec currently requires an exact 1.2 match. Version-range negotiation can be introduced in a later protocol revision rather than inferred from native package versions.
 
 Protocol version and SpWKit package/API version are intentionally independent.
 
@@ -166,7 +169,7 @@ Initial v0.4 semantics:
 - daemon configuration/topology decides which virtual ports are peers or bridges;
 - application code does not configure private daemon routing through VSPD DATA operations.
 
-VSPD 1.1 adds a separate non-owning management connection used by `spwctl`. A management client performs HELLO but never ATTACHes to a virtual port. It can discover daemon bounds, inspect per-port ownership/link/queue state, read per-port statistics, and clear statistics without displacing the application owner. Lifecycle overrides and topology mutation are deliberately not part of v1.1.
+VSPD 1.1 added a separate non-owning management connection used by `spwctl`. A management client performs HELLO but never ATTACHes to a virtual port. It can discover daemon bounds, inspect per-port ownership/link/queue state, read per-port statistics, and clear statistics without displacing the application owner. VSPD 1.2 extends the same HELLO-only plane with passive subscriptions used by `spwmon`; lifecycle overrides and topology mutation remain deliberately absent.
 
 ## Link-state semantics
 
@@ -287,6 +290,8 @@ Successful `GET_STATISTICS` response is nine network-order `u64` values, 72 byte
 `GET_PORT_INFO` is also HELLO-only and uses the header `port_id` as the queried port. Its 16-byte success payload contains flags, link state, queued packet count, and queued time-code count. Flags report attached, started, reset-latched and ever-attached state.
 
 `GET_PORT_STATISTICS` returns the normal 72-byte statistics payload for the selected port. `CLEAR_PORT_STATISTICS` clears those counters and returns no payload. These operations do not ATTACH, START, STOP, RESET, dequeue traffic, or alter application ownership.
+
+VSPD 1.2 adds `SUBSCRIBE_PORT` and `UNSUBSCRIBE_PORT` on the same HELLO-only management connection. A successful subscription queues an immediate `PORT_SNAPSHOT_EVENT`, then the daemon emits another snapshot whenever observable metadata changes. The 88-byte snapshot is the 16-byte port-info payload followed by the 72-byte statistics payload. Events are coalesced per subscribed port while pending, so a slow monitor observes the latest bounded snapshot rather than causing an unbounded daemon queue. Snapshot events never contain application DATA payload bytes.
 
 ## Blocking, non-blocking and `poll()` direction
 
