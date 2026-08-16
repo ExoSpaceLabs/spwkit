@@ -31,6 +31,16 @@ set_target_properties(spwkit_vspwd_edge PROPERTIES
     C_STANDARD_REQUIRED YES
     C_EXTENSIONS OFF)
 
+if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
+    add_executable(spwkit_device_public_peer ../device_public_peer.c)
+    target_link_libraries(spwkit_device_public_peer PRIVATE spwkit::spwkit)
+    target_compile_features(spwkit_device_public_peer PRIVATE c_std_11)
+    set_target_properties(spwkit_device_public_peer PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF)
+endif()
+
 add_test(
     NAME vspwd_process_pair_restart
     COMMAND bash
@@ -50,3 +60,15 @@ add_test(
 set_tests_properties(vspwd_process_edge_cases PROPERTIES
     LABELS "device;integration;process;edge;c"
     TIMEOUT 30)
+
+if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
+    add_test(
+        NAME device_public_api_process_pair_restart
+        COMMAND bash
+                ${CMAKE_CURRENT_SOURCE_DIR}/run_vspwd_pair.sh
+                $<TARGET_FILE:vspwd>
+                $<TARGET_FILE:spwkit_device_public_peer>)
+    set_tests_properties(device_public_api_process_pair_restart PROPERTIES
+        LABELS "device;contract;integration;process;restart;c"
+        TIMEOUT 45)
+endif()
