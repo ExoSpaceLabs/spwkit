@@ -69,7 +69,9 @@ Native Winsock UDP transport remains tracked separately in issue #42.
 
 ### v0.3.0 — C11 runtime and optional C++ wrapper
 
-The v0.3 engineering scope is complete and awaiting its release audit/tag. `spwkit::spwkit` is a C11 runtime and builds without a C++ compiler/linker/runtime. `SPWKIT_ENABLE_CPP=ON` optionally installs a header-only C++17 `spwkit::cpp` convenience target above the same C API. Static and shared builds use the standard `BUILD_SHARED_LIBS` switch.
+`v0.3.0` is the C-first runtime release. `spwkit::spwkit` is a C11 runtime and builds without a C++ compiler/linker/runtime. `SPWKIT_ENABLE_CPP=ON` optionally installs a header-only C++17 `spwkit::cpp` convenience target above the same C API. Static and shared builds use the standard `BUILD_SHARED_LIBS` switch.
+
+The release adds pure-C behavioral CI, C-only static/shared installed consumers, a genuinely C-only distributed example, a real freestanding/no-heap portability build, lowercase imported targets, and repository hygiene checks for stale pre-C11 integration patterns.
 
 The C API is authoritative. C++ does not provide a second implementation or different SpaceWire semantics.
 
