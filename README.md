@@ -62,9 +62,10 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 - reusable shared public backend contract plus distributed peer-loss/restart contract;
 - installed-package equal-peer example for independent processes/hosts;
 - active D2D CI exercising localhost processes and two Linux network namespaces in addition to transport/recovery/timing/fault tests;
-- VSPW-TP Wireshark/tshark capture tooling with deterministic real-dissector validation.
+- VSPW-TP Wireshark/tshark capture tooling with deterministic real-dissector validation;
+- explicit v0.2 platform policy and installed-package UDP runtime metadata.
 
-The final v0.2 UDP platform-support decision remains before the distributed milestone is closed.
+The planned v0.2 engineering scope is complete once this platform-policy slice is merged and validated. Native Winsock UDP transport is intentionally deferred; it is not required to close the v0.2 distributed milestone.
 
 ## Virtual SpaceWire
 
@@ -109,6 +110,14 @@ The UDP backend also supports fixed-size seeded fault rules for transport drop, 
 The distributed backend runs the reusable public backend contract and is also exercised as genuinely separate applications. The D2D gate installs SpWKit, builds `examples/distributed` through `find_package(SpWKit)`, launches two peer processes, verifies peer loss/restart, and repeats the same 8 KiB EOP/EEP plus time-code exchange in two Linux network namespaces connected by a 1500-byte-MTU veth link. The applications never call VSPW-TP or socket-private APIs.
 
 Wire inspection is available separately under `tools/wireshark`: the Lua dissector recognizes VSPW-TP on configurable UDP ports, decodes v1 header/control fields, and is validated against a deterministic generated PCAP through tshark. This tooling is not linked into `libspwkit` and adds no runtime dependency.
+
+### v0.2 hosted platform scope
+
+The v0.2 UDP runtime is **POSIX-only**. Linux is the primary fully exercised distributed platform; macOS is supported as a second POSIX host through the host/shared UDP contract matrix. Windows remains supported for the portable core API, simulator and installed package, but the UDP runtime backend is not implemented there in v0.2.
+
+Windows still installs `spwkit/udp.h` and exposes `SPW_BACKEND_UDP`/`spw_udp_config_t`. Selecting that backend with a structurally valid configuration returns `SPW_ERR_UNSUPPORTED`, rather than changing the public API by platform. The generated CMake package exports `SpWKit_UDP_RUNTIME_SUPPORTED` so hosted consumers can gate runtime-specific examples while still handling `SPW_ERR_UNSUPPORTED` at the API boundary.
+
+Native Winsock support is deferred to a later portability slice behind the same backend contract. See `docs/platform-support.md` for the exact validation matrix and rationale.
 
 `/dev/vspwX` remains later roadmap work.
 
@@ -175,6 +184,10 @@ Consumer CMake for current v0.2 development:
 ```cmake
 find_package(SpWKit 0.2 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE SpWKit::spwkit)
+
+if(SpWKit_UDP_RUNTIME_SUPPORTED)
+    # This installed library contains the hosted VSPW-TP/UDP backend.
+endif()
 ```
 
 Consumers pinned to the `v0.1.0` tag should request `SpWKit 0.1` instead.
@@ -186,7 +199,7 @@ CI builds standalone installed-package consumers so exported package metadata ca
 - `examples/c_loopback.c`: hosted C API, capabilities, packets, EEP and time codes;
 - `examples/cpp_no_heap.cpp`: C++ application using caller-owned workspace;
 - `examples/c_simulator_zero_copy.c`: paired simulator endpoints using zero-copy ownership;
-- `examples/installed`: minimal standalone installed-package consumer;
+- `examples/installed`: standalone installed-package consumer that also verifies exported UDP-runtime availability metadata;
 - `examples/distributed`: standalone installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios.
 
 All examples use public headers only and require no physical SpaceWire hardware.
@@ -203,6 +216,7 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [Public API contract](docs/api.md)
 - [Core public types](docs/types.md)
 - [Port/backend configuration](docs/configuration.md)
+- [v0.2 platform support](docs/platform-support.md)
 - [Memory ownership](docs/memory.md)
 - [Zero-copy buffers](docs/buffers.md)
 - [No-throw and portability contract](docs/portability.md)
