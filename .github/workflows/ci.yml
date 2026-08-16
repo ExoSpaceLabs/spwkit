@@ -26,21 +26,25 @@ jobs:
         shell: bash
         run: |
           scopes=(CMakeLists.txt cmake docs examples tests .github/workflows README.md)
+          legacy_target="$(printf '%s%s' 'SpWKit:' ':')"
+          legacy_linker="$(printf '%s%s' 'LINKER_LANGUAGE' ' CXX')"
+          legacy_package="$(printf '%s%s' 'find_package(SpWKit ' '0.2')"
+          legacy_port="$(printf '%s%s' 'src/core/port.' 'cpp')"
 
-          if git grep -nF 'SpWKit::' -- "${scopes[@]}"; then
-            echo "Use lowercase exported targets: spwkit::spwkit / spwkit::cpp." >&2
+          if git grep -nF "$legacy_target" -- "${scopes[@]}"; then
+            echo "Use lowercase exported CMake target namespaces." >&2
             exit 1
           fi
-          if git grep -nF 'LINKER_LANGUAGE CXX' -- "${scopes[@]}"; then
-            echo "C consumers must not force the C++ linker." >&2
+          if git grep -nF "$legacy_linker" -- "${scopes[@]}"; then
+            echo "C consumers must not force a C++ linker." >&2
             exit 1
           fi
-          if git grep -nF 'find_package(SpWKit 0.2' -- docs examples README.md; then
+          if git grep -nF "$legacy_package" -- docs examples README.md; then
             echo "Current development documentation/examples must request SpWKit 0.3." >&2
             exit 1
           fi
-          if git grep -nF 'src/core/port.cpp' -- .github/workflows docs; then
-            echo "Stale pre-C11 runtime path remains." >&2
+          if git grep -nF "$legacy_port" -- .github/workflows docs; then
+            echo "A stale pre-C11 runtime source path remains." >&2
             exit 1
           fi
 
