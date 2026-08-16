@@ -50,6 +50,14 @@ typedef uint64_t spw_capability_bits_t;
 #define SPW_CAP_RATE_CONTROL      ((spw_capability_bits_t)(1ull << 4))
 #define SPW_CAP_FAULT_INJECTION   ((spw_capability_bits_t)(1ull << 5))
 #define SPW_CAP_ZERO_COPY         ((spw_capability_bits_t)(1ull << 6))
+#define SPW_CAP_READINESS         ((spw_capability_bits_t)(1ull << 7))
+
+/* Backend-neutral receive-readiness interests/results. */
+typedef uint32_t spw_ready_events_t;
+#define SPW_READY_NONE         ((spw_ready_events_t)0u)
+#define SPW_READY_RX_PACKET    ((spw_ready_events_t)(1u << 0))
+#define SPW_READY_RX_TIME_CODE ((spw_ready_events_t)(1u << 1))
+#define SPW_READY_ALL          (SPW_READY_RX_PACKET | SPW_READY_RX_TIME_CODE)
 
 struct spw_capabilities {
     spw_capability_bits_t bits;
