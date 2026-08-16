@@ -51,6 +51,10 @@ static int vspd_type_allows_response(uint8_t type) {
     return !vspd_type_is_event(type);
 }
 
+static int vspd_status_valid(int32_t status) {
+    return status <= VSPD_STATUS_OK && status >= VSPD_STATUS_BACKEND;
+}
+
 static int vspd_has_data_flags(uint8_t flags) {
     return (flags & (VSPD_FLAG_FRAGMENT_START |
                      VSPD_FLAG_FRAGMENT_END |
@@ -150,17 +154,18 @@ static vspd_codec_result_t vspd_validate_payload_shape(const vspd_header_t* head
         uint32_t expected = 0u;
         if (!vspd_type_allows_response(header->type) || header->request_id == 0u ||
             vspd_has_data_flags(header->flags) || header->message_id != 0u ||
-            header->fragment_offset != 0u || header->total_size != 0u) {
+            header->fragment_offset != 0u || header->total_size != 0u ||
+            !vspd_status_valid(header->status)) {
             return VSPD_CODEC_INVALID_SHAPE;
         }
-        if (header->status == 0) {
+        if (header->status == VSPD_STATUS_OK) {
             expected = vspd_success_response_payload_size(header->type);
         }
         if (header->payload_size != expected) {
             return VSPD_CODEC_INVALID_SHAPE;
         }
     } else {
-        if (header->status != 0) {
+        if (header->status != VSPD_STATUS_OK) {
             return VSPD_CODEC_INVALID_SHAPE;
         }
         if (vspd_type_is_event(header->type)) {
@@ -237,7 +242,8 @@ static vspd_codec_result_t vspd_validate_payload_shape(const vspd_header_t* head
                 return VSPD_CODEC_INVALID_SHAPE;
             }
         }
-        if ((header->type == VSPD_MSG_GET_LINK_STATE && response && header->status == 0) ||
+        if ((header->type == VSPD_MSG_GET_LINK_STATE && response &&
+             header->status == VSPD_STATUS_OK) ||
             header->type == VSPD_MSG_LINK_STATE_EVENT) {
             if (header->payload_size == VSPD_LINK_STATE_PAYLOAD_SIZE &&
                 vspd_read_be32(payload) > VSPD_LINK_RUN) {
@@ -377,26 +383,32 @@ void vspd_decode_capabilities(const uint8_t in[VSPD_CAPABILITIES_PAYLOAD_SIZE],
 
 void vspd_encode_statistics(const vspd_statistics_payload_t* value,
                             uint8_t out[VSPD_STATISTICS_PAYLOAD_SIZE]) {
-    const uint64_t* values;
-    size_t i;
     if (value == NULL || out == NULL) {
         return;
     }
-    values = &value->tx_packets;
-    for (i = 0u; i < 9u; ++i) {
-        vspd_write_be64(out + i * 8u, values[i]);
-    }
+    vspd_write_be64(out + 0u, value->tx_packets);
+    vspd_write_be64(out + 8u, value->rx_packets);
+    vspd_write_be64(out + 16u, value->tx_bytes);
+    vspd_write_be64(out + 24u, value->rx_bytes);
+    vspd_write_be64(out + 32u, value->tx_time_codes);
+    vspd_write_be64(out + 40u, value->rx_time_codes);
+    vspd_write_be64(out + 48u, value->eep_packets);
+    vspd_write_be64(out + 56u, value->link_errors);
+    vspd_write_be64(out + 64u, value->dropped_packets);
 }
 
 void vspd_decode_statistics(const uint8_t in[VSPD_STATISTICS_PAYLOAD_SIZE],
                             vspd_statistics_payload_t* out) {
-    uint64_t* values;
-    size_t i;
     if (in == NULL || out == NULL) {
         return;
     }
-    values = &out->tx_packets;
-    for (i = 0u; i < 9u; ++i) {
-        values[i] = vspd_read_be64(in + i * 8u);
-    }
+    out->tx_packets = vspd_read_be64(in + 0u);
+    out->rx_packets = vspd_read_be64(in + 8u);
+    out->tx_bytes = vspd_read_be64(in + 16u);
+    out->rx_bytes = vspd_read_be64(in + 24u);
+    out->tx_time_codes = vspd_read_be64(in + 32u);
+    out->rx_time_codes = vspd_read_be64(in + 40u);
+    out->eep_packets = vspd_read_be64(in + 48u);
+    out->link_errors = vspd_read_be64(in + 56u);
+    out->dropped_packets = vspd_read_be64(in + 64u);
 }
