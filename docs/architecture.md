@@ -114,7 +114,7 @@ The simulator preserves packet boundaries, EOP/EEP, time codes, bounded resource
 
 ## Distributed virtual SpaceWire
 
-Current `main` also contains the first v0.2 distributed backend:
+v0.2.0 includes the distributed VSPW-TP/UDP backend:
 
 ```text
 Host A                                      Host B

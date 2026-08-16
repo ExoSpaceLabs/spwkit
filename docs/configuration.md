@@ -74,7 +74,7 @@ The simulator backend supports packet transfer, EOP/EEP, time codes, link lifecy
 
 ## Distributed UDP backend
 
-Current v0.2 development uses `SPW_BACKEND_UDP` with `spw_udp_config_t`:
+v0.2.0 uses `SPW_BACKEND_UDP` with `spw_udp_config_t`:
 
 ```c
 spw_udp_config_t udp = SPW_UDP_CONFIG_INITIALIZER(42000, 42001, 42);

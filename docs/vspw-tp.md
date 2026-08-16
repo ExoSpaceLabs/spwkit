@@ -218,7 +218,7 @@ A v1.0 decoder accepts only major version 1 and minor versions less than or equa
 
 A different major version is rejected. Future minor versions may only add behavior that an older decoder can safely ignore; otherwise a major-version change is required.
 
-The earlier 32-byte VSPW-TP draft existed only on unreleased v0.2 development history. The session-aware 40-byte format is the v1 format intended for the v0.2 release.
+The earlier 32-byte VSPW-TP draft existed only on unreleased v0.2 development history. The session-aware 40-byte format is the VSPW-TP v1 format used by the v0.2.0 release.
 
 ## Validation
 

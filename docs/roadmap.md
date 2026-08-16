@@ -1,6 +1,6 @@
 # Roadmap
 
-SpWKit has completed its v0.1 portable-core milestone and the planned v0.2 distributed virtual SpaceWire engineering scope is now complete pending final validation/release tagging. The ordering below continues to stabilize software semantics before hardware-specific details are allowed to dictate the application API.
+SpWKit has completed the v0.1 portable-core milestone and the v0.2 distributed virtual SpaceWire milestone. The ordering below continues to stabilize software semantics before hardware-specific details are allowed to dictate the application API.
 
 ## v0.1.0 — Portable core and local virtual link — complete
 
@@ -20,9 +20,9 @@ Delivered:
 
 `v0.1.0` is tagged at the completed portable-core boundary. Physical FPGA/HIL validation is deliberately outside that release because suitable hardware is not currently available.
 
-## v0.2.0 — Distributed virtual SpaceWire — implementation complete
+## v0.2.0 — Distributed virtual SpaceWire — complete
 
-Delivered in v0.2 development:
+Delivered in v0.2.0:
 
 - versioned VSPW-TP v1 wire format with a 40-byte header carrying the sender session ID;
 - POSIX IPv4 UDP backend selected through `spw_port_*`;
@@ -59,7 +59,7 @@ The v0.2 public SpaceWire API remains backend-neutral: applications do not call 
 
 Native Winsock transport is intentionally deferred beyond v0.2 and can later reuse the same codec, reliability, timing, fault, capture and backend-contract work without changing application-facing semantics.
 
-Release completion after this slice consists of final repository/status review and the v0.2.0 release/tag decision rather than additional planned runtime features.
+`v0.2.0` is the released distributed virtual SpaceWire milestone. Post-v0.2 portability work, including native Winsock UDP support, remains outside this release boundary.
 
 ## v0.3.0 — Linux virtual device
 

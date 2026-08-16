@@ -16,6 +16,6 @@ The default UDP fragment payload is 1200 bytes. The current backend advertises a
 
 Ethernet/IP is only the carrier. SpaceWire packet termination, packet boundaries, link semantics and time codes remain defined by SpWKit rather than inherited from UDP datagrams.
 
-Remaining v0.2 work includes ACK/retransmission, peer keepalive/disconnect detection, loss/reordering policy, configurable virtual rate/latency and deterministic fault injection.
+v0.2.0 also includes logical-message ACK/retransmission, duplicate suppression, session/KEEPALIVE liveness and restart recovery, bounded arbitrary-order reassembly, configurable virtual rate/latency, deterministic transport faults, explicit SpaceWire EEP injection, shared contract coverage, process/network-namespace integration and capture tooling.
 
 The VSPW-TP codec is deliberately independent of socket/POSIX APIs so future embedded/lwIP transports can reuse the same framing contract.

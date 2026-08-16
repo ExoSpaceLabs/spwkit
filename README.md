@@ -42,9 +42,9 @@ The design goal is simple: application SpaceWire logic should not change just be
 
 Physical FPGA/HIL verification is deliberately deferred until suitable hardware is available. The same backend contract suite is intended to be reused when a physical backend exists.
 
-### Current `main`: v0.2 development
+### v0.2.0 — Distributed virtual SpaceWire
 
-Development has moved to package version 0.2.0 and the distributed virtual SpaceWire backend now includes:
+`v0.2.0` is the distributed virtual SpaceWire release and includes:
 
 - versioned VSPW-TP v1 framing with a fixed 40-byte header carrying a 64-bit sender session ID;
 - POSIX IPv4 UDP backend selected through the normal `spw_port_*` API;
@@ -65,7 +65,7 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 - VSPW-TP Wireshark/tshark capture tooling with deterministic real-dissector validation;
 - explicit v0.2 platform policy and installed-package UDP runtime metadata.
 
-The planned v0.2 engineering scope is complete once this platform-policy slice is merged and validated. Native Winsock UDP transport is intentionally deferred; it is not required to close the v0.2 distributed milestone.
+The v0.2 engineering scope is complete. Native Winsock UDP transport is intentionally deferred beyond this release and tracked separately in issue #42.
 
 ## Virtual SpaceWire
 
@@ -179,7 +179,7 @@ Install:
 cmake --install build --prefix /path/to/spwkit-install
 ```
 
-Consumer CMake for current v0.2 development:
+Consumer CMake for v0.2.0:
 
 ```cmake
 find_package(SpWKit 0.2 CONFIG REQUIRED)

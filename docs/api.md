@@ -2,7 +2,7 @@
 
 SpWKit uses a C ABI as the portability baseline. C++ applications may use the same ABI directly and a higher-level wrapper can remain layered above it without requiring backends to expose C++ implementation details.
 
-This document defines the v0.1 application-facing contract and notes the v0.2 distributed backend now present on current `main`.
+This document defines the v0.2.0 application-facing contract while preserving the v0.1 portable-core baseline.
 
 ## Design rule
 
@@ -174,7 +174,7 @@ Scatter/gather packet buffers are deferred beyond v0.1. One `spw_buffer_t` repre
 
 ## Process-local simulator backend
 
-For v0.1, the process-local simulator is the primary runtime reference backend.
+The process-local simulator introduced in v0.1 remains the primary local runtime reference backend.
 
 Applications invoke only `libspwkit` operations. The selected simulator backend translates those calls to local virtual-link state, queues, packet transfer, time codes, and zero-copy ownership emulation.
 
@@ -188,7 +188,7 @@ Application -> libspwkit -> simulator backend
 
 ## Distributed UDP backend
 
-Current `main` contains the first v0.2 distributed backend:
+v0.2.0 adds the distributed VSPW-TP/UDP backend:
 
 ```text
 Application A                         Application B
@@ -202,7 +202,7 @@ SPW_BACKEND_UDP                     SPW_BACKEND_UDP
 
 The application API remains the same. VSPW-TP framing and UDP sockets are backend internals.
 
-The initial backend implements:
+The v0.2.0 backend implements:
 
 - IPv4 UDP on supported POSIX hosts;
 - versioned VSPW-TP v1 framing;
@@ -219,7 +219,7 @@ The initial backend implements:
 - deterministic seeded transport drop/duplicate/reorder/delay injection;
 - explicit SpaceWire-side EEP injection with separate fault-domain diagnostics.
 
-Broader shared-contract coverage, stronger multi-process/network-namespace examples, capture tooling and final platform-scope decisions remain v0.2 work.
+The UDP backend runs the reusable shared public contract, process and Linux network-namespace integration, deterministic timing/fault scenarios, and VSPW-TP capture/Wireshark validation. The hosted runtime is supported on POSIX hosts according to `docs/platform-support.md`; native Winsock transport is deferred beyond v0.2.0.
 
 ## Time codes
 
@@ -286,9 +286,7 @@ Such values belong to backend-specific configuration/extension APIs or remain in
 
 Every backend is expected to satisfy the shared application-visible contract for the capabilities it advertises.
 
-For v0.1, the shared suite runs through `libspwkit` against loopback and the local simulator backend.
-
-The v0.2 UDP backend currently adds codec and end-to-end D2D integration coverage. As distributed semantics mature, reusable contract coverage should be expanded so the same behavioural assertions execute across local, distributed, embedded, `/dev/spwX`, and future HIL backends where capability profiles permit.
+The shared suite runs through `libspwkit` against loopback, the local simulator and the v0.2 UDP backend. Distributed-specific extensions cover peer loss/restart, while D2D tests cover framing, fragmentation/reordering, reliability, timing, deterministic faults and process/network isolation. Future embedded, `/dev/spwX`, and HIL backends should reuse the same capability-driven contract where applicable.
 
 ## Versioning
 

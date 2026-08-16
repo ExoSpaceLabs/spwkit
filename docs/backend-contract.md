@@ -104,7 +104,7 @@ It is the primary executable behavioral reference for v0.1.
 
 ## Distributed UDP backend
 
-Current `main` contains the initial v0.2 VSPW-TP/UDP backend. It implements the same internal contract while translating copied packet/time-code operations into versioned VSPW-TP datagrams.
+v0.2.0 includes the VSPW-TP/UDP backend. It implements the same internal contract while translating copied packet/time-code operations into versioned VSPW-TP datagrams.
 
 The backend currently provides:
 
@@ -118,7 +118,7 @@ The backend currently provides:
 
 Transport fragments are never surfaced through `spw_port_receive()`.
 
-ACK/retransmission, peer keepalive/disconnect detection, explicit loss/reordering handling, latency/rate and deterministic fault injection remain v0.2 work.
+The v0.2.0 backend additionally provides logical-message ACK/retransmission, duplicate suppression, session/KEEPALIVE peer liveness and restart recovery, bounded arbitrary-order fragment reassembly, deterministic virtual rate/latency, deterministic transport fault injection, explicit SpaceWire-side EEP injection, and separate fault-domain diagnostics.
 
 ## Receive capacity
 
@@ -140,6 +140,6 @@ Different backends may wait using condition variables, socket polling, RTOS prim
 
 ## Testing
 
-The shared contract suite exercises loopback and the local simulator. The distributed UDP backend additionally has transport codec and end-to-end D2D integration coverage and should continue adopting reusable contract cases as v0.2 semantics mature.
+The shared contract suite exercises loopback, the local simulator and the distributed UDP backend. Distributed extensions verify peer loss/restart through public APIs, while codec/D2D tests verify fragmentation, arbitrary ordering, retry/deduplication, timing, deterministic faults, installed-package process isolation and Linux network-namespace operation.
 
 The active host/simulator/D2D GitHub Actions workflows verify these paths on every relevant pull request and `main` update.
