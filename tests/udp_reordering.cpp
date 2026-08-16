@@ -151,6 +151,38 @@ int main() {
     spw_packet_t none{received.data(), 0u, received.size(), SPW_TERMINATOR_EOP};
     assert(spw_port_receive(receiver, &none, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_TIMEOUT);
 
+    /*
+     * Start an incomplete logical packet, keep the peer session alive, and let
+     * the DATA-specific inactivity horizon expire. A different logical packet
+     * can then replace the stale partial state without reopening the port.
+     */
+    const Header stale_start = data_fragment(
+        link_id, session_id, 6u, 88u, 0u, 400u, 800u, FlagFragmentStart);
+    send_frame(raw, receiver_port, stale_start, payload.data());
+    assert(spw_port_receive(receiver, &none, 10000u) == SPW_ERR_TIMEOUT);
+
+    ::usleep(100000u);
+    keepalive.sequence = 7u;
+    send_frame(raw, receiver_port, keepalive, nullptr);
+    spw_link_state_t state = SPW_LINK_ERROR_RESET;
+    assert(spw_port_get_link_state(receiver, &state) == SPW_OK);
+    assert(state == SPW_LINK_RUN);
+
+    ::usleep(70000u); /* >150 ms since the last DATA fragment, peer still current. */
+    const Header replacement_end = data_fragment(
+        link_id, session_id, 8u, 89u, 400u, 400u, 800u, FlagFragmentEnd);
+    const Header replacement_start = data_fragment(
+        link_id, session_id, 9u, 89u, 0u, 400u, 800u, FlagFragmentStart);
+    send_frame(raw, receiver_port, replacement_end, payload.data() + 400u);
+    send_frame(raw, receiver_port, replacement_start, payload.data());
+
+    packet.length = 0u;
+    packet.terminator = SPW_TERMINATOR_EOP;
+    assert(spw_port_receive(receiver, &packet, 500000u) == SPW_OK);
+    assert(packet.length == 800u);
+    assert(packet.terminator == SPW_TERMINATOR_EEP);
+    assert(std::memcmp(received.data(), payload.data(), 800u) == 0);
+
     assert(spw_port_close(receiver) == SPW_OK);
     assert(::close(raw) == 0);
     return 0;
