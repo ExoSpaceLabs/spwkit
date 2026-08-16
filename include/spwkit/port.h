@@ -24,33 +24,18 @@ struct spw_port_workspace_requirements {
     size_t alignment;
 };
 
-/**
- * Query caller-owned storage requirements for the selected backend.
- */
+/** Query caller-owned storage requirements for the selected backend. */
 spw_result_t spw_port_workspace_requirements(
     const spw_port_config_t* config,
     spw_port_workspace_requirements_t* out_requirements);
 
-/**
- * Construct a port entirely inside caller-owned storage.
- *
- * `workspace` remains owned by the caller for the lifetime of the returned
- * port. `spw_port_close()` destroys the port/backend objects but never frees
- * caller-owned workspace. The same storage may be reused after close returns.
- */
+/** Construct a port entirely inside caller-owned storage. */
 spw_result_t spw_port_open_in_place(const spw_port_config_t* config,
                                     void* workspace,
                                     size_t workspace_size,
                                     spw_port_t** out_port);
 
-/**
- * Hosted convenience open.
- *
- * This operation may allocate dynamically. Builds configured with
- * `SPWKIT_ENABLE_HEAP=OFF` keep the symbol for ABI compatibility but return
- * `SPW_ERR_UNSUPPORTED`; use `spw_port_open_in_place()` for portable/no-heap
- * code.
- */
+/** Hosted convenience open. May allocate dynamically when enabled. */
 spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_port);
 
 spw_result_t spw_port_close(spw_port_t* port);
@@ -80,6 +65,18 @@ spw_result_t spw_port_receive_time_code(spw_port_t* port,
 spw_result_t spw_port_get_statistics(const spw_port_t* port,
                                      spw_statistics_t* out_statistics);
 spw_result_t spw_port_clear_statistics(spw_port_t* port);
+
+/**
+ * Read backend-neutral fault-domain diagnostics when supported.
+ *
+ * A backend that does not implement fault injection returns
+ * `SPW_ERR_UNSUPPORTED`. Transport and SpaceWire-visible fault counters are
+ * deliberately separate.
+ */
+spw_result_t spw_port_get_fault_statistics(
+    const spw_port_t* port,
+    spw_fault_statistics_t* out_statistics);
+spw_result_t spw_port_clear_fault_statistics(spw_port_t* port);
 
 #ifdef __cplusplus
 } /* extern "C" */
