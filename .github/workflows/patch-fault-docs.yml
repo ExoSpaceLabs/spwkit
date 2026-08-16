@@ -21,7 +21,7 @@ jobs:
           grep -q "Deterministic fault injection" docs/vspw-tp.md
           grep -q "spw_port_get_fault_statistics" docs/api.md
           grep -q "deterministic seeded VSPW-TP" docs/roadmap.md
-          grep -q "ordinary transport" README.md
+          grep -q "Ordinary transport" README.md
       - name: Commit docs
         run: |
           rm .github/patch_fault_docs.py .github/workflows/patch-fault-docs.yml
