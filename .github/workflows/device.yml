@@ -7,10 +7,14 @@ on:
       - "CMakeLists.txt"
       - "include/spwkit/api.h"
       - "src/backends/device/**"
+      - "src/vspwd/**"
       - "tests/vspw_device_protocol.c"
       - "tests/vspw_seqpacket.c"
+      - "tests/vspwd_*.c"
+      - "tests/device/**"
       - "tests/CMakeLists.txt"
       - "docs/vspw-device-protocol.md"
+      - "docs/vspwd.md"
       - ".github/workflows/device.yml"
   pull_request:
     branches: [main]
@@ -18,10 +22,14 @@ on:
       - "CMakeLists.txt"
       - "include/spwkit/api.h"
       - "src/backends/device/**"
+      - "src/vspwd/**"
       - "tests/vspw_device_protocol.c"
       - "tests/vspw_seqpacket.c"
+      - "tests/vspwd_*.c"
+      - "tests/device/**"
       - "tests/CMakeLists.txt"
       - "docs/vspw-device-protocol.md"
+      - "docs/vspwd.md"
       - ".github/workflows/device.yml"
   workflow_dispatch:
 
@@ -33,8 +41,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  protocol:
-    name: VSPD C / ${{ matrix.compiler }}
+  pure-c:
+    name: VSPD + vspwd C / ${{ matrix.compiler }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -63,28 +71,78 @@ jobs:
             -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
             -DSPWKIT_BUILD_SIMULATOR=OFF \
             -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_VSPWD=ON \
             -DSPWKIT_BUILD_TOOLS=OFF \
             -DSPWKIT_ENABLE_HEAP=OFF \
             -DSPWKIT_ENABLE_CPP=OFF \
             -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
 
           if grep -q '^CMAKE_CXX_COMPILER:' build-device/CMakeCache.txt; then
-            echo "Virtual-device protocol profile unexpectedly enabled CXX" >&2
+            echo "Virtual-device profile unexpectedly enabled CXX" >&2
             exit 1
           fi
 
-      - name: Build
+      - name: Build protocol, daemon and raw C clients
         run: cmake --build build-device --parallel
 
-      - name: Run VSPD device/protocol tests
+      - name: Run VSPD and vspwd device tests
         run: ctest --test-dir build-device -L device --output-on-failure --no-tests=error
 
-      - name: Verify protocol codec stays socket-free
+      - name: Smoke installed daemon CLI
+        run: |
+          build-device/vspwd --help
+          cmake --install build-device --prefix "$PWD/install-device"
+          test -x "$PWD/install-device/bin/vspwd"
+          "$PWD/install-device/bin/vspwd" --help
+
+      - name: Verify portable library stays socket/C++ free
         run: |
           archive="build-device/libspwkit.a"
           test -f "$archive"
           if nm -u "$archive" | grep -Eq '(socket|send|recv|poll|pthread_|__cxa|_Z)'; then
-            echo "Portable VSPD codec introduced hosted/C++ runtime references" >&2
+            echo "Portable SpWKit archive introduced hosted/C++ runtime references" >&2
             nm -u "$archive"
             exit 1
           fi
+
+  sanitizers:
+    name: VSPD + vspwd ASan + UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure sanitized pure-C device profile
+        env:
+          CC: clang
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-device-san \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+          if grep -q '^CMAKE_CXX_COMPILER:' build-device-san/CMakeCache.txt; then
+            echo "Sanitized virtual-device profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build-device-san --parallel
+
+      - name: Run protocol and daemon process tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-device-san -L device --output-on-failure --no-tests=error
