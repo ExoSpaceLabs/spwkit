@@ -2,12 +2,12 @@
 
 SpWKit has one runtime implementation and one semantic contract: the public C API.
 
-Starting with the v0.3 development line, `libspwkit` itself is implemented in C11. C++ is optional and exists only as a convenience layer above the same C API.
+Starting with the v0.3 line, `libspwkit` itself is implemented in C11. C++ is optional and exists only as a convenience layer above the same C API.
 
 ```text
 C application -----------------------------+
                                            |
-C++ application -> optional SpWKit::cpp ---+-> public C API
+C++ application -> optional spwkit::cpp ---+-> public C API
                                                 |
                                                 v
                                          C11 libspwkit
@@ -22,7 +22,7 @@ There is no separate C++ backend implementation. Enabling the wrapper cannot cha
 | Property | C API | Optional C++ wrapper |
 |---|---|---|
 | Language baseline | C11 | C++17 |
-| CMake target | `SpWKit::spwkit` | `SpWKit::cpp` |
+| CMake target | `spwkit::spwkit` | `spwkit::cpp` |
 | Build option | always available | `SPWKIT_ENABLE_CPP=ON` |
 | Runtime implementation | C11 | same C11 runtime |
 | Backend configuration | public C structs | same public C structs |
@@ -35,6 +35,8 @@ There is no separate C++ backend implementation. Enabling the wrapper cannot cha
 
 The C API is authoritative. The C++ wrapper is intentionally small; features that do not yet have a convenience wrapper remain available through `Port::native_handle()` and the normal C functions.
 
+`find_package(SpWKit)` retains the project/package spelling, but imported target namespaces are deliberately lowercase.
+
 ## C-only consumer
 
 A C project does not enable C++:
@@ -46,10 +48,28 @@ project(flight LANGUAGES C)
 find_package(SpWKit 0.3 CONFIG REQUIRED)
 
 add_executable(flight main.c)
-target_link_libraries(flight PRIVATE SpWKit::spwkit)
+target_link_libraries(flight PRIVATE spwkit::spwkit)
 ```
 
 This configuration is tested with `CXX=/bin/false`. The installed static archive is also scanned in CI for C++ ABI/runtime references.
+
+## Pure-C tests and examples
+
+Tests and examples are split by language so enabling CTest does not itself require C++:
+
+```sh
+CC=gcc CXX=/bin/false cmake -S . -B build-c \
+  -DSPWKIT_BUILD_TESTS=ON \
+  -DSPWKIT_BUILD_CPP_TESTS=OFF \
+  -DSPWKIT_BUILD_EXAMPLES=ON \
+  -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+  -DSPWKIT_BUILD_SIMULATOR=ON \
+  -DSPWKIT_ENABLE_CPP=OFF
+cmake --build build-c --parallel
+ctest --test-dir build-c --output-on-failure
+```
+
+That profile executes public C API tests, loopback behavior, a two-peer C simulator test, and C examples rather than merely proving that an archive can be produced.
 
 ## Optional C++ wrapper
 
@@ -57,7 +77,9 @@ Build/install SpWKit with:
 
 ```sh
 cmake -S . -B build \
-  -DSPWKIT_ENABLE_CPP=ON
+  -DSPWKIT_ENABLE_CPP=ON \
+  -DSPWKIT_BUILD_CPP_TESTS=ON \
+  -DSPWKIT_BUILD_CPP_EXAMPLES=ON
 ```
 
 Then a C++ application can use:
@@ -66,7 +88,7 @@ Then a C++ application can use:
 project(app LANGUAGES CXX)
 find_package(SpWKit 0.3 CONFIG REQUIRED)
 
-target_link_libraries(app PRIVATE SpWKit::cpp)
+target_link_libraries(app PRIVATE spwkit::cpp)
 ```
 
 Example:
@@ -87,7 +109,7 @@ if (port.start() != SPW_OK) {
 
 `spwkit::Port` is move-only and closes its underlying `spw_port_t` in its destructor. It does not throw and it does not hide `spw_result_t`.
 
-If `SPWKIT_ENABLE_CPP=OFF`, `SpWKit::cpp` and `spwkit/spwkit.hpp` are not installed. `SpWKit::spwkit` is unaffected. Installed package metadata exposes this decision as `SpWKit_CPP_WRAPPER_AVAILABLE`, so consumers do not need to infer wrapper support from filesystem state.
+If `SPWKIT_ENABLE_CPP=OFF`, `spwkit::cpp` and `spwkit/spwkit.hpp` are not installed. `spwkit::spwkit` is unaffected. Installed package metadata exposes this decision as `SpWKit_CPP_WRAPPER_AVAILABLE`, so consumers do not need to infer wrapper support from filesystem state.
 
 ## Embedded static profile
 
@@ -97,7 +119,9 @@ A minimal C-only/no-heap build suitable as the software baseline for bare-metal 
 CC=arm-none-eabi-gcc CXX=/bin/false cmake -S . -B build-embedded \
   -DBUILD_SHARED_LIBS=OFF \
   -DSPWKIT_BUILD_TESTS=OFF \
+  -DSPWKIT_BUILD_CPP_TESTS=OFF \
   -DSPWKIT_BUILD_EXAMPLES=OFF \
+  -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
   -DSPWKIT_BUILD_SIMULATOR=OFF \
   -DSPWKIT_BUILD_UDP=OFF \
   -DSPWKIT_BUILD_TOOLS=OFF \
@@ -107,7 +131,7 @@ CC=arm-none-eabi-gcc CXX=/bin/false cmake -S . -B build-embedded \
 
 A real cross toolchain normally supplies a CMake toolchain file as well; the example above emphasizes the language/dependency boundary rather than pretending every MCU is configured identically.
 
-The portable core does not require hosted threads, sockets or a filesystem. Individual future embedded backends may add platform dependencies behind the backend contract.
+The portable core does not require hosted threads, sockets or a filesystem. The `Embedded portability` CI gate also compiles the static no-heap core with freestanding C flags and rejects hosted/C++ runtime symbol references. That is portability evidence, not a claim of target-HIL verification.
 
 ## Hosted static and shared libraries
 
@@ -123,7 +147,7 @@ Hosted Unix builds may request a shared library through the standard CMake switc
 cmake -S . -B build-shared -DBUILD_SHARED_LIBS=ON
 ```
 
-The Linux CI gate builds, installs and consumes `libspwkit.so` from a C-only project with `CXX=/bin/false`. Static and shared builds expose the same `SpWKit::spwkit` target and public C ABI.
+The Linux C-only gate builds, installs and consumes `libspwkit.so` from a C-only project with `CXX=/bin/false`. Static and shared builds expose the same `spwkit::spwkit` target and public C ABI.
 
 Windows remains fully supported for the portable C core and simulator. Native Winsock UDP is tracked separately; the v0.3 language refactor does not change that backend-platform policy.
 
