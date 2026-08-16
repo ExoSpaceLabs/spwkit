@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
+#ifndef _WIN32
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#endif
+
 #include "platform/host_sync.h"
 
 #ifdef _WIN32
-
-#include <limits.h>
 
 bool spw_host_mutex_init(spw_host_mutex_t* mutex) {
     if (mutex == NULL) {
@@ -57,10 +61,7 @@ bool spw_host_condition_wait(spw_host_condition_t* condition,
         timeout_ms = (DWORD)rounded_ms;
     }
 
-    if (SleepConditionVariableSRW(condition, mutex, timeout_ms, 0)) {
-        return true;
-    }
-    return GetLastError() != ERROR_TIMEOUT ? false : false;
+    return SleepConditionVariableSRW(condition, mutex, timeout_ms, 0) != 0;
 }
 
 uint64_t spw_host_now_us(void) {
@@ -116,20 +117,22 @@ bool spw_host_condition_wait(spw_host_condition_t* condition,
         return result == 0;
     }
 
-    struct timespec absolute;
-    if (clock_gettime(CLOCK_REALTIME, &absolute) != 0) {
-        return false;
-    }
-    absolute.tv_sec += (time_t)(timeout_us / 1000000u);
-    absolute.tv_nsec += (long)((timeout_us % 1000000u) * 1000u);
-    if (absolute.tv_nsec >= 1000000000L) {
-        ++absolute.tv_sec;
-        absolute.tv_nsec -= 1000000000L;
-    }
+    {
+        struct timespec absolute;
+        if (clock_gettime(CLOCK_REALTIME, &absolute) != 0) {
+            return false;
+        }
+        absolute.tv_sec += (time_t)(timeout_us / 1000000u);
+        absolute.tv_nsec += (long)((timeout_us % 1000000u) * 1000u);
+        if (absolute.tv_nsec >= 1000000000L) {
+            ++absolute.tv_sec;
+            absolute.tv_nsec -= 1000000000L;
+        }
 
-    do {
-        result = pthread_cond_timedwait(condition, mutex, &absolute);
-    } while (result == EINTR);
+        do {
+            result = pthread_cond_timedwait(condition, mutex, &absolute);
+        } while (result == EINTR);
+    }
     return result == 0;
 }
 
