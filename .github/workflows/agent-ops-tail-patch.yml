@@ -1,0 +1,33 @@
+name: Agent backend ops tail patch
+
+on:
+  push:
+    branches: [agent/develop]
+    paths:
+      - ".github/workflows/agent-ops-tail-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/develop
+          fetch-depth: 0
+      - name: Add explicit unsupported readiness slots
+        run: python3 .github/agent_ops_tail_patch.py
+      - name: Publish source change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/agent_ops_tail_patch.py
+          git config user.name "Robert A Incze"
+          git config user.email "98164670+Inczert@users.noreply.github.com"
+          git add src/backends/loopback/loopback_backend.c \
+                  src/backends/virtual/simulator_backend.c \
+                  src/backends/ethernet/udp_backend.c
+          git commit -m "refactor(spwkit): make readiness support explicit per backend"
+          git push origin HEAD:agent/develop
