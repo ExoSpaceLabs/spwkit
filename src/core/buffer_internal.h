@@ -9,11 +9,11 @@
 
 #ifdef __cplusplus
 namespace spwkit::detail {
-enum class BufferDirection : std::uint8_t {
+enum class BufferDirection : uint8_t {
     tx = 1u,
     rx = 2u,
 };
-enum class BufferState : std::uint8_t {
+enum class BufferState : uint8_t {
     free = 0u,
     application = 1u,
     backend = 2u,
