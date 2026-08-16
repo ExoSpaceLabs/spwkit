@@ -21,7 +21,7 @@ CI also rejects explicit `throw`, `try`, and `catch` syntax in C++ sources. Reco
 
 The dedicated Simulator workflow builds with the local simulator enabled and runs simulator-labelled and public contract tests.
 
-The Device-to-device workflow configures/builds the repository on Linux and runs the real VSPW-TP/UDP integration tests. It also runs `backend_contract_udp`, so the distributed backend is gated against the reusable public contract rather than only transport-specific tests.
+The Device-to-device workflow configures/builds the repository on Linux and runs the real VSPW-TP/UDP integration tests. It also runs `backend_contract_udp`, installs SpWKit, builds the distributed example as a separate `find_package(SpWKit)` consumer, and executes both two-process and two-network-namespace restart scenarios.
 
 The Embedded workflow currently validates the target/toolchain harness where available; missing cross toolchains are reported and the corresponding build steps remain staged rather than being misrepresented as runtime embedded verification.
 
@@ -64,7 +64,7 @@ Capabilities gate genuinely optional features. A backend that advertises `SPW_CA
 
 Successful transfer operations additionally use a fixture-provided transfer-timeout profile. The default remains `SPW_TIMEOUT_IMMEDIATE`, preserving strict local behavior. Distributed fixtures may provide a finite success budget because socket/kernel delivery is asynchronous. Explicit non-blocking and finite-timeout contract tests remain fixed and therefore cannot be weakened by the fixture profile.
 
-The loopback, local simulator and VSPW-TP/UDP backend now execute the applicable shared contract directly. The UDP fixture is capability-driven and does not require backend-name conditionals; unsupported zero-copy is skipped because the backend does not advertise it.
+The loopback, local simulator and VSPW-TP/UDP backend execute the applicable shared contract directly. The UDP fixture is capability-driven and does not require backend-name conditionals; unsupported zero-copy is skipped because the backend does not advertise it.
 
 A reusable distributed-contract extension additionally checks peer loss and restart entirely through public operations: `SPW_LINK_ERROR_WAIT`, `SPW_ERR_LINK_UNAVAILABLE`, session/restart recovery to `SPW_LINK_RUN`, and successful packet transfer after recovery.
 
@@ -113,13 +113,17 @@ Simulator-specific edges additionally include:
 - peer stop, reset, close, reopen and surviving-handle recovery;
 - all 16 local simulator link slots plus deterministic 17th-link exhaustion.
 
-## v0.2 distributed transport tests
+## v0.2 distributed verification
 
-The UDP test layer now has two complementary responsibilities.
+The UDP verification layer now has three complementary responsibilities.
+
+### Reusable public contract
 
 The reusable public contract creates two localhost ports through the public API and verifies lifecycle, full-duplex copied packets, EOP/EEP, zero-length packets, large packets, no-truncation retry, timeout behavior, bounded resources, time codes, statistics, peer-loss reporting and peer restart recovery.
 
-Transport-specific D2D tests verify details that must remain invisible to ordinary applications:
+### Transport-specific D2D tests
+
+Transport-specific tests verify details that must remain invisible to ordinary applications:
 
 - VSPW-TP framing through the actual backend;
 - packets larger than the transport MTU fragmented/reassembled before delivery;
@@ -132,6 +136,16 @@ Transport-specific D2D tests verify details that must remain invisible to ordina
 - explicit SpaceWire-side EEP injection kept distinct from transport failure.
 
 The VSPW-TP codec also has golden-vector and malformed-frame tests covering magic/version/type/header/flag/fragment validation.
+
+### Process and network isolation
+
+The D2D workflow installs SpWKit to a temporary prefix and builds `examples/distributed` separately with `find_package(SpWKit 0.2 CONFIG REQUIRED)`. This guarantees the process example consumes the installed public package rather than source-private backend interfaces.
+
+`tests/d2d/run_multi_process.sh` launches two independent peer processes. A starts first and waits in the public connecting state; B starts later. The peers exchange 8 KiB packets and time codes in both directions, B exits, A must observe `SPW_LINK_ERROR_WAIT`, a new B process/session starts, and both perform a second exchange.
+
+`tests/d2d/run_netns.sh` repeats that scenario in two Linux network namespaces connected by a 1500-byte-MTU veth pair. The namespaces use distinct IPv4 addresses (`10.231.0.1` and `10.231.0.2`), so communication crosses an actual isolated IP interface boundary. The 8 KiB logical packet therefore exercises VSPW-TP fragmentation/reassembly while the applications remain independent installed-package consumers.
+
+The namespace gate requires `iproute2` and network-administration privilege. GitHub-hosted Ubuntu runners provide passwordless `sudo`, and the D2D workflow actively executes the namespace scenario rather than recording it as a manual-only test.
 
 ## Determinism rules
 
@@ -150,14 +164,14 @@ The process-local simulator and POSIX UDP backend are hosted runtime backends, n
 
 ## Installed-package verification
 
-Host CI installs SpWKit to a temporary prefix and separately configures `examples/installed` using:
+Host CI installs SpWKit to a temporary prefix and separately configures the minimal `examples/installed` consumer. D2D CI independently configures the full distributed peer example against an installed package:
 
 ```cmake
-find_package(SpWKit 0.1 CONFIG REQUIRED)
+find_package(SpWKit 0.2 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE SpWKit::spwkit)
 ```
 
-This catches broken exports, missing installed headers and accidental dependencies on source-private paths.
+Consumers pinned to v0.1 use `SpWKit 0.1`. These gates catch broken exports, missing installed headers and accidental dependencies on source-private paths.
 
 ## Embedded and HIL layers
 

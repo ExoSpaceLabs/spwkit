@@ -9,7 +9,9 @@ on:
       - "src/core/port.cpp"
       - "tests/udp*.cpp"
       - "tests/contract/**"
+      - "tests/d2d/**"
       - "tests/CMakeLists.txt"
+      - "examples/distributed/**"
       - ".github/workflows/d2d.yml"
   pull_request:
     branches: [main]
@@ -19,7 +21,9 @@ on:
       - "src/core/port.cpp"
       - "tests/udp*.cpp"
       - "tests/contract/**"
+      - "tests/d2d/**"
       - "tests/CMakeLists.txt"
+      - "examples/distributed/**"
       - ".github/workflows/d2d.yml"
   workflow_dispatch:
 
@@ -42,6 +46,7 @@ jobs:
         run: >-
           cmake -S . -B build-d2d
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/build-d2d/install
           -DSPWKIT_BUILD_TESTS=ON
           -DSPWKIT_BUILD_EXAMPLES=OFF
           -DSPWKIT_BUILD_SIMULATOR=ON
@@ -53,3 +58,29 @@ jobs:
 
       - name: Run distributed transport tests
         run: ctest --test-dir build-d2d --output-on-failure -L d2d
+
+      - name: Install SpWKit
+        run: cmake --install build-d2d
+
+      - name: Configure installed distributed peer example
+        run: >-
+          cmake -S examples/distributed -B build-distributed
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build-d2d/install
+
+      - name: Build installed distributed peer example
+        run: cmake --build build-distributed --parallel
+
+      - name: Run two-process restart scenario
+        run: bash tests/d2d/run_multi_process.sh "${{ github.workspace }}/build-distributed/spwkit_udp_peer"
+
+      - name: Ensure network namespace tooling
+        run: |
+          if ! command -v ip >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y iproute2
+          fi
+          sudo -n true
+
+      - name: Run network-namespace restart scenario
+        run: bash tests/d2d/run_netns.sh "${{ github.workspace }}/build-distributed/spwkit_udp_peer"
