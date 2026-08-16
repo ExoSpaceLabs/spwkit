@@ -11,10 +11,10 @@ if(NOT SpWKit_UDP_RUNTIME_SCOPE STREQUAL "POSIX")
     message(FATAL_ERROR "Unexpected SpWKit UDP runtime scope: ${SpWKit_UDP_RUNTIME_SCOPE}")
 endif()
 
-# This is deliberately a C-only project. SpWKit::spwkit must compile and link
+# This is deliberately a C-only project. spwkit::spwkit must compile and link
 # without enabling CXX or forcing a C++ linker/runtime.
 add_executable(spwkit_installed_consumer main.c)
-target_link_libraries(spwkit_installed_consumer PRIVATE SpWKit::spwkit)
+target_link_libraries(spwkit_installed_consumer PRIVATE spwkit::spwkit)
 if(SpWKit_UDP_RUNTIME_SUPPORTED)
     target_compile_definitions(spwkit_installed_consumer PRIVATE
         SPWKIT_INSTALLED_EXPECT_UDP_RUNTIME=1)

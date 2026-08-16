@@ -1,24 +1,22 @@
-name: Embedded
+name: Embedded portability
 
 on:
   push:
     branches: [main]
     paths:
+      - "CMakeLists.txt"
       - "include/**"
       - "src/core/**"
-      - "src/backends/baremetal/**"
-      - "src/backends/hardrt/**"
-      - "cmake/toolchains/**"
+      - "src/backends/loopback/**"
       - "tests/embedded/**"
       - ".github/workflows/embedded.yml"
   pull_request:
     branches: [main]
     paths:
+      - "CMakeLists.txt"
       - "include/**"
       - "src/core/**"
-      - "src/backends/baremetal/**"
-      - "src/backends/hardrt/**"
-      - "cmake/toolchains/**"
+      - "src/backends/loopback/**"
       - "tests/embedded/**"
       - ".github/workflows/embedded.yml"
   workflow_dispatch:
@@ -27,46 +25,57 @@ permissions:
   contents: read
 
 concurrency:
-  group: embedded-${{ github.ref }}
+  group: embedded-portability-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  cross-build:
+  freestanding-c:
+    name: Freestanding C/no-heap compile
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - baremetal
-          - hardrt
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Check target toolchain
-        id: toolchain
-        shell: bash
+      - name: Configure freestanding C profile
+        env:
+          CC: gcc
+          CXX: /bin/false
         run: |
-          file="cmake/toolchains/${{ matrix.target }}.cmake"
-          if [[ -f "$file" ]]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "### Embedded ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
-            echo "Not active yet: $file does not exist." >> "$GITHUB_STEP_SUMMARY"
+          cmake -S . -B build-embedded-smoke \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-ffreestanding -fno-builtin -Wall -Wextra -Werror"
+
+          if grep -q '^CMAKE_CXX_COMPILER:' build-embedded-smoke/CMakeCache.txt; then
+            echo "Embedded C profile unexpectedly enabled CXX" >&2
+            exit 1
           fi
 
-      - name: Configure
-        if: steps.toolchain.outputs.available == 'true'
-        run: >-
-          cmake -S . -B build-${{ matrix.target }}
-          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/${{ matrix.target }}.cmake
-          -DSPWKIT_BUILD_TESTS=OFF
-          -DSPWKIT_BUILD_EXAMPLES=OFF
-          -DSPWKIT_BUILD_SIMULATOR=OFF
-          -DSPWKIT_BUILD_TOOLS=OFF
+      - name: Build freestanding C archive
+        run: cmake --build build-embedded-smoke --parallel
 
-      - name: Cross-build
-        if: steps.toolchain.outputs.available == 'true'
-        run: cmake --build build-${{ matrix.target }} --parallel
+      - name: Reject hosted runtime references in portable core archive
+        run: |
+          archive="build-embedded-smoke/libspwkit.a"
+          test -f "$archive"
+          if nm -u "$archive" | grep -Eq '(pthread_|socket|sendto|recvfrom|poll|WSA|__cxa|_Z)'; then
+            echo "Portable embedded profile contains hosted/C++ runtime references" >&2
+            nm -u "$archive"
+            exit 1
+          fi
+
+      - name: Note real-target boundary
+        run: |
+          echo "### Embedded portability" >> "$GITHUB_STEP_SUMMARY"
+          echo "This gate is a real freestanding C/no-heap compile, not target-HIL evidence." >> "$GITHUB_STEP_SUMMARY"
+          echo "ARM/HardRT target toolchains remain v0.5 work and will be added as separate jobs." >> "$GITHUB_STEP_SUMMARY"
