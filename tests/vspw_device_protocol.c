@@ -84,14 +84,19 @@ static void test_hello_and_responses(void) {
     assert(vspd_validate_frame(frame, sizeof(frame), NULL) == VSPD_CODEC_OK);
 
     header.flags = VSPD_FLAG_RESPONSE;
-    header.status = 0;
+    header.status = VSPD_STATUS_OK;
     encode_frame(&header, hello, frame, sizeof(frame));
     assert(vspd_validate_frame(frame, sizeof(frame), NULL) == VSPD_CODEC_OK);
 
-    header.status = -4;
+    header.status = VSPD_STATUS_UNSUPPORTED;
     header.payload_size = 0u;
     encode_frame(&header, NULL, frame, sizeof(frame));
     assert(vspd_validate_frame(frame, VSPD_HEADER_SIZE, NULL) == VSPD_CODEC_OK);
+
+    header.status = VSPD_STATUS_BACKEND - 1;
+    encode_frame(&header, NULL, frame, sizeof(frame));
+    assert(vspd_validate_frame(frame, VSPD_HEADER_SIZE, NULL) ==
+           VSPD_CODEC_INVALID_SHAPE);
 }
 
 static void test_fragment_shapes(void) {
@@ -153,6 +158,29 @@ static void test_zero_length_packet(void) {
     assert(vspd_validate_frame(frame, sizeof(frame), NULL) == VSPD_CODEC_OK);
 }
 
+static void assert_capabilities_equal(
+    const vspd_capabilities_payload_t* expected,
+    const vspd_capabilities_payload_t* actual) {
+    assert(actual->bits == expected->bits);
+    assert(actual->max_packet_size == expected->max_packet_size);
+    assert(actual->tx_queue_depth == expected->tx_queue_depth);
+    assert(actual->rx_queue_depth == expected->rx_queue_depth);
+    assert(actual->buffer_alignment == expected->buffer_alignment);
+}
+
+static void assert_statistics_equal(const vspd_statistics_payload_t* expected,
+                                    const vspd_statistics_payload_t* actual) {
+    assert(actual->tx_packets == expected->tx_packets);
+    assert(actual->rx_packets == expected->rx_packets);
+    assert(actual->tx_bytes == expected->tx_bytes);
+    assert(actual->rx_bytes == expected->rx_bytes);
+    assert(actual->tx_time_codes == expected->tx_time_codes);
+    assert(actual->rx_time_codes == expected->rx_time_codes);
+    assert(actual->eep_packets == expected->eep_packets);
+    assert(actual->link_errors == expected->link_errors);
+    assert(actual->dropped_packets == expected->dropped_packets);
+}
+
 static void test_control_payloads(void) {
     uint8_t frame[VSPD_HEADER_SIZE + VSPD_STATISTICS_PAYLOAD_SIZE];
     uint8_t payload[VSPD_STATISTICS_PAYLOAD_SIZE];
@@ -167,7 +195,7 @@ static void test_control_payloads(void) {
     vspd_encode_capabilities(&capabilities, payload);
     memset(&decoded_capabilities, 0, sizeof(decoded_capabilities));
     vspd_decode_capabilities(payload, &decoded_capabilities);
-    assert(memcmp(&capabilities, &decoded_capabilities, sizeof(capabilities)) == 0);
+    assert_capabilities_equal(&capabilities, &decoded_capabilities);
 
     header = header_for(VSPD_MSG_GET_CAPABILITIES,
                         VSPD_FLAG_RESPONSE,
@@ -182,7 +210,7 @@ static void test_control_payloads(void) {
     vspd_encode_statistics(&statistics, payload);
     memset(&decoded_statistics, 0, sizeof(decoded_statistics));
     vspd_decode_statistics(payload, &decoded_statistics);
-    assert(memcmp(&statistics, &decoded_statistics, sizeof(statistics)) == 0);
+    assert_statistics_equal(&statistics, &decoded_statistics);
 
     header = header_for(VSPD_MSG_GET_STATISTICS,
                         VSPD_FLAG_RESPONSE,
