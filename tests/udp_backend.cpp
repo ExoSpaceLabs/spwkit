@@ -74,8 +74,19 @@ int main() {
     assert(spw_port_send(a, &retry_out, 500000u) == SPW_OK);
     ::usleep(30000u);
 
+    /*
+     * State queries cooperatively service one transport event. ACK/KEEPALIVE
+     * datagrams can be queued in either order, so allow a bounded number of
+     * service passes instead of assuming one kernel-delivery/scheduling turn
+     * is enough on every POSIX host.
+     */
     spw_link_state_t a_state = SPW_LINK_ERROR_RESET;
-    assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+    for (unsigned attempt = 0u; attempt < 10u && a_state != SPW_LINK_RUN; ++attempt) {
+        assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+        if (a_state != SPW_LINK_RUN) {
+            ::usleep(5000u);
+        }
+    }
     assert(a_state == SPW_LINK_RUN);
 
     std::array<std::uint8_t, 5> retry_rx{};
