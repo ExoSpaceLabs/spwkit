@@ -248,6 +248,11 @@ void test_bounded_queue(BackendContractFixture& fixture,
                         const spw_capabilities_t& caps_a,
                         const spw_capabilities_t& caps_b) {
     constexpr const char* test = "bounded-queue";
+    if (!fixture.has_strict_bounded_queue_contract()) {
+        std::cout << "[contract][SKIP] " << test
+                  << ": queue depth is transport/service capacity, not an immediate-send guarantee\n";
+        return;
+    }
     prepare_running(fixture, test);
 
     std::size_t depth = caps_b.rx_queue_depth;
