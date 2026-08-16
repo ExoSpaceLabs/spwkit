@@ -23,6 +23,8 @@ The dedicated Simulator workflow builds with the local simulator enabled and run
 
 The Device-to-device workflow configures/builds the repository on Linux and runs the real VSPW-TP/UDP integration tests. It also runs `backend_contract_udp`, installs SpWKit, builds the distributed example as a separate `find_package(SpWKit)` consumer, and executes both two-process and two-network-namespace restart scenarios.
 
+The Tooling workflow is deliberately separate from the runtime/library gates. It installs tshark only inside its Ubuntu CI job, generates a deterministic Ethernet/IPv4/UDP PCAP, loads `tools/wireshark/vspw_tp.lua` through tshark's real Lua dissector engine, and verifies filterable VSPW-TP DATA fragments, KEEPALIVE, ACK/session binding, TIME_CODE fields, unsupported-version handling, and heuristic rejection of unrelated UDP. Wireshark/tshark remain development dependencies only; nothing from this gate is linked into `libspwkit`.
+
 The Embedded workflow currently validates the target/toolchain harness where available; missing cross toolchains are reported and the corresponding build steps remain staged rather than being misrepresented as runtime embedded verification.
 
 ## Test labels
@@ -62,7 +64,9 @@ The reusable public backend contract verifies, as applicable:
 
 Capabilities gate genuinely optional features. A backend that advertises `SPW_CAP_ZERO_COPY` must execute the zero-copy ownership contract; it cannot silently skip it.
 
-Successful transfer operations additionally use a fixture-provided transfer-timeout profile. The default remains `SPW_TIMEOUT_IMMEDIATE`, preserving strict local behavior. Distributed fixtures may provide a finite success budget because socket/kernel delivery is asynchronous. Explicit non-blocking and finite-timeout contract tests remain fixed and therefore cannot be weakened by the fixture profile.
+Successful transfer operations additionally use a fixture-provided transfer-timeout profile. The default remains `SPW_TIMEOUT_IMMEDIATE`, preserving strict local behavior. Distributed fixtures may provide a finite success budget because socket/kernel delivery and transport acknowledgements are asynchronous. Explicit non-blocking and finite-timeout contract tests remain fixed and therefore cannot be weakened by the fixture profile.
+
+The bounded-queue test deliberately keeps queue filling and the full-queue assertion non-blocking so advertised capacity remains observable. After the receiver drains the queue, the subsequent successful recovery send uses the fixture transfer budget: on a reliable distributed backend the application packet may already be drained while its transport ACK is still in flight, so the sender's bounded reliable slot can remain occupied briefly. Local fixtures still use the immediate default.
 
 The loopback, local simulator and VSPW-TP/UDP backend execute the applicable shared contract directly. The UDP fixture is capability-driven and does not require backend-name conditionals; unsupported zero-copy is skipped because the backend does not advertise it.
 
@@ -146,6 +150,12 @@ The D2D workflow installs SpWKit to a temporary prefix and builds `examples/dist
 `tests/d2d/run_netns.sh` repeats that scenario in two Linux network namespaces connected by a 1500-byte-MTU veth pair. The namespaces use distinct IPv4 addresses (`10.231.0.1` and `10.231.0.2`), so communication crosses an actual isolated IP interface boundary. The 8 KiB logical packet therefore exercises VSPW-TP fragmentation/reassembly while the applications remain independent installed-package consumers.
 
 The namespace gate requires `iproute2` and network-administration privilege. GitHub-hosted Ubuntu runners provide passwordless `sudo`, and the D2D workflow actively executes the namespace scenario rather than recording it as a manual-only test.
+
+## Capture-tool verification
+
+The VSPW-TP Lua dissector is not trusted merely because its source resembles the protocol table. `tools/wireshark/validate_dissector.py` constructs a deterministic capture using the documented v1 framing and invokes the actual tshark Lua engine. This catches Lua API mistakes, field-width problems, heuristic registration issues, and display-filter regressions without making Wireshark a library dependency.
+
+The generated capture includes one fragmented logical DATA message, ACK binding, KEEPALIVE, TIME_CODE, an unsupported-version VSPW frame, and unrelated UDP. The validator asserts both positive decode fields and negative heuristic behavior. See `tools/wireshark/README.md` for the capture and display-filter workflow.
 
 ## Determinism rules
 

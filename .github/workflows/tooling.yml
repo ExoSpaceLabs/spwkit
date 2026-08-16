@@ -1,0 +1,40 @@
+name: Tooling
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/wireshark/**"
+      - ".github/workflows/tooling.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/wireshark/**"
+      - ".github/workflows/tooling.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tooling-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vspw-wireshark:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install tshark
+        run: |
+          if ! command -v tshark >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+          fi
+          tshark --version
+
+      - name: Validate VSPW-TP Lua dissector
+        run: python3 tools/wireshark/validate_dissector.py

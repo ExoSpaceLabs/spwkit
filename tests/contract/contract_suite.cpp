@@ -282,7 +282,7 @@ void test_bounded_queue(BackendContractFixture& fixture,
         require(received == value, test, "queued payload corrupted");
     }
 
-    require_result(spw_port_send(fixture.endpoint_a(), &tx, SPW_TIMEOUT_IMMEDIATE),
+    require_result(spw_port_send(fixture.endpoint_a(), &tx, g_transfer_timeout_us),
                    SPW_OK, test, "queue did not recover after drain");
     std::uint8_t received = 0u;
     receive_packet(fixture.endpoint_b(), &received, 1u, 1u,
