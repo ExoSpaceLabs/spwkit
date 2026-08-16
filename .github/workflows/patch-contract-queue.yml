@@ -1,0 +1,34 @@
+name: Patch distributed queue recovery
+
+on:
+  push:
+    branches: [agent/v0.2-vspw-capture]
+    paths:
+      - .github/patch_contract_queue.py
+      - .github/workflows/patch-contract-queue.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/v0.2-vspw-capture
+      - name: Apply queue recovery timeout profile
+        run: python3 .github/patch_contract_queue.py
+      - name: Validate UDP contract
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSPWKIT_BUILD_TESTS=ON -DSPWKIT_BUILD_EXAMPLES=OFF -DSPWKIT_BUILD_SIMULATOR=ON -DSPWKIT_BUILD_UDP=ON -DSPWKIT_ENABLE_HEAP=ON
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure -R '^backend_contract_(loopback|simulator|udp)$'
+      - name: Commit validated fix
+        run: |
+          rm .github/patch_contract_queue.py .github/workflows/patch-contract-queue.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+Inczert@users.noreply.github.com"
+          git add -A
+          git commit -m "test(spwkit): use transfer profile after queue drain #32"
+          git push origin HEAD:agent/v0.2-vspw-capture
