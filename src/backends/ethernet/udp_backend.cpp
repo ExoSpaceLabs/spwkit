@@ -168,11 +168,18 @@ void UdpBackend::close_socket() noexcept {
 }
 
 void UdpBackend::clear_reassembly() noexcept {
-    reassembly_message_id_ = 0u;
-    reassembly_total_size_ = 0u;
-    reassembly_received_ = 0u;
-    reassembly_terminator_ = SPW_TERMINATOR_EOP;
-    reassembly_active_ = false;
+    reassembly_.reset();
+    reassembly_last_fragment_ = {};
+}
+
+void UdpBackend::expire_reassembly() noexcept {
+    if (!reassembly_.active() || reassembly_last_fragment_ == TimePoint{}) {
+        return;
+    }
+    const auto timeout = std::chrono::milliseconds(config_.peer_timeout_ms);
+    if (Clock::now() - reassembly_last_fragment_ >= timeout) {
+        clear_reassembly();
+    }
 }
 
 void UdpBackend::clear_pending_tx() noexcept {
@@ -267,10 +274,12 @@ void UdpBackend::mark_peer_lost() noexcept {
     if (state_ != SPW_LINK_ERROR_WAIT) {
         statistics_.link_errors++;
     }
+    clear_reassembly();
     state_ = SPW_LINK_ERROR_WAIT;
 }
 
 void UdpBackend::refresh_peer_state() noexcept {
+    expire_reassembly();
     if (state_ == SPW_LINK_RUN && !peer_is_current()) {
         mark_peer_lost();
     } else if (state_ == SPW_LINK_ERROR_WAIT && peer_is_current()) {
@@ -685,51 +694,38 @@ spw_result_t UdpBackend::process_data(const Header& header,
         return SPW_OK;
     }
 
-    const bool start = (header.flags & FlagFragmentStart) != 0u;
-    const bool end = (header.flags & FlagFragmentEnd) != 0u;
-    if (start) {
-        clear_reassembly();
-        reassembly_active_ = true;
-        reassembly_message_id_ = header.message_id;
-        reassembly_total_size_ = header.total_size;
-        reassembly_terminator_ = terminator;
-    }
-
-    if (!reassembly_active_ || header.message_id != reassembly_message_id_ ||
-        header.total_size != reassembly_total_size_ ||
-        header.fragment_offset != reassembly_received_ ||
-        terminator != reassembly_terminator_) {
-        clear_reassembly();
+    expire_reassembly();
+    const FragmentReassembler::Result result = reassembly_.push(header, payload);
+    if (result == FragmentReassembler::Result::Invalid ||
+        result == FragmentReassembler::Result::Conflict) {
         statistics_.dropped_packets++;
-        return SPW_ERR_BACKEND;
+        return SPW_OK;
     }
 
-    if (header.payload_size != 0u) {
-        std::memcpy(reassembly_.data() + header.fragment_offset,
-                    payload,
-                    header.payload_size);
+    reassembly_last_fragment_ = Clock::now();
+    if (result != FragmentReassembler::Result::Complete) {
+        return SPW_OK;
     }
-    reassembly_received_ += header.payload_size;
 
-    if (end) {
-        if (reassembly_received_ != reassembly_total_size_) {
-            clear_reassembly();
-            statistics_.dropped_packets++;
-            return SPW_ERR_BACKEND;
-        }
-        if (pending_packet_valid_) {
-            clear_reassembly();
-            return SPW_ERR_RESOURCE_EXHAUSTED;
-        }
-        std::memcpy(pending_packet_.data(), reassembly_.data(), reassembly_total_size_);
-        pending_packet_size_ = reassembly_total_size_;
-        pending_packet_terminator_ = reassembly_terminator_;
-        pending_packet_valid_ = true;
-        clear_reassembly();
-        if (ack_required) {
-            remember_delivered(MessageType::Data, header.message_id);
-            (void)send_ack(header.message_id);
-        }
+    if (pending_packet_valid_) {
+        return SPW_ERR_RESOURCE_EXHAUSTED;
+    }
+
+    const std::size_t completed_size = reassembly_.size();
+    const std::uint32_t completed_message_id = reassembly_.message_id();
+    const bool completed_ack_required = reassembly_.ack_required();
+    if (completed_size != 0u) {
+        std::memcpy(pending_packet_.data(), reassembly_.data(), completed_size);
+    }
+    pending_packet_size_ = completed_size;
+    pending_packet_terminator_ =
+        reassembly_.eep() ? SPW_TERMINATOR_EEP : SPW_TERMINATOR_EOP;
+    pending_packet_valid_ = true;
+    clear_reassembly();
+
+    if (completed_ack_required) {
+        remember_delivered(MessageType::Data, completed_message_id);
+        (void)send_ack(completed_message_id);
     }
     return SPW_OK;
 }

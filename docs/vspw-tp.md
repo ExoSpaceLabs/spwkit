@@ -58,7 +58,9 @@ For an unfragmented DATA message, both fragment flags are clear, `fragment_offse
 
 For a fragmented DATA message, the first fragment has `FRAGMENT_START` and offset zero. The final fragment has `FRAGMENT_END` and ends exactly at `total_size`. Intermediate fragments have neither boundary flag. Reassembly completes before a packet is surfaced to the application.
 
-The current UDP reassembler accepts one logical fragmented packet at a time and requires contiguous fragment offsets. Reordered/missing fragments therefore prevent acknowledgement; the sender later retransmits the complete logical message. Reordering is a transport recovery event, not an application-visible EEP.
+The UDP backend keeps one active fragmented logical packet at a time, but its fragments may arrive in arbitrary UDP order. A fixed one-bit-per-payload-byte coverage map records the received portions of the existing 1 MiB reassembly buffer. Exact duplicate fragments and byte-identical partial overlaps are idempotent; conflicting overlaps or inconsistent message metadata are dropped. A packet becomes application-visible only after every payload byte is covered and both `FRAGMENT_START` and `FRAGMENT_END` have been observed.
+
+Incomplete reassembly is cleared on peer/session loss or transition and expires after `peer_timeout_ms` without DATA-fragment activity. KEEPALIVEs keep the peer session alive but do not indefinitely preserve a stalled partial packet. Transport reordering or loss never synthesizes an application-visible EEP.
 
 ### TIME_CODE
 
@@ -149,7 +151,7 @@ The protocol codec defines:
 - maximum single fragment payload: 65,467 bytes;
 - maximum logical packet represented by the protocol: 16 MiB.
 
-The UDP backend deliberately advertises a smaller 1 MiB maximum packet size so TX retention and reassembly storage remain bounded and deterministic. Its default fragment payload is 1200 bytes to avoid relying on IP fragmentation.
+The UDP backend deliberately advertises a smaller 1 MiB maximum packet size so TX retention and reassembly storage remain bounded and deterministic. Reassembly uses the 1 MiB payload buffer plus a fixed 128 KiB coverage bitmap (one bit per possible payload byte), avoiding an arbitrary fragment-range-count limit. Its default fragment payload is 1200 bytes to avoid relying on IP fragmentation.
 
 ## UDP backend configuration
 
@@ -213,6 +215,8 @@ The codec has golden-vector and malformed-frame tests for the 40-byte session-aw
 The distributed backend integration test creates two localhost peers through the public `spw_port_*` API and verifies:
 
 - 5 KiB EEP transfer using 512-byte fragments;
+- deliberately reordered and duplicated UDP fragments reassembling into one packet;
+- stale incomplete reassembly expiring without losing the current peer session;
 - insufficient-capacity retry without packet consumption;
 - reverse traffic;
 - reliable time-code transfer;
