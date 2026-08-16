@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "backends/ethernet/fragment_reassembler.hpp"
 #include "backends/ethernet/vspw_tp.hpp"
 #include "core/backend.hpp"
 
@@ -53,6 +54,7 @@ private:
     using TimePoint = Clock::time_point;
     using MessageType = spwkit::ethernet::vspw_tp::MessageType;
     using Header = spwkit::ethernet::vspw_tp::Header;
+    using FragmentReassembler = spwkit::ethernet::FragmentReassembler<max_packet_size>;
 
     enum class PendingTxKind : std::uint8_t {
         None = 0u,
@@ -92,6 +94,7 @@ private:
     void remember_retired_session(std::uint64_t session_id) noexcept;
     void mark_peer_lost() noexcept;
     void clear_reassembly() noexcept;
+    void expire_reassembly() noexcept;
     void clear_pending_tx() noexcept;
     void clear_recent_messages() noexcept;
     void clear_retired_sessions() noexcept;
@@ -113,12 +116,8 @@ private:
     std::array<std::uint8_t, 65507u> rx_datagram_{};
     std::array<std::uint8_t, 64u> control_datagram_{};
 
-    std::array<std::uint8_t, max_packet_size> reassembly_{};
-    std::uint32_t reassembly_message_id_{0u};
-    std::uint32_t reassembly_total_size_{0u};
-    std::uint32_t reassembly_received_{0u};
-    spw_terminator_t reassembly_terminator_{SPW_TERMINATOR_EOP};
-    bool reassembly_active_{false};
+    FragmentReassembler reassembly_{};
+    TimePoint reassembly_last_fragment_{};
 
     std::array<std::uint8_t, max_packet_size> pending_packet_{};
     std::size_t pending_packet_size_{0u};
