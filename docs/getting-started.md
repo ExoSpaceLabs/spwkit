@@ -1,44 +1,76 @@
 # Getting started with SpWKit
 
-SpWKit exposes one portable C ABI. C++ applications can use the same public headers directly; an optional higher-level C++ wrapper can remain layered above the ABI without changing backend implementations.
+SpWKit exposes one authoritative C11 runtime/API. C applications use it directly. C++ applications may either call the same C API or opt into the header-only `spwkit::cpp` convenience wrapper. There is no separate C++ backend implementation.
 
-The v0.2.0 release contains the v0.1 portable-core baseline plus the VSPW-TP/UDP distributed backend, reliability/liveness, deterministic timing and fault injection, distributed contract coverage, process/network isolation examples, and capture tooling.
+The current v0.3 engineering line contains the v0.1 portable core, v0.2 VSPW-TP/UDP distributed backend, and the C11 runtime conversion. The next milestone is the Linux virtual-device/userspace-service layer tracked by #54.
 
-## Build from source
+## Pure-C build from source
+
+This profile builds real tests and examples without enabling C++:
+
+```sh
+CC=gcc CXX=/bin/false cmake -S . -B build-c \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DSPWKIT_BUILD_TESTS=ON \
+  -DSPWKIT_BUILD_CPP_TESTS=OFF \
+  -DSPWKIT_BUILD_EXAMPLES=ON \
+  -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+  -DSPWKIT_BUILD_SIMULATOR=ON \
+  -DSPWKIT_BUILD_UDP=ON \
+  -DSPWKIT_ENABLE_CPP=OFF
+cmake --build build-c --parallel
+ctest --test-dir build-c --output-on-failure
+```
+
+This is not a header-only compatibility check. The C-only CI profile executes public API behavior, loopback I/O, two-peer simulator EOP/EEP/time-code behavior, C examples and no-heap caller-owned construction.
+
+## C plus optional C++ wrapper
 
 ```sh
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -DSPWKIT_BUILD_TESTS=ON \
+  -DSPWKIT_BUILD_CPP_TESTS=ON \
   -DSPWKIT_BUILD_EXAMPLES=ON \
-  -DSPWKIT_BUILD_SIMULATOR=ON
+  -DSPWKIT_BUILD_CPP_EXAMPLES=ON \
+  -DSPWKIT_BUILD_SIMULATOR=ON \
+  -DSPWKIT_BUILD_UDP=ON \
+  -DSPWKIT_ENABLE_CPP=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-The SpWKit library itself is compiled without C++ exceptions and RTTI.
+The wrapper remains exception-free and delegates to the same C functions.
 
 ## Install and consume with CMake
 
 ```sh
-cmake --install build --prefix /path/to/spwkit-install
+cmake --install build-c --prefix /path/to/spwkit-install
 ```
 
-Consumer project:
+Pure-C consumer:
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
-project(my_spw_application LANGUAGES C CXX)
+project(my_spw_application LANGUAGES C)
 
-find_package(SpWKit 0.2 CONFIG REQUIRED)
+find_package(SpWKit 0.3 CONFIG REQUIRED)
 add_executable(my_app main.c)
-target_link_libraries(my_app PRIVATE SpWKit::spwkit)
-set_target_properties(my_app PROPERTIES LINKER_LANGUAGE CXX)
+target_link_libraries(my_app PRIVATE spwkit::spwkit)
 ```
 
-Application source can remain pure C and uses only the C ABI. The current library is a **static archive implemented in C++**, so the final executable must be linked by a C++-capable toolchain to supply the implementation runtime. This does not expose C++ types in the public ABI.
+No C++ linker/runtime is required. CI verifies this with `CXX=/bin/false` for both static and Linux shared installed packages.
 
-CI builds `examples/installed` against an installed package to ensure consumers do not accidentally depend on source-private headers or unpublished CMake state.
+Optional C++ wrapper consumer, when the package was built with `SPWKIT_ENABLE_CPP=ON`:
+
+```cmake
+project(my_cpp_spw_application LANGUAGES CXX)
+find_package(SpWKit 0.3 CONFIG REQUIRED)
+add_executable(my_app main.cpp)
+target_link_libraries(my_app PRIVATE spwkit::cpp)
+```
+
+`find_package(SpWKit)` keeps the package spelling; imported target namespaces are lowercase.
 
 ## Open a port
 
@@ -68,6 +100,24 @@ spw_port_open_in_place(&config, workspace, workspace_size, &port);
 ```
 
 `spw_port_close()` destroys an in-place port but does not free caller-owned workspace. The workspace can be reused immediately.
+
+## Optional C++ port wrapper
+
+```cpp
+#include <spwkit/spwkit.hpp>
+
+spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_LOOPBACK);
+spwkit::Port port;
+
+if (spwkit::Port::open(config, port) != SPW_OK) {
+    return 1;
+}
+if (port.start() != SPW_OK) {
+    return 2;
+}
+```
+
+`spwkit::Port` is move-only RAII convenience around `spw_port_t`. It does not change backend, timeout, error or ownership semantics.
 
 ## Link lifecycle
 
@@ -108,7 +158,7 @@ spw_packet_t rx = {
 result = spw_port_receive(port, &rx, 1000);
 ```
 
-SpWKit never silently truncates packets. If the next complete packet is larger than `capacity`, receive returns `SPW_ERR_BUFFER_TOO_SMALL`, sets `length` to the required size, preserves the EOP/EEP terminator, and leaves the packet available for retry.
+SpWKit never silently truncates packets. If the next complete packet is larger than `capacity`, receive returns `SPW_ERR_BUFFER_TOO_SMALL`, reports the required length/terminator, and leaves the packet available for retry.
 
 Zero-length packets are valid.
 
@@ -122,8 +172,6 @@ A software-visible packet terminates with either:
 Backends that advertise `SPW_CAP_EEP` preserve EEP without silently converting it to EOP.
 
 ## Time codes
-
-The v0.1 time-code type uses a six-bit count (`0..63`) and reserved control flags. Ordinary time codes currently require `control_flags == 0`.
 
 ```c
 spw_time_code_t time_code = {37, 0};
@@ -139,9 +187,7 @@ spw_capabilities_t caps;
 spw_port_get_capabilities(port, &caps);
 ```
 
-Capabilities describe optional behavior and resource constraints such as maximum packet size, queue depths, buffer alignment and zero-copy support.
-
-Do not assume that every backend has the same optional capabilities or limits.
+Capabilities describe optional behavior and resource constraints such as maximum packet size, queue depths, buffer alignment and zero-copy support. Do not assume every backend has identical optional capabilities or limits.
 
 ## Zero-copy ownership API
 
@@ -164,8 +210,6 @@ Successful submit/release calls set the caller's buffer pointer to `NULL`. Faile
 
 The zero-copy API models ownership, not DMA implementation details. The local simulator emulates it using ordinary host memory; a future hardware backend may map the same contract to DMA-capable buffers internally.
 
-Scatter/gather is not part of v0.1. One buffer represents one contiguous packet payload.
-
 ## Process-local simulator peers
 
 Two simulator endpoints are paired by `link_id` and opposite endpoint identifiers:
@@ -180,11 +224,11 @@ sim_b.link_id = 42;
 sim_b.endpoint = SPW_SIMULATOR_ENDPOINT_B;
 ```
 
-A and B are equal SpaceWire peers, not server/client roles.
+A and B are equal SpaceWire peers, not server/client roles. The simulator implementation is C and the C-only CI profile performs actual bidirectional packet/time-code behavior with no C++ compiler.
 
-## Distributed UDP peers in v0.2.0
+## Distributed UDP peers
 
-The v0.2.0 backend uses the same public port API. Only backend configuration changes:
+The distributed backend uses the same public port API. Only backend configuration changes:
 
 ```c
 spw_udp_config_t udp_a = SPW_UDP_CONFIG_INITIALIZER(42000, 42001, 42);
@@ -198,11 +242,13 @@ cfg_b.backend_config = &udp_b;
 cfg_b.backend_config_size = sizeof(udp_b);
 ```
 
-The initializer uses numeric localhost by default. The current backend uses numeric IPv4 addresses, bounded VSPW-TP fragmentation/reassembly, a default fragment payload of 1200 bytes, and a 1 MiB logical packet limit.
+The current backend uses numeric IPv4 addresses, bounded VSPW-TP fragmentation/reassembly, a default fragment payload of 1200 bytes, and a 1 MiB logical packet limit.
 
 Applications still call `spw_port_start`, `spw_port_send`, `spw_port_receive`, time-code operations and statistics exactly as they do with other backends.
 
-The v0.2.0 backend includes logical-message ACK/retransmission, duplicate suppression, peer session/keepalive/disconnect detection and restart recovery, configurable virtual latency/rate, deterministic transport fault injection, and explicit SpaceWire-side EEP injection. Linux is the primary fully exercised distributed host and macOS is a supported POSIX host; Windows retains the public API/package but returns `SPW_ERR_UNSUPPORTED` for the UDP runtime in v0.2.0.
+The distributed backend includes logical-message ACK/retransmission, duplicate suppression, peer session/keepalive/disconnect detection and restart recovery, configurable virtual latency/rate, deterministic transport fault injection, and explicit SpaceWire-side EEP injection.
+
+`examples/distributed` is deliberately a **C-only installed-package consumer**. The D2D workflow builds it with `CXX=/bin/false`, then runs independent-process and Linux network-namespace restart scenarios.
 
 ## Errors and timeouts
 
@@ -218,9 +264,11 @@ Finite timeout values are expressed in microseconds.
 ## Examples
 
 - `examples/c_loopback.c`: hosted C API, capabilities, copied packets, EEP and time codes;
-- `examples/cpp_no_heap.cpp`: C++ consumer using caller-owned workspace;
-- `examples/c_simulator_zero_copy.c`: paired simulator endpoints and the zero-copy ownership lifecycle;
-- `examples/installed`: standalone `find_package(SpWKit)` consumer used by CI;
-- `examples/distributed`: installed-package equal-peer UDP application used for two-process and Linux network-namespace scenarios.
+- `examples/c_simulator_zero_copy.c`: pure-C paired simulator endpoints and zero-copy ownership;
+- `examples/cpp_no_heap.cpp`: C++ source using the C API and caller-owned workspace;
+- `examples/cpp_wrapper_loopback.cpp`: optional `spwkit::Port` convenience wrapper;
+- `examples/installed`: standalone C-only installed consumer;
+- `examples/installed_cpp`: standalone optional C++ wrapper consumer;
+- `examples/distributed`: C-only installed VSPW-TP/UDP equal-peer process used by D2D CI.
 
-The D2D workflow builds the distributed example against the installed package, exercises full-duplex >MTU packets and time codes, then verifies peer loss and new-session restart recovery.
+All examples use public headers only.
