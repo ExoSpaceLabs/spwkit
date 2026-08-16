@@ -71,6 +71,16 @@ public:
         return UINT64_C(2000000);
     }
 
+    bool has_strict_bounded_queue_contract() const noexcept override {
+        /*
+         * VSPD reports bounded daemon-side packet queues. A public device send,
+         * however, is synchronously confirmed across the process boundary, so
+         * that service capacity is not an SPW_TIMEOUT_IMMEDIATE acceptance
+         * guarantee. The daemon queue remains covered by the raw VSPD tests.
+         */
+        return false;
+    }
+
     spw_timeout_us_t link_transition_timeout_us() const noexcept override {
         return UINT64_C(5000000);
     }
