@@ -15,6 +15,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  repository-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Reject stale C++ runtime/package markers
+        shell: bash
+        run: |
+          scopes=(CMakeLists.txt cmake docs examples tests .github/workflows README.md)
+
+          if git grep -nF 'SpWKit::' -- "${scopes[@]}"; then
+            echo "Use lowercase exported targets: spwkit::spwkit / spwkit::cpp." >&2
+            exit 1
+          fi
+          if git grep -nF 'LINKER_LANGUAGE CXX' -- "${scopes[@]}"; then
+            echo "C consumers must not force the C++ linker." >&2
+            exit 1
+          fi
+          if git grep -nF 'find_package(SpWKit 0.2' -- docs examples README.md; then
+            echo "Current development documentation/examples must request SpWKit 0.3." >&2
+            exit 1
+          fi
+          if git grep -nF 'src/core/port.cpp' -- .github/workflows docs; then
+            echo "Stale pre-C11 runtime path remains." >&2
+            exit 1
+          fi
+
+      - name: Reject explicit exception syntax
+        shell: bash
+        run: |
+          if git grep -nE '\b(throw|try|catch)\b' -- '*.cpp' '*.hpp'; then
+            echo "SpWKit C++ wrapper/tests/examples must remain exception-free."
+            exit 1
+          fi
+
   build-test:
     name: ${{ matrix.name }}
     strategy:
@@ -44,14 +81,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Reject explicit exception syntax
-        shell: bash
-        run: |
-          if git grep -nE '\b(throw|try|catch)\b' -- '*.cpp' '*.hpp'; then
-            echo "SpWKit C++ wrapper/tests/examples must remain exception-free."
-            exit 1
-          fi
-
       - name: Configure
         shell: bash
         env:
@@ -61,7 +90,9 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_CPP_TESTS=ON
           -DSPWKIT_BUILD_EXAMPLES=ON
+          -DSPWKIT_BUILD_CPP_EXAMPLES=ON
           -DSPWKIT_BUILD_SIMULATOR=OFF
           -DSPWKIT_BUILD_TOOLS=OFF
           -DSPWKIT_ENABLE_HEAP=ON
@@ -116,7 +147,9 @@ jobs:
           cmake -S . -B build-sanitize
           -DCMAKE_BUILD_TYPE=Debug
           -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_CPP_TESTS=ON
           -DSPWKIT_BUILD_EXAMPLES=ON
+          -DSPWKIT_BUILD_CPP_EXAMPLES=ON
           -DSPWKIT_ENABLE_HEAP=ON
           -DSPWKIT_ENABLE_CPP=ON
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
@@ -132,20 +165,22 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build-sanitize --output-on-failure
 
-  no-heap:
-    name: Linux no-heap core
+  no-heap-cpp:
+    name: Linux no-heap C++ fixture
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Configure no-heap profile
+      - name: Configure no-heap C++ development profile
         run: >-
           cmake -S . -B build-noheap
           -DCMAKE_BUILD_TYPE=Debug
           -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_CPP_TESTS=ON
           -DSPWKIT_BUILD_EXAMPLES=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
           -DSPWKIT_BUILD_SIMULATOR=OFF
           -DSPWKIT_BUILD_TOOLS=OFF
           -DSPWKIT_ENABLE_HEAP=OFF
