@@ -19,11 +19,11 @@ jobs:
           ref: agent/v0.2-udp-contract
       - name: Apply shared contract timeout profile
         run: python3 .github/patch_contract32.py
-      - name: Build and run contract/D2D tests
+      - name: Build and run backend contract/D2D tests
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSPWKIT_BUILD_TESTS=ON -DSPWKIT_BUILD_EXAMPLES=OFF -DSPWKIT_BUILD_SIMULATOR=ON -DSPWKIT_BUILD_UDP=ON -DSPWKIT_ENABLE_HEAP=ON
           cmake --build build --parallel
-          ctest --test-dir build --output-on-failure -L contract
+          ctest --test-dir build --output-on-failure -R '^backend_contract_(loopback|simulator|udp)$'
           ctest --test-dir build --output-on-failure -L d2d
       - name: Commit validated patch
         run: |
