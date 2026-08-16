@@ -21,6 +21,7 @@ on:
       - "tests/vspw_seqpacket.c"
       - "tests/vspwd_*.c"
       - "tests/device_public_peer.c"
+      - "tests/contract/device_contract.cpp"
       - "tests/device/**"
       - "tests/CMakeLists.txt"
       - "docs/vspw-device-protocol.md"
@@ -46,6 +47,7 @@ on:
       - "tests/vspw_seqpacket.c"
       - "tests/vspwd_*.c"
       - "tests/device_public_peer.c"
+      - "tests/contract/device_contract.cpp"
       - "tests/device/**"
       - "tests/CMakeLists.txt"
       - "docs/vspw-device-protocol.md"
@@ -203,7 +205,7 @@ jobs:
           test -f "$PWD/install-device/include/spwkit/device.h"
 
   public-cpp:
-    name: Optional C++ device wrapper example
+    name: Optional C++ device wrapper + shared contract
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -212,7 +214,8 @@ jobs:
         run: |
           cmake -S . -B build-device-cpp \
             -DCMAKE_BUILD_TYPE=Release \
-            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=ON \
             -DSPWKIT_BUILD_EXAMPLES=ON \
             -DSPWKIT_BUILD_CPP_EXAMPLES=ON \
             -DSPWKIT_BUILD_SIMULATOR=OFF \
@@ -224,8 +227,11 @@ jobs:
             -DCMAKE_C_FLAGS="-Wall -Wextra -Werror" \
             -DCMAKE_CXX_FLAGS="-Wall -Wextra -Werror"
 
-      - name: Build daemon and C++ wrapper example
+      - name: Build daemon, wrapper example and contract fixture
         run: cmake --build build-device-cpp --parallel
+
+      - name: Run shared device backend contract
+        run: ctest --test-dir build-device-cpp -R '^backend_contract_device$' --output-on-failure --no-tests=error
 
       - name: Run optional C++ wrapper example pair
         shell: bash
