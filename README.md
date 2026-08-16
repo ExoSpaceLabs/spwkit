@@ -13,7 +13,7 @@ libspwkit public C ABI
     +--> loopback reference backend
     +--> process-local SpaceWire simulator
     +--> VSPW-TP / UDP distributed backend
-    +--> next: Linux virtual-device backend / vspwd
+    +--> v0.4 Linux virtual-device backend / vspwd
     +--> future bare-metal / RTOS backend
     +--> future FPGA / vendor backend
 ```
@@ -63,7 +63,7 @@ Physical FPGA/HIL verification is deliberately deferred until suitable hardware 
 - installed-package equal-peer example for independent processes/hosts;
 - active D2D CI exercising localhost processes and two Linux network namespaces in addition to transport/recovery/timing/fault tests;
 - VSPW-TP Wireshark/tshark capture tooling with deterministic real-dissector validation;
-- explicit v0.2 platform policy and installed-package UDP runtime metadata.
+- explicit v0.2 platform policy and installed package UDP runtime metadata.
 
 Native Winsock UDP transport remains tracked separately in issue #42.
 
@@ -74,6 +74,14 @@ Native Winsock UDP transport remains tracked separately in issue #42.
 The release adds pure-C behavioral CI, C-only static/shared installed consumers, a genuinely C-only distributed example, a real freestanding/no-heap portability build, lowercase imported targets, and repository hygiene checks for stale pre-C11 integration patterns.
 
 The C API is authoritative. C++ does not provide a second implementation or different SpaceWire semantics.
+
+### v0.4.0 — Linux virtual device — development
+
+The v0.4 development line is building an OS-visible virtual SpaceWire layer on top of the v0.3 C11 runtime.
+
+The foundation already includes the private **VSPD v1** daemon/device protocol over Linux `AF_UNIX`/`SOCK_SEQPACKET`, fixed network-order encodings, bounded fragmentation/reassembly up to 1 MiB logical packets, and pure-C protocol/poll/disconnect tests. The current `vspwd` slice adds a Linux userspace daemon with two equal virtual ports, HELLO/ATTACH, link lifecycle, packets, EOP/EEP, time codes, statistics and restart recovery.
+
+`vspwd` and the VSPD protocol are implementation infrastructure. Normal applications will continue to use only `spw_port_*`; the public C Linux-device backend is the next slice after the daemon core is stable.
 
 ## Virtual SpaceWire
 
@@ -119,6 +127,28 @@ The distributed backend runs the reusable public backend contract and is also ex
 
 Wire inspection is available separately under `tools/wireshark`: the Lua dissector recognizes VSPW-TP on configurable UDP ports, decodes v1 header/control fields, and is validated against a deterministic generated PCAP through tshark. This tooling is not linked into `libspwkit` and adds no runtime dependency.
 
+### Linux virtual-device service
+
+The v0.4 device path is being built around a private VSPD control/data protocol and the pure-C `vspwd` service:
+
+```text
+C/C++ application
+        |
+    spw_port_*
+        |
+ future Linux device backend
+        |
+       VSPD
+        |
+      vspwd
+        |
+ virtual port 0 <-> virtual port 1
+```
+
+The daemon is opt-in with `SPWKIT_BUILD_VSPWD=ON` and remains separate from the portable library core. Its initial topology is deliberately bounded to two equal peers so process boundaries, link lifecycle, packet preservation and restart behavior are proven before `/dev/vspwX`, management tools or router/topology features are added.
+
+See `docs/vspw-device-protocol.md` for the VSPD wire contract and `docs/vspwd.md` for daemon behavior and CI evidence.
+
 ### Hosted platform scope
 
 The UDP runtime is currently **POSIX-only**. Linux is the primary fully exercised distributed platform; macOS is supported as a second POSIX host through the host/shared UDP contract matrix. Windows remains supported for the portable C core API, simulator and installed package, but the UDP runtime backend is not implemented there yet.
@@ -127,7 +157,7 @@ Windows still installs `spwkit/udp.h` and exposes `SPW_BACKEND_UDP`/`spw_udp_con
 
 Native Winsock support is deferred behind the same backend contract. See `docs/platform-support.md` and issue #42.
 
-The next runtime milestone is the Linux virtual-device/userspace-service layer tracked by #54.
+The Linux virtual-device/userspace-service milestone is tracked by #54.
 
 ## Portable memory model
 
@@ -202,22 +232,38 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
+Linux `vspwd` development profile:
+
+```sh
+CC=gcc CXX=/bin/false cmake -S . -B build-device \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DSPWKIT_BUILD_TESTS=ON \
+  -DSPWKIT_BUILD_CPP_TESTS=OFF \
+  -DSPWKIT_BUILD_EXAMPLES=OFF \
+  -DSPWKIT_BUILD_VSPWD=ON \
+  -DSPWKIT_ENABLE_CPP=OFF
+cmake --build build-device --parallel
+ctest --test-dir build-device -L device --output-on-failure
+```
+
 Install:
 
 ```sh
 cmake --install build --prefix /path/to/spwkit-install
 ```
 
-Consumer CMake:
+Consumer CMake for the v0.4 development line:
 
 ```cmake
-find_package(SpWKit 0.3 CONFIG REQUIRED)
+find_package(SpWKit 0.4 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE spwkit::spwkit)
 
 if(SpWKit_UDP_RUNTIME_SUPPORTED)
     # This installed library contains the hosted VSPW-TP/UDP backend.
 endif()
 ```
+
+Consumers pinned to the `v0.3.0` release should request `SpWKit 0.3` instead.
 
 Optional C++ consumers link `spwkit::cpp` when the package was built with `SPWKIT_ENABLE_CPP=ON`.
 
@@ -233,7 +279,9 @@ CI builds standalone installed-package consumers so exported package metadata ca
 - `examples/installed_cpp`: optional C++17 wrapper consumer built against `spwkit::cpp`;
 - `examples/distributed`: standalone **C-only** installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios.
 
-All examples use public headers only and require no physical SpaceWire hardware.
+Device-backend C and optional C++ examples will be added once the public `spw_port_*` Linux-device backend exists; raw VSPD clients remain test infrastructure rather than public examples.
+
+All public examples use public headers only and require no physical SpaceWire hardware.
 
 ## Standards scope
 
@@ -255,6 +303,8 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [Backend contract](docs/backend-contract.md)
 - [Local virtual simulator](docs/simulator.md)
 - [Distributed VSPW-TP transport](docs/vspw-tp.md)
+- [Linux VSPD device protocol](docs/vspw-device-protocol.md)
+- [`vspwd` userspace virtual-device service](docs/vspwd.md)
 - [VSPW-TP capture and Wireshark tooling](tools/wireshark/README.md)
 - [Testing strategy](docs/testing.md)
 - [Architecture](docs/architecture.md)
