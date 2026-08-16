@@ -7,7 +7,7 @@ Starting with the v0.3 development line, `libspwkit` itself is implemented in C1
 ```text
 C application -----------------------------+
                                            |
-C++ application -> optional SpWKit::cpp ---+--> public C API
+C++ application -> optional SpWKit::cpp ---+-> public C API
                                                 |
                                                 v
                                          C11 libspwkit
@@ -87,7 +87,7 @@ if (port.start() != SPW_OK) {
 
 `spwkit::Port` is move-only and closes its underlying `spw_port_t` in its destructor. It does not throw and it does not hide `spw_result_t`.
 
-If `SPWKIT_ENABLE_CPP=OFF`, `SpWKit::cpp` and `spwkit/spwkit.hpp` are not installed. `SpWKit::spwkit` is unaffected.
+If `SPWKIT_ENABLE_CPP=OFF`, `SpWKit::cpp` and `spwkit/spwkit.hpp` are not installed. `SpWKit::spwkit` is unaffected. Installed package metadata exposes this decision as `SpWKit_CPP_WRAPPER_AVAILABLE`, so consumers do not need to infer wrapper support from filesystem state.
 
 ## Embedded static profile
 
