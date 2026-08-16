@@ -19,7 +19,8 @@ spw_port_t* open_udp(std::uint16_t local_port,
     udp.ack_timeout_ms = 20u;
     udp.max_retries = 3u;
     udp.keepalive_interval_ms = 30u;
-    udp.peer_timeout_ms = 120u;
+    /* Keep retry timing comfortably separated from the peer-loss horizon. */
+    udp.peer_timeout_ms = 500u;
 
     spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
     config.backend_config = &udp;
@@ -75,10 +76,9 @@ int main() {
     ::usleep(30000u);
 
     /*
-     * State queries cooperatively service one transport event. ACK/KEEPALIVE
-     * datagrams can be queued in either order, so allow a bounded number of
-     * service passes instead of assuming one kernel-delivery/scheduling turn
-     * is enough on every POSIX host.
+     * State queries cooperatively service transport/retry work. The liveness
+     * horizon is intentionally much longer than this retry window so the test
+     * does not race peer-loss detection on a loaded host.
      */
     spw_link_state_t a_state = SPW_LINK_ERROR_RESET;
     for (unsigned attempt = 0u; attempt < 10u && a_state != SPW_LINK_RUN; ++attempt) {
@@ -141,7 +141,7 @@ int main() {
      */
     assert(spw_port_close(b) == SPW_OK);
     b = nullptr;
-    constexpr unsigned peer_loss_poll_us = 160000u; // > configured 120 ms timeout
+    constexpr unsigned peer_loss_poll_us = 600000u; // > configured 500 ms timeout
     for (unsigned attempt = 0u;
          attempt < 4u && a_state != SPW_LINK_ERROR_WAIT;
          ++attempt) {
