@@ -83,6 +83,15 @@ public:
 
     /** Maximum public-observation budget for loss/recovery state transitions. */
     virtual spw_timeout_us_t link_transition_timeout_us() const noexcept = 0;
+
+    /**
+     * Budget for confirming a send failure after peer loss is already visible.
+     * Local/nonblocking distributed backends retain the immediate default;
+     * service-backed transports may need a finite request/response round trip.
+     */
+    virtual spw_timeout_us_t peer_loss_send_timeout_us() const noexcept {
+        return SPW_TIMEOUT_IMMEDIATE;
+    }
 };
 
 /** Run the complete shared copied-I/O contract for one backend fixture. */
