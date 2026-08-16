@@ -23,7 +23,10 @@ public:
     };
 
     explicit DeterministicFaultInjector(const spw_udp_config_t& config) noexcept
-        : rules_(config.fault_rules), seed_(config.fault_seed) {
+        : seed_(config.fault_seed) {
+        for (std::size_t i = 0u; i < rules_.size(); ++i) {
+            rules_[i] = config.fault_rules[i];
+        }
         reset();
     }
 
