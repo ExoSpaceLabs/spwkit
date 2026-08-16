@@ -2,7 +2,7 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
-## v0.3.0 — unreleased
+## v0.3.0 — 2026-08-16
 
 C-first runtime and packaging architecture. The public C API remains authoritative while the implementation no longer requires a C++ toolchain.
 
@@ -35,7 +35,7 @@ C-first runtime and packaging architecture. The public C API remains authoritati
 - the optional C++ wrapper remains exception-free and delegates exclusively to the public C API;
 - hosted simulator thread primitives and POSIX socket details remain private implementation dependencies.
 
-The v0.3 engineering scope is complete, but this section remains `unreleased` until the dedicated release audit freezes and tags `v0.3.0`.
+The dedicated release audit verified package/API version alignment and the full hosted, pure-C, simulator, D2D and freestanding portability gates before the `v0.3.0` tag boundary.
 
 ## v0.2.0 — 2026-08-16
 
