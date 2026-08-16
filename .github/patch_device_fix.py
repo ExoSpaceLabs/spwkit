@@ -22,3 +22,5 @@ p.write_text(s.replace(old, new, 1))
 
 Path('.github/workflows/patch-device-fix.yml').unlink(missing_ok=True)
 Path('.github/patch_device_fix.py').unlink(missing_ok=True)
+
+# Trigger update; file is removed by the successful patch.
