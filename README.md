@@ -59,9 +59,11 @@ Development has moved to package version 0.2.0 and the distributed virtual Space
 - deterministic configurable SpaceWire-side virtual link rate and fixed latency;
 - deterministic seeded transport drop/duplicate/reorder/delay injection;
 - explicit SpaceWire-side EEP injection with transport/SpaceWire fault-domain counters;
-- active device-to-device CI exercising real UDP transfer, recovery, timing and fault behavior.
+- reusable shared public backend contract plus distributed peer-loss/restart contract;
+- installed-package equal-peer example for independent processes/hosts;
+- active D2D CI exercising localhost processes and two Linux network namespaces in addition to transport/recovery/timing/fault tests.
 
-Stronger multi-process/container examples, broader distributed contract coverage and capture/Wireshark tooling remain v0.2 work.
+Capture/Wireshark tooling and the final v0.2 UDP platform-support decision remain v0.2 work.
 
 ## Virtual SpaceWire
 
@@ -102,6 +104,8 @@ Reliability is logical-message based. The backend retains at most one unacknowle
 The optional virtual timing model adds deterministic SpaceWire-side serialization and fixed latency to logical DATA/TIME_CODE events without treating incidental host UDP delay as simulated link timing. ACKs, keepalives and retransmissions remain transport mechanics and do not reapply the logical SpaceWire delay.
 
 The UDP backend also supports fixed-size seeded fault rules for transport drop, duplicate, adjacent reorder and delay. These operate on VSPW-TP carrier datagrams and remain distinct from explicit SpaceWire-side EEP injection. Ordinary transport loss or reordering never synthesizes EEP. `spw_port_get_fault_statistics()` exposes separate counters for the two fault domains.
+
+The distributed backend now runs the reusable public backend contract and is also exercised as genuinely separate applications. The D2D gate installs SpWKit, builds `examples/distributed` through `find_package(SpWKit)`, launches two peer processes, verifies peer loss/restart, and repeats the same 8 KiB EOP/EEP plus time-code exchange in two Linux network namespaces connected by a 1500-byte-MTU veth link. The applications never call VSPW-TP or socket-private APIs.
 
 `/dev/vspwX` remains later roadmap work.
 
@@ -172,16 +176,17 @@ target_link_libraries(my_target PRIVATE SpWKit::spwkit)
 
 Consumers pinned to the `v0.1.0` tag should request `SpWKit 0.1` instead.
 
-CI builds a standalone installed-package consumer so exported package metadata cannot silently rot.
+CI builds standalone installed-package consumers so exported package metadata cannot silently rot.
 
 ## Examples
 
 - `examples/c_loopback.c`: hosted C API, capabilities, packets, EEP and time codes;
 - `examples/cpp_no_heap.cpp`: C++ application using caller-owned workspace;
 - `examples/c_simulator_zero_copy.c`: paired simulator endpoints using zero-copy ownership;
-- `examples/installed`: standalone installed-package consumer.
+- `examples/installed`: minimal standalone installed-package consumer;
+- `examples/distributed`: standalone installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios.
 
-All examples use public headers only and require no physical hardware.
+All examples use public headers only and require no physical SpaceWire hardware.
 
 ## Standards scope
 
