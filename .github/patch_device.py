@@ -93,3 +93,5 @@ p.write_text(s)
 
 Path(".github/workflows/patch-device-backend.yml").unlink(missing_ok=True)
 Path(".github/patch_device.py").unlink(missing_ok=True)
+
+# Trigger-only update: this file deletes itself after a successful run.
