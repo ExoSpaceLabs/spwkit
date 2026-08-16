@@ -39,6 +39,12 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
         C_STANDARD 11
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS OFF)
+
+    if(SPWKIT_BUILD_CPP_TESTS AND SPWKIT_ENABLE_HEAP)
+        add_executable(spwkit_device_contract_test ../contract/device_contract.cpp)
+        target_link_libraries(spwkit_device_contract_test PRIVATE spwkit_backend_contract_suite)
+        target_compile_features(spwkit_device_contract_test PRIVATE cxx_std_17)
+    endif()
 endif()
 
 add_test(
@@ -71,4 +77,16 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
     set_tests_properties(device_public_api_process_pair_restart PROPERTIES
         LABELS "device;contract;integration;process;restart;c"
         TIMEOUT 45)
+
+    if(SPWKIT_BUILD_CPP_TESTS AND SPWKIT_ENABLE_HEAP)
+        add_test(
+            NAME backend_contract_device
+            COMMAND bash
+                    ${CMAKE_CURRENT_SOURCE_DIR}/run_device_contract.sh
+                    $<TARGET_FILE:vspwd>
+                    $<TARGET_FILE:spwkit_device_contract_test>)
+        set_tests_properties(backend_contract_device PROPERTIES
+            LABELS "device;contract;integration;process;restart;cpp"
+            TIMEOUT 60)
+    endif()
 endif()

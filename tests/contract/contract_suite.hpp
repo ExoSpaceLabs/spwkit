@@ -43,6 +43,19 @@ public:
     }
 
     /**
+     * Whether advertised queue depths are strict public non-blocking acceptance
+     * limits that can be validated with SPW_TIMEOUT_IMMEDIATE.
+     *
+     * Some hosted service backends report bounded transport/service capacity but
+     * synchronously confirm each public send across a process boundary. Those
+     * depths remain useful diagnostics, but they are not an immediate-send
+     * guarantee and therefore must not be tested as one.
+     */
+    virtual bool has_strict_bounded_queue_contract() const noexcept {
+        return true;
+    }
+
+    /**
      * Optional zero-copy contract hook.
      *
      * The shared suite calls this only when both endpoints advertise
@@ -70,6 +83,15 @@ public:
 
     /** Maximum public-observation budget for loss/recovery state transitions. */
     virtual spw_timeout_us_t link_transition_timeout_us() const noexcept = 0;
+
+    /**
+     * Budget for confirming a send failure after peer loss is already visible.
+     * Local/nonblocking distributed backends retain the immediate default;
+     * service-backed transports may need a finite request/response round trip.
+     */
+    virtual spw_timeout_us_t peer_loss_send_timeout_us() const noexcept {
+        return SPW_TIMEOUT_IMMEDIATE;
+    }
 };
 
 /** Run the complete shared copied-I/O contract for one backend fixture. */

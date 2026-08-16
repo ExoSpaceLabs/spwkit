@@ -87,7 +87,7 @@ void test_peer_loss_and_restart(DistributedBackendContractFixture& fixture) {
     std::uint8_t unavailable_payload = 0x55u;
     spw_packet_t unavailable{&unavailable_payload, 1u, 1u, SPW_TERMINATOR_EOP};
     require_result(spw_port_send(fixture.endpoint_a(), &unavailable,
-                                 SPW_TIMEOUT_IMMEDIATE),
+                                 fixture.peer_loss_send_timeout_us()),
                    SPW_ERR_LINK_UNAVAILABLE, test,
                    "send did not report LINK_UNAVAILABLE after peer loss");
 
@@ -119,6 +119,7 @@ int run_distributed_backend_contract(DistributedBackendContractFixture& fixture)
     std::cout << "[contract][distributed] backend=" << fixture.name()
               << " transferTimeoutUs=" << fixture.transfer_timeout_us()
               << " transitionTimeoutUs=" << fixture.link_transition_timeout_us()
+              << " peerLossSendTimeoutUs=" << fixture.peer_loss_send_timeout_us()
               << '\n';
 
     test_peer_loss_and_restart(fixture);
