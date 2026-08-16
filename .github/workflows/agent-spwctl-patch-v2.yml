@@ -1,0 +1,82 @@
+name: Agent spwctl patch v2
+
+on:
+  push:
+    branches: [agent/develop]
+    paths:
+      - ".github/workflows/agent-spwctl-patch-v2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/develop
+          fetch-depth: 0
+
+      - name: Apply management and test patches
+        run: |
+          python3 .github/agent_spwctl_patch.py
+          python3 .github/agent_spwctl_fix.py
+
+      - name: Configure pure-C management profile
+        env:
+          CC: clang
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-spwctl \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-spwctl/CMakeCache.txt; then
+            echo "spwctl profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build and test management slice
+        run: |
+          cmake --build build-spwctl --parallel
+          ctest --test-dir build-spwctl --output-on-failure --no-tests=error
+          build-spwctl/spwctl --help
+          cmake --install build-spwctl --prefix "$PWD/install-spwctl"
+          test -x "$PWD/install-spwctl/bin/vspwd"
+          test -x "$PWD/install-spwctl/bin/spwctl"
+          "$PWD/install-spwctl/bin/spwctl" --help
+
+      - name: Publish source tests and docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert A Incze"
+          git config user.email "98164670+Inczert@users.noreply.github.com"
+          git add CMakeLists.txt \
+                  src/backends/device/vspw_device_protocol.h \
+                  src/backends/device/vspw_device_protocol.c \
+                  src/vspwd/server.c \
+                  src/tools/vspd_management_client.h \
+                  src/tools/vspd_management_client.c \
+                  src/tools/spwctl.c \
+                  tests/vspw_device_protocol.c \
+                  tests/device_hold_peer.c \
+                  tests/device/CMakeLists.txt \
+                  tests/device/run_spwctl.sh \
+                  docs/vspw-device-protocol.md \
+                  docs/vspwd.md
+          git diff --cached --check
+          git commit -m "feat(spwkit): add non-owning vspwd management plane"
+          git push origin HEAD:agent/develop
