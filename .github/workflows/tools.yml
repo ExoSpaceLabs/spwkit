@@ -1,0 +1,94 @@
+name: Tools
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "src/tools/**"
+      - "src/vspwd/**"
+      - "src/backends/device/vspw_device_protocol.*"
+      - "tests/vspw_device_protocol.c"
+      - "tests/device_hold_peer.c"
+      - "tests/device/**"
+      - "docs/vspw-device-protocol.md"
+      - "docs/vspwd.md"
+      - ".github/workflows/tools.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "src/tools/**"
+      - "src/vspwd/**"
+      - "src/backends/device/vspw_device_protocol.*"
+      - "tests/vspw_device_protocol.c"
+      - "tests/device_hold_peer.c"
+      - "tests/device/**"
+      - "docs/vspw-device-protocol.md"
+      - "docs/vspwd.md"
+      - ".github/workflows/tools.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tools-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pure-c:
+    name: spwctl / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+          - compiler: clang
+            cc: clang
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure pure-C tools profile
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-tools \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-tools/CMakeCache.txt; then
+            echo "Tools profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build-tools --parallel
+
+      - name: Run tools and device integration tests
+        run: ctest --test-dir build-tools --output-on-failure --no-tests=error
+
+      - name: Smoke and install CLIs
+        run: |
+          build-tools/vspwd --help
+          build-tools/spwctl --help
+          cmake --install build-tools --prefix "$PWD/install-tools"
+          test -x "$PWD/install-tools/bin/vspwd"
+          test -x "$PWD/install-tools/bin/spwctl"
+          "$PWD/install-tools/bin/vspwd" --help
+          "$PWD/install-tools/bin/spwctl" --help
