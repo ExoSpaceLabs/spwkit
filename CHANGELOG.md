@@ -2,6 +2,29 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
+## v0.4.0 — unreleased
+
+Linux virtual-device and userspace-service development line.
+
+### Added
+
+- private VSPD v1 backend↔daemon protocol, distinct from VSPW-TP, with a fixed 40-byte network-order header;
+- request/response correlation plus asynchronous DATA/TIME_CODE/link-state events;
+- bounded DATA fragmentation with 32 KiB local IPC records and a 1 MiB logical-packet ceiling;
+- explicit EOP/EEP, link-state, capability, statistics and fixed status encodings without native structure layout on wire;
+- pure-C golden/malformed protocol vectors;
+- Linux `AF_UNIX`/`SOCK_SEQPACKET` integration coverage for record preservation, non-blocking receive, `poll()` readiness and disconnect;
+- dedicated pure-C Virtual device CI on GCC/Clang.
+
+### Direction
+
+- `vspwd` and the Linux device backend will use VSPD beneath the existing `spw_port_*` API;
+- Unix-domain `SOCK_SEQPACKET` is the unprivileged reference transport;
+- CUSE `/dev/vspwX` remains a presentation-layer investigation rather than a prerequisite for CI/development;
+- VSPD codec logic remains portable C and participates in the freestanding/no-heap portability gate.
+
+No `v0.4.0` release tag is implied by this development section.
+
 ## v0.3.0 — 2026-08-16
 
 C-first runtime and packaging architecture. The public C API remains authoritative while the implementation no longer requires a C++ toolchain.
