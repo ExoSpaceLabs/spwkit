@@ -1491,6 +1491,7 @@ static const spw_backend_ops_t UDP_OPS = {
     NULL,
     NULL,
     NULL,
+    NULL,
     NULL
 };
 

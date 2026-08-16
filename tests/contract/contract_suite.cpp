@@ -244,6 +244,87 @@ void test_timeout_and_nonblocking(BackendContractFixture& fixture) {
                    "empty finite receive did not time out");
 }
 
+void test_readiness(BackendContractFixture& fixture,
+                    const spw_capabilities_t& caps_a,
+                    const spw_capabilities_t& caps_b) {
+    constexpr const char* test = "readiness";
+    if ((caps_a.bits & SPW_CAP_READINESS) == 0u ||
+        (caps_b.bits & SPW_CAP_READINESS) == 0u) {
+        std::cout << "[contract][SKIP] " << test
+                  << ": capability not advertised\n";
+        return;
+    }
+
+    prepare_running(fixture, test);
+
+    spw_ready_events_t ready = SPW_READY_ALL;
+    require_result(spw_port_wait(fixture.endpoint_b(), SPW_READY_RX_PACKET,
+                                 SPW_TIMEOUT_IMMEDIATE, &ready),
+                   SPW_ERR_TIMEOUT, test,
+                   "empty packet readiness did not time out");
+    require(ready == SPW_READY_NONE, test,
+            "timeout returned spurious readiness bits");
+
+    std::uint8_t tx[] = {0x52u, 0x44u, 0x59u};
+    std::uint8_t rx[sizeof(tx)]{};
+    send_packet(fixture.endpoint_a(), tx, sizeof(tx), SPW_TERMINATOR_EOP, test);
+
+    require_result(spw_port_wait(fixture.endpoint_b(), SPW_READY_RX_PACKET,
+                                 g_transfer_timeout_us, &ready),
+                   SPW_OK, test, "packet readiness wait failed");
+    require(ready == SPW_READY_RX_PACKET, test,
+            "packet readiness returned wrong event bits");
+
+    ready = SPW_READY_NONE;
+    require_result(spw_port_wait(fixture.endpoint_b(), SPW_READY_RX_PACKET,
+                                 SPW_TIMEOUT_IMMEDIATE, &ready),
+                   SPW_OK, test, "packet readiness was consumed by wait");
+    require(ready == SPW_READY_RX_PACKET, test,
+            "level-triggered packet readiness was not preserved");
+
+    receive_packet(fixture.endpoint_b(), rx, sizeof(rx), sizeof(tx),
+                   SPW_TERMINATOR_EOP, test);
+    require(std::memcmp(tx, rx, sizeof(tx)) == 0, test,
+            "readiness packet payload mismatch");
+
+    ready = SPW_READY_ALL;
+    require_result(spw_port_wait(fixture.endpoint_b(), SPW_READY_RX_PACKET,
+                                 SPW_TIMEOUT_IMMEDIATE, &ready),
+                   SPW_ERR_TIMEOUT, test,
+                   "packet readiness remained set after receive");
+    require(ready == SPW_READY_NONE, test,
+            "drained packet reported readiness");
+
+    if ((caps_a.bits & SPW_CAP_TIME_CODE) != 0u &&
+        (caps_b.bits & SPW_CAP_TIME_CODE) != 0u) {
+        spw_time_code_t sent{23u, 0u};
+        spw_time_code_t received{};
+        require_result(spw_port_send_time_code(fixture.endpoint_a(), &sent,
+                                               g_transfer_timeout_us),
+                       SPW_OK, test, "time-code send failed");
+
+        require_result(spw_port_wait(fixture.endpoint_b(), SPW_READY_RX_TIME_CODE,
+                                     g_transfer_timeout_us, &ready),
+                       SPW_OK, test, "time-code readiness wait failed");
+        require(ready == SPW_READY_RX_TIME_CODE, test,
+                "time-code readiness returned wrong event bits");
+
+        ready = SPW_READY_NONE;
+        require_result(spw_port_wait(fixture.endpoint_b(), SPW_READY_RX_TIME_CODE,
+                                     SPW_TIMEOUT_IMMEDIATE, &ready),
+                       SPW_OK, test, "time-code readiness was consumed by wait");
+        require(ready == SPW_READY_RX_TIME_CODE, test,
+                "level-triggered time-code readiness was not preserved");
+
+        require_result(spw_port_receive_time_code(fixture.endpoint_b(), &received,
+                                                  g_transfer_timeout_us),
+                       SPW_OK, test, "time-code receive failed after wait");
+        require(received.time_count == sent.time_count &&
+                    received.control_flags == sent.control_flags,
+                test, "readiness time-code content mismatch");
+    }
+}
+
 void test_bounded_queue(BackendContractFixture& fixture,
                         const spw_capabilities_t& caps_a,
                         const spw_capabilities_t& caps_b) {
@@ -401,6 +482,7 @@ int run_backend_contract(BackendContractFixture& fixture) {
     test_large_packet(fixture, caps_a, caps_b);
     test_receive_capacity_retention(fixture, caps_a, caps_b);
     test_timeout_and_nonblocking(fixture);
+    test_readiness(fixture, caps_a, caps_b);
     test_bounded_queue(fixture, caps_a, caps_b);
     test_time_codes(fixture, caps_a, caps_b);
     test_statistics(fixture, caps_a, caps_b);

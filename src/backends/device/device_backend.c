@@ -777,6 +777,76 @@ static spw_result_t device_receive_time_code(void* raw,
     return SPW_OK;
 }
 
+static spw_ready_events_t device_ready_events(
+    const device_context_t* context,
+    spw_ready_events_t interests) {
+    spw_ready_events_t ready = SPW_READY_NONE;
+    if ((interests & SPW_READY_RX_PACKET) != 0u && context->rx_ready) {
+        ready |= SPW_READY_RX_PACKET;
+    }
+    if ((interests & SPW_READY_RX_TIME_CODE) != 0u &&
+        context->time_code_count != 0u) {
+        ready |= SPW_READY_RX_TIME_CODE;
+    }
+    return ready;
+}
+
+static spw_result_t device_service_event(device_context_t* context,
+                                         uint64_t deadline) {
+    uint8_t frame[VSPD_HEADER_SIZE + VSPD_MAX_FRAME_PAYLOAD];
+    vspd_header_t header;
+    const uint8_t* payload;
+    size_t frame_size = 0u;
+    spw_result_t result = receive_record(context,
+                                         frame,
+                                         sizeof(frame),
+                                         &frame_size,
+                                         deadline);
+    if (result != SPW_OK) {
+        return result;
+    }
+    if (vspd_validate_frame(frame, frame_size, &header) != VSPD_CODEC_OK ||
+        (header.flags & VSPD_FLAG_RESPONSE) != 0u) {
+        mark_disconnected(context);
+        return SPW_ERR_BACKEND;
+    }
+    payload = header.payload_size == 0u ? NULL : frame + VSPD_HEADER_SIZE;
+    return process_event(context, &header, payload);
+}
+
+static spw_result_t device_wait(void* raw,
+                                spw_ready_events_t interests,
+                                spw_timeout_us_t timeout_us,
+                                spw_ready_events_t* out_ready) {
+    device_context_t* context = (device_context_t*)raw;
+    uint64_t deadline = deadline_for(timeout_us);
+    spw_ready_events_t ready = device_ready_events(context, interests);
+    spw_result_t result;
+
+    *out_ready = SPW_READY_NONE;
+    if (ready != SPW_READY_NONE) {
+        *out_ready = ready;
+        return SPW_OK;
+    }
+
+    result = ensure_connected(context, deadline);
+    if (result != SPW_OK) {
+        return result;
+    }
+
+    for (;;) {
+        result = device_service_event(context, deadline);
+        if (result != SPW_OK) {
+            return result;
+        }
+        ready = device_ready_events(context, interests);
+        if (ready != SPW_READY_NONE) {
+            *out_ready = ready;
+            return SPW_OK;
+        }
+    }
+}
+
 static spw_result_t device_get_statistics(const void* raw,
                                           spw_statistics_t* out_statistics) {
     device_context_t* context = (device_context_t*)raw;
@@ -890,7 +960,8 @@ static const spw_backend_ops_t DEVICE_OPS = {
     unsupported_reclaim_tx,
     unsupported_release_tx,
     unsupported_acquire_rx,
-    unsupported_release_rx};
+    unsupported_release_rx,
+    device_wait};
 
 static const spw_backend_factory_t DEVICE_FACTORY = {
     sizeof(device_context_t),
