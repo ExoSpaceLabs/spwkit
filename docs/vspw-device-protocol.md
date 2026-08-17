@@ -1,4 +1,4 @@
-# VSPD v1.2 — virtual SpaceWire device protocol
+# VSPD v1.3 — virtual SpaceWire device protocol
 
 VSPD is the private protocol between a hosted SpWKit Linux-device backend and the `vspwd` userspace service.
 
@@ -52,13 +52,13 @@ Native structures are never transmitted with `send(sizeof(struct))`. No pointer,
 
 ## Fixed 40-byte header
 
-VSPD v1.2 uses the same fixed 40-byte header:
+VSPD v1.3 uses the same fixed 40-byte header:
 
 | Offset | Size | Field | Meaning |
 |---:|---:|---|---|
 | 0 | 4 | magic | ASCII `VSPD`, `0x56535044` |
 | 4 | 1 | version_major | `1` |
-| 5 | 1 | version_minor | `2` |
+| 5 | 1 | version_minor | `3` |
 | 6 | 1 | type | message type |
 | 7 | 1 | flags | response/fragment/terminator bits |
 | 8 | 2 | header_size | `40` |
@@ -147,7 +147,7 @@ Payload, exactly four bytes:
 
 ```text
 byte 0  major = 1
-byte 1  minor = 2
+byte 1  minor = 3
 byte 2  reserved = 0
 byte 3  reserved = 0
 ```
@@ -169,7 +169,7 @@ Initial v0.4 semantics:
 - daemon configuration/topology decides which virtual ports are peers or bridges;
 - application code does not configure private daemon routing through VSPD DATA operations.
 
-VSPD 1.1 added a separate non-owning management connection used by `spwctl`. A management client performs HELLO but never ATTACHes to a virtual port. It can discover daemon bounds, inspect per-port ownership/link/queue state, read per-port statistics, and clear statistics without displacing the application owner. VSPD 1.2 extends the same HELLO-only plane with passive subscriptions used by `spwmon`; lifecycle overrides and topology mutation remain deliberately absent.
+VSPD 1.1 added a separate non-owning management connection used by `spwctl`. A management client performs HELLO but never ATTACHes to a virtual port. It can discover daemon bounds, inspect per-port ownership/link/queue state, read per-port statistics, and clear statistics without displacing the application owner. VSPD 1.3 extends the same HELLO-only plane with passive subscriptions used by `spwmon`; lifecycle overrides and topology mutation remain deliberately absent.
 
 ## Link-state semantics
 
@@ -291,7 +291,7 @@ Successful `GET_STATISTICS` response is nine network-order `u64` values, 72 byte
 
 `GET_PORT_STATISTICS` returns the normal 72-byte statistics payload for the selected port. `CLEAR_PORT_STATISTICS` clears those counters and returns no payload. These operations do not ATTACH, START, STOP, RESET, dequeue traffic, or alter application ownership.
 
-VSPD 1.2 adds `SUBSCRIBE_PORT` and `UNSUBSCRIBE_PORT` on the same HELLO-only management connection. A successful subscription queues an immediate `PORT_SNAPSHOT_EVENT`, then the daemon emits another snapshot whenever observable metadata changes. The 88-byte snapshot is the 16-byte port-info payload followed by the 72-byte statistics payload. Events are coalesced per subscribed port while pending, so a slow monitor observes the latest bounded snapshot rather than causing an unbounded daemon queue. Snapshot events never contain application DATA payload bytes.
+VSPD 1.3 adds `SUBSCRIBE_PORT` and `UNSUBSCRIBE_PORT` on the same HELLO-only management connection. A successful subscription queues an immediate `PORT_SNAPSHOT_EVENT`, then the daemon emits another snapshot whenever observable metadata changes. The 88-byte snapshot is the 16-byte port-info payload followed by the 72-byte statistics payload. Events are coalesced per subscribed port while pending, so a slow monitor observes the latest bounded snapshot rather than causing an unbounded daemon queue. Snapshot events never contain application DATA payload bytes.
 
 ## Blocking, non-blocking and `poll()` direction
 
@@ -351,3 +351,8 @@ The intended user-facing Linux naming remains:
 The first v0.4 implementation does not require a kernel module or CUSE to function. The Unix-socket path establishes and tests semantics first.
 
 If CUSE is adopted, it will map `/dev/vspwX` operations onto the same daemon/device model. It must not become a competing application API or change VSPD packet/link semantics.
+
+
+### Bridged port flag
+
+VSPD 1.3 adds `VSPD_PORT_INFO_BRIDGED` to the existing fixed-size port-info flags. A bridged port is reserved by daemon topology and cannot be ATTACHed by an ordinary application client. The payload size does not change; management and monitor clients can distinguish a remote transport endpoint from a merely unattached local port.

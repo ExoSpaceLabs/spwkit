@@ -76,16 +76,17 @@ static int command_list(vspd_management_client_t* client) {
     if (status != VSPD_STATUS_OK) {
         return fail_status("get server info", status);
     }
-    printf("PORT ATTACHED STARTED RESET STATE PACKETS TIMECODES\n");
+    printf("PORT BRIDGED ATTACHED STARTED RESET STATE PACKETS TIMECODES\n");
     for (port_id = 0u; port_id < server.port_count; ++port_id) {
         vspd_port_info_payload_t info;
         status = vspd_management_get_port_info(client, port_id, &info);
         if (status != VSPD_STATUS_OK) {
             return fail_status("get port info", status);
         }
-        printf("%" PRIu32 " %s %s %s %s %" PRIu32 "/%" PRIu32
+        printf("%" PRIu32 " %s %s %s %s %s %" PRIu32 "/%" PRIu32
                " %" PRIu32 "/%" PRIu32 "\n",
                port_id,
+               yes_no(info.flags, VSPD_PORT_INFO_BRIDGED),
                yes_no(info.flags, VSPD_PORT_INFO_ATTACHED),
                yes_no(info.flags, VSPD_PORT_INFO_STARTED),
                yes_no(info.flags, VSPD_PORT_INFO_RESET_LATCHED),
@@ -110,6 +111,7 @@ static int command_show(vspd_management_client_t* client, uint32_t port_id) {
         return fail_status("get port info", status);
     }
     printf("port: %" PRIu32 "\n", port_id);
+    printf("bridged: %s\n", yes_no(info.flags, VSPD_PORT_INFO_BRIDGED));
     printf("attached: %s\n", yes_no(info.flags, VSPD_PORT_INFO_ATTACHED));
     printf("started: %s\n", yes_no(info.flags, VSPD_PORT_INFO_STARTED));
     printf("reset_latched: %s\n",

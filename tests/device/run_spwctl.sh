@@ -38,8 +38,8 @@ done
 [[ -S "$socket" ]] || { cat "$tmpdir/vspwd.log"; exit 1; }
 
 "$spwctl" --socket "$socket" list >"$tmpdir/list-empty.txt"
-grep -Eq '^0 no no no ERROR_RESET 0/2 0/8$' "$tmpdir/list-empty.txt"
-grep -Eq '^1 no no no ERROR_RESET 0/2 0/8$' "$tmpdir/list-empty.txt"
+grep -Eq '^0 no no no no ERROR_RESET 0/2 0/8$' "$tmpdir/list-empty.txt"
+grep -Eq '^1 no no no no ERROR_RESET 0/2 0/8$' "$tmpdir/list-empty.txt"
 
 if "$spwctl" --socket "$socket" show 99 >"$tmpdir/invalid.out" 2>"$tmpdir/invalid.err"; then
   echo "invalid management port unexpectedly succeeded" >&2
@@ -64,8 +64,8 @@ grep -q '^RUN$' "$tmpdir/peer0.log"
 grep -q '^RUN$' "$tmpdir/peer1.log"
 
 "$spwctl" --socket "$socket" list >"$tmpdir/list-run.txt"
-grep -Eq '^0 yes yes no RUN [0-9]+/2 [0-9]+/8$' "$tmpdir/list-run.txt"
-grep -Eq '^1 yes yes no RUN [0-9]+/2 [0-9]+/8$' "$tmpdir/list-run.txt"
+grep -Eq '^0 no yes yes no RUN [0-9]+/2 [0-9]+/8$' "$tmpdir/list-run.txt"
+grep -Eq '^1 no yes yes no RUN [0-9]+/2 [0-9]+/8$' "$tmpdir/list-run.txt"
 
 "$spwctl" --socket "$socket" show 0 >"$tmpdir/show.txt"
 grep -q '^attached: yes$' "$tmpdir/show.txt"
@@ -94,5 +94,5 @@ wait "$peer1_pid"
 peer1_pid=""
 
 "$spwctl" --socket "$socket" list >"$tmpdir/list-detached.txt"
-grep -Eq '^0 no no no ERROR_RESET 0/2 0/8$' "$tmpdir/list-detached.txt"
-grep -Eq '^1 no no no ERROR_RESET 0/2 0/8$' "$tmpdir/list-detached.txt"
+grep -Eq '^0 no no no no ERROR_RESET 0/2 0/8$' "$tmpdir/list-detached.txt"
+grep -Eq '^1 no no no no ERROR_RESET 0/2 0/8$' "$tmpdir/list-detached.txt"

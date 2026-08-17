@@ -128,7 +128,7 @@ static void print_snapshot(uint32_t port_id,
     timestamp_utc(timestamp);
     if (json) {
         printf("{\"timestamp\":\"%s\",\"port\":%" PRIu32
-               ",\"attached\":%s,\"started\":%s,\"reset_latched\":%s"
+               ",\"bridged\":%s,\"attached\":%s,\"started\":%s,\"reset_latched\":%s"
                ",\"ever_attached\":%s,\"state\":\"%s\""
                ",\"packet_queue\":%" PRIu32 ",\"packet_queue_depth\":%" PRIu32
                ",\"time_code_queue\":%" PRIu32 ",\"time_code_queue_depth\":%" PRIu32
@@ -139,6 +139,7 @@ static void print_snapshot(uint32_t port_id,
                ",\"dropped_packets\":%" PRIu64 "}\n",
                timestamp,
                port_id,
+               json_bool(snapshot->info.flags, VSPD_PORT_INFO_BRIDGED),
                json_bool(snapshot->info.flags, VSPD_PORT_INFO_ATTACHED),
                json_bool(snapshot->info.flags, VSPD_PORT_INFO_STARTED),
                json_bool(snapshot->info.flags, VSPD_PORT_INFO_RESET_LATCHED),
@@ -158,13 +159,14 @@ static void print_snapshot(uint32_t port_id,
                snapshot->statistics.link_errors,
                snapshot->statistics.dropped_packets);
     } else {
-        printf("%s port=%" PRIu32 " state=%s attached=%s started=%s "
+        printf("%s port=%" PRIu32 " state=%s bridged=%s attached=%s started=%s "
                "packets=%" PRIu32 "/%" PRIu32 " timecodes=%" PRIu32 "/%" PRIu32
                " tx_packets=%" PRIu64 " rx_packets=%" PRIu64
                " link_errors=%" PRIu64 " dropped=%" PRIu64 "\n",
                timestamp,
                port_id,
                state_name(snapshot->info.link_state),
+               (snapshot->info.flags & VSPD_PORT_INFO_BRIDGED) != 0u ? "yes" : "no",
                (snapshot->info.flags & VSPD_PORT_INFO_ATTACHED) != 0u ? "yes" : "no",
                (snapshot->info.flags & VSPD_PORT_INFO_STARTED) != 0u ? "yes" : "no",
                snapshot->info.packet_queue_count,

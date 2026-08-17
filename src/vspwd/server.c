@@ -4,7 +4,10 @@
 #include "vspwd/server.h"
 
 #include "backends/device/vspw_device_protocol.h"
+#include "spwkit/config.h"
+#include "spwkit/port.h"
 #include "spwkit/types.h"
+#include "spwkit/udp.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -59,6 +62,7 @@ typedef struct vspwd_port {
     bool started;
     bool reset_latched;
     bool ever_attached;
+    bool bridged;
     spw_link_state_t state;
     bool state_event_pending;
     uint32_t next_message_id;
@@ -89,11 +93,20 @@ typedef struct vspwd_client {
     vspwd_reassembly_t reassembly;
 } vspwd_client_t;
 
+typedef struct vspwd_udp_bridge {
+    bool enabled;
+    int port_id;
+    spw_port_t* udp_port;
+    spw_link_state_t state;
+    uint8_t rx_packet[VSPD_MAX_LOGICAL_PACKET];
+} vspwd_udp_bridge_t;
+
 typedef struct vspwd_server {
     int listener_fd;
     char socket_path[sizeof(((struct sockaddr_un*)0)->sun_path)];
     vspwd_client_t clients[VSPWD_CLIENT_COUNT];
     vspwd_port_t ports[VSPWD_PORT_COUNT];
+    vspwd_udp_bridge_t bridge;
 } vspwd_server_t;
 
 static volatile sig_atomic_t vspwd_stop_requested = 0;
@@ -151,6 +164,9 @@ static spw_link_state_t vspwd_calculate_state(const vspwd_server_t* server,
     const vspwd_port_t* port = &server->ports[port_id];
     const vspwd_port_t* peer = &server->ports[vspwd_peer_port(port_id)];
 
+    if (port->bridged) {
+        return server->bridge.state;
+    }
     if (port->client_index < 0) {
         return SPW_LINK_ERROR_RESET;
     }
@@ -159,6 +175,15 @@ static spw_link_state_t vspwd_calculate_state(const vspwd_server_t* server,
     }
     if (!port->started) {
         return SPW_LINK_READY;
+    }
+    if (peer->bridged) {
+        if (peer->state == SPW_LINK_RUN) {
+            return SPW_LINK_RUN;
+        }
+        if (peer->state == SPW_LINK_ERROR_WAIT) {
+            return SPW_LINK_ERROR_WAIT;
+        }
+        return SPW_LINK_CONNECTING;
     }
     if (peer->client_index >= 0 && peer->started && !peer->reset_latched) {
         return SPW_LINK_RUN;
@@ -174,7 +199,7 @@ static void vspwd_update_states(vspwd_server_t* server) {
     for (port_id = 0; port_id < VSPWD_PORT_COUNT; ++port_id) {
         vspwd_port_t* port = &server->ports[port_id];
         spw_link_state_t next_state;
-        if (port->client_index < 0) {
+        if (port->client_index < 0 && !port->bridged) {
             port->state = SPW_LINK_ERROR_RESET;
             port->state_event_pending = false;
             continue;
@@ -195,6 +220,9 @@ static void vspwd_init_server(vspwd_server_t* server) {
     int i;
     memset(server, 0, sizeof(*server));
     server->listener_fd = -1;
+    server->bridge.port_id = -1;
+    server->bridge.udp_port = NULL;
+    server->bridge.state = SPW_LINK_ERROR_RESET;
     for (i = 0; i < VSPWD_CLIENT_COUNT; ++i) {
         server->clients[i].fd = -1;
         server->clients[i].port_id = -1;
@@ -317,6 +345,9 @@ static void vspwd_port_info_to_wire(const vspwd_port_t* port,
     }
     if (port->ever_attached) {
         info->flags |= VSPD_PORT_INFO_EVER_ATTACHED;
+    }
+    if (port->bridged) {
+        info->flags |= VSPD_PORT_INFO_BRIDGED;
     }
     info->link_state = port->state;
     info->packet_queue_count = port->packets.count;
@@ -491,6 +522,202 @@ static bool vspwd_enqueue_time_code(vspwd_server_t* server,
     return true;
 }
 
+
+
+static void vspwd_bridge_refresh_state(vspwd_server_t* server) {
+    spw_link_state_t state = SPW_LINK_ERROR_WAIT;
+    spw_result_t result;
+    if (!server->bridge.enabled || server->bridge.udp_port == NULL) {
+        return;
+    }
+    result = spw_port_get_link_state(server->bridge.udp_port, &state);
+    if (result != SPW_OK) {
+        state = SPW_LINK_ERROR_WAIT;
+    }
+    if (state != server->bridge.state) {
+        vspwd_port_t* bridge_port = &server->ports[server->bridge.port_id];
+        server->bridge.state = state;
+        if (bridge_port->state != state) {
+            if (state == SPW_LINK_ERROR_WAIT) {
+                ++bridge_port->statistics.link_errors;
+            }
+            bridge_port->state = state;
+            vspwd_mark_port_changed(server, server->bridge.port_id);
+        }
+        /* Publish the bridge endpoint first so the paired local port is
+         * recalculated from the new remote state in this same pass. */
+        vspwd_update_states(server);
+    }
+}
+
+static void vspwd_bridge_pop_packet(vspwd_server_t* server) {
+    vspwd_port_t* bridge_port = &server->ports[server->bridge.port_id];
+    vspwd_packet_slot_t* slot;
+    spw_packet_t packet;
+    spw_result_t result;
+    if (bridge_port->packets.count == 0u || server->bridge.state != SPW_LINK_RUN) {
+        return;
+    }
+    slot = &bridge_port->packets.slots[bridge_port->packets.head];
+    packet.data = slot->data;
+    packet.length = slot->length;
+    packet.capacity = slot->length;
+    packet.terminator = slot->terminator;
+    result = spw_port_send(server->bridge.udp_port, &packet, SPW_TIMEOUT_IMMEDIATE);
+    if (result != SPW_OK) {
+        return;
+    }
+    ++bridge_port->statistics.rx_packets;
+    bridge_port->statistics.rx_bytes += slot->length;
+    bridge_port->packets.head =
+        (bridge_port->packets.head + 1u) % VSPWD_PACKET_QUEUE_DEPTH;
+    --bridge_port->packets.count;
+    vspwd_mark_port_changed(server, server->bridge.port_id);
+}
+
+static void vspwd_bridge_pop_time_code(vspwd_server_t* server) {
+    vspwd_port_t* bridge_port = &server->ports[server->bridge.port_id];
+    const spw_time_code_t* time_code;
+    spw_result_t result;
+    if (bridge_port->time_codes.count == 0u || server->bridge.state != SPW_LINK_RUN) {
+        return;
+    }
+    time_code = &bridge_port->time_codes.slots[bridge_port->time_codes.head];
+    result = spw_port_send_time_code(server->bridge.udp_port,
+                                     time_code,
+                                     SPW_TIMEOUT_IMMEDIATE);
+    if (result != SPW_OK) {
+        return;
+    }
+    ++bridge_port->statistics.rx_time_codes;
+    bridge_port->time_codes.head =
+        (bridge_port->time_codes.head + 1u) % VSPWD_TIME_CODE_QUEUE_DEPTH;
+    --bridge_port->time_codes.count;
+    vspwd_mark_port_changed(server, server->bridge.port_id);
+}
+
+static void vspwd_bridge_push_packet(vspwd_server_t* server) {
+    const int bridge_id = server->bridge.port_id;
+    const int local_id = vspwd_peer_port(bridge_id);
+    vspwd_port_t* bridge_port = &server->ports[bridge_id];
+    vspwd_port_t* local_port = &server->ports[local_id];
+    vspwd_packet_slot_t* slot;
+    spw_packet_t packet;
+    spw_result_t result;
+
+    if (server->bridge.state != SPW_LINK_RUN || local_port->state != SPW_LINK_RUN ||
+        local_port->packets.count >= VSPWD_PACKET_QUEUE_DEPTH) {
+        return;
+    }
+    packet.data = server->bridge.rx_packet;
+    packet.length = 0u;
+    packet.capacity = sizeof(server->bridge.rx_packet);
+    packet.terminator = SPW_TERMINATOR_EOP;
+    result = spw_port_receive(server->bridge.udp_port, &packet, SPW_TIMEOUT_IMMEDIATE);
+    if (result != SPW_OK) {
+        return;
+    }
+
+    slot = &local_port->packets.slots[local_port->packets.tail];
+    if (packet.length != 0u) {
+        memcpy(slot->data, packet.data, packet.length);
+    }
+    slot->length = (uint32_t)packet.length;
+    slot->offset = 0u;
+    slot->terminator = packet.terminator;
+    slot->message_id = vspwd_next_message_id(local_port);
+    local_port->packets.tail =
+        (local_port->packets.tail + 1u) % VSPWD_PACKET_QUEUE_DEPTH;
+    ++local_port->packets.count;
+    ++bridge_port->statistics.tx_packets;
+    bridge_port->statistics.tx_bytes += packet.length;
+    if (packet.terminator == SPW_TERMINATOR_EEP) {
+        ++bridge_port->statistics.eep_packets;
+    }
+    vspwd_mark_port_changed(server, bridge_id);
+    vspwd_mark_port_changed(server, local_id);
+}
+
+static void vspwd_bridge_push_time_code(vspwd_server_t* server) {
+    const int bridge_id = server->bridge.port_id;
+    const int local_id = vspwd_peer_port(bridge_id);
+    vspwd_port_t* bridge_port = &server->ports[bridge_id];
+    vspwd_port_t* local_port = &server->ports[local_id];
+    spw_time_code_t time_code;
+    spw_result_t result;
+
+    if (server->bridge.state != SPW_LINK_RUN || local_port->state != SPW_LINK_RUN ||
+        local_port->time_codes.count >= VSPWD_TIME_CODE_QUEUE_DEPTH) {
+        return;
+    }
+    result = spw_port_receive_time_code(server->bridge.udp_port,
+                                        &time_code,
+                                        SPW_TIMEOUT_IMMEDIATE);
+    if (result != SPW_OK) {
+        return;
+    }
+    local_port->time_codes.slots[local_port->time_codes.tail] = time_code;
+    local_port->time_codes.tail =
+        (local_port->time_codes.tail + 1u) % VSPWD_TIME_CODE_QUEUE_DEPTH;
+    ++local_port->time_codes.count;
+    ++bridge_port->statistics.tx_time_codes;
+    vspwd_mark_port_changed(server, bridge_id);
+    vspwd_mark_port_changed(server, local_id);
+}
+
+static void vspwd_service_bridge(vspwd_server_t* server) {
+    if (!server->bridge.enabled) {
+        return;
+    }
+    vspwd_bridge_refresh_state(server);
+    if (server->bridge.state != SPW_LINK_RUN) {
+        return;
+    }
+    vspwd_bridge_pop_packet(server);
+    vspwd_bridge_pop_time_code(server);
+    vspwd_bridge_push_packet(server);
+    vspwd_bridge_push_time_code(server);
+    vspwd_bridge_refresh_state(server);
+}
+
+static int vspwd_open_bridge(vspwd_server_t* server,
+                             const vspwd_udp_bridge_config_t* config) {
+    spw_port_config_t port_config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
+    spw_result_t result;
+    vspwd_port_t* port;
+    if (!config->enabled) {
+        return 0;
+    }
+    if (config->port_id >= VSPWD_PORT_COUNT) {
+        return -1;
+    }
+    port_config.backend_config = &config->udp;
+    port_config.backend_config_size = sizeof(config->udp);
+    result = spw_port_open(&port_config, &server->bridge.udp_port);
+    if (result != SPW_OK || server->bridge.udp_port == NULL) {
+        fprintf(stderr, "vspwd: failed to open UDP bridge backend: %d\n", (int)result);
+        return -1;
+    }
+    result = spw_port_start(server->bridge.udp_port);
+    if (result != SPW_OK) {
+        fprintf(stderr, "vspwd: failed to start UDP bridge backend: %d\n", (int)result);
+        (void)spw_port_close(server->bridge.udp_port);
+        server->bridge.udp_port = NULL;
+        return -1;
+    }
+    server->bridge.enabled = true;
+    server->bridge.port_id = (int)config->port_id;
+    server->bridge.state = SPW_LINK_CONNECTING;
+    port = &server->ports[server->bridge.port_id];
+    port->bridged = true;
+    port->started = true;
+    port->reset_latched = false;
+    port->state = SPW_LINK_CONNECTING;
+    port->next_message_id = 1u;
+    vspwd_bridge_refresh_state(server);
+    return 0;
+}
+
 static bool vspwd_handle_request(vspwd_server_t* server,
                                  int client_index,
                                  const uint8_t* frame,
@@ -542,6 +769,8 @@ static bool vspwd_handle_request(vspwd_server_t* server,
                 status = VSPD_STATUS_INVALID_STATE;
             } else if (port_id < 0 || port_id >= VSPWD_PORT_COUNT) {
                 status = VSPD_STATUS_INVALID_ARGUMENT;
+            } else if (server->ports[port_id].bridged) {
+                status = VSPD_STATUS_RESOURCE_EXHAUSTED;
             } else if (server->ports[port_id].client_index >= 0) {
                 status = VSPD_STATUS_RESOURCE_EXHAUSTED;
             } else {
@@ -1110,6 +1339,10 @@ static int vspwd_open_listener(vspwd_server_t* server, const char* socket_path) 
 
 static void vspwd_cleanup(vspwd_server_t* server) {
     int i;
+    if (server->bridge.udp_port != NULL) {
+        (void)spw_port_close(server->bridge.udp_port);
+        server->bridge.udp_port = NULL;
+    }
     for (i = 0; i < VSPWD_CLIENT_COUNT; ++i) {
         if (server->clients[i].fd >= 0) {
             close(server->clients[i].fd);
@@ -1123,16 +1356,25 @@ static void vspwd_cleanup(vspwd_server_t* server) {
     }
 }
 
-int vspwd_run(const char* socket_path) {
-    vspwd_server_t* server = (vspwd_server_t*)calloc(1u, sizeof(vspwd_server_t));
+int vspwd_run_config(const vspwd_config_t* config) {
+    vspwd_server_t* server;
     struct sigaction action;
     int result = 0;
 
+    if (config == NULL || config->socket_path == NULL) {
+        return 1;
+    }
+    server = (vspwd_server_t*)calloc(1u, sizeof(vspwd_server_t));
     if (server == NULL) {
         return 1;
     }
     vspwd_init_server(server);
-    if (vspwd_open_listener(server, socket_path) != 0) {
+    if (vspwd_open_bridge(server, &config->udp_bridge) != 0) {
+        vspwd_cleanup(server);
+        free(server);
+        return 1;
+    }
+    if (vspwd_open_listener(server, config->socket_path) != 0) {
         vspwd_cleanup(server);
         free(server);
         return 1;
@@ -1148,6 +1390,7 @@ int vspwd_run(const char* socket_path) {
 
     while (!vspwd_stop_requested) {
         struct pollfd descriptors[1 + VSPWD_CLIENT_COUNT];
+        vspwd_service_bridge(server);
         int descriptor_clients[VSPWD_CLIENT_COUNT];
         nfds_t count = 1u;
         int i;
@@ -1170,7 +1413,7 @@ int vspwd_run(const char* socket_path) {
             }
         }
 
-        poll_result = poll(descriptors, count, 100);
+        poll_result = poll(descriptors, count, server->bridge.enabled ? 10 : 100);
         if (poll_result < 0) {
             if (errno == EINTR) {
                 continue;
@@ -1216,4 +1459,10 @@ int vspwd_run(const char* socket_path) {
     vspwd_cleanup(server);
     free(server);
     return result;
+}
+
+int vspwd_run(const char* socket_path) {
+    vspwd_config_t config = VSPWD_CONFIG_INITIALIZER;
+    config.socket_path = socket_path;
+    return vspwd_run_config(&config);
 }

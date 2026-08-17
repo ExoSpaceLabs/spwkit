@@ -16,7 +16,7 @@ extern "C" {
  */
 #define VSPD_MAGIC UINT32_C(0x56535044) /* "VSPD" */
 #define VSPD_VERSION_MAJOR 1u
-#define VSPD_VERSION_MINOR 2u
+#define VSPD_VERSION_MINOR 3u
 #define VSPD_HEADER_SIZE 40u
 
 /* Conservative per-SOCK_SEQPACKET record bound. Logical DATA can span records. */
@@ -70,7 +70,8 @@ extern "C" {
 #define VSPD_PORT_INFO_STARTED       UINT32_C(0x02)
 #define VSPD_PORT_INFO_RESET_LATCHED UINT32_C(0x04)
 #define VSPD_PORT_INFO_EVER_ATTACHED UINT32_C(0x08)
-#define VSPD_PORT_INFO_KNOWN_MASK    UINT32_C(0x0f)
+#define VSPD_PORT_INFO_BRIDGED       UINT32_C(0x10)
+#define VSPD_PORT_INFO_KNOWN_MASK    UINT32_C(0x1f)
 
 /*
  * Fixed protocol status values. They intentionally mirror the current public
