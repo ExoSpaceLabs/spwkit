@@ -56,6 +56,16 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
             C_STANDARD 11
             C_STANDARD_REQUIRED YES
             C_EXTENSIONS OFF)
+
+        # Keep the bridge reservation contract independent of whether ordinary
+        # in-tree examples are built. This helper only probes public ATTACH.
+        add_executable(spwkit_device_attach_probe ../device_attach_probe.c)
+        target_link_libraries(spwkit_device_attach_probe PRIVATE spwkit::spwkit)
+        target_compile_features(spwkit_device_attach_probe PRIVATE c_std_11)
+        set_target_properties(spwkit_device_attach_probe PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
     endif()
 
     if(SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
@@ -115,7 +125,7 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
                     $<TARGET_FILE:spwkit_device_bridge_peer>
                     $<TARGET_FILE:spwkit_bridge_udp_peer>
                     $<TARGET_FILE:spwctl>
-                    $<TARGET_FILE:spwkit_example_c_device_peer>)
+                    $<TARGET_FILE:spwkit_device_attach_probe>)
         set_tests_properties(vspwd_udp_bridge_remote_restart PROPERTIES
             LABELS "device;bridge;transport;integration;process;restart;c"
             TIMEOUT 60)

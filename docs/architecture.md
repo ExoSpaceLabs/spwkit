@@ -42,7 +42,7 @@ Implemented backends currently include:
 - POSIX VSPW-TP/UDP distributed backend;
 - Linux hosted virtual-device backend speaking VSPD to `vspwd`.
 
-The remainder of v0.4 is the OS-visible `/dev/vspwX` presentation and management/tooling layer. Embedded/RTOS adapters and physical FPGA/vendor implementations follow on the roadmap.
+The v0.4 virtual-device/service feature set is complete: the device backend, `vspwd`, readiness, management/monitoring, installed consumers and VSPW-TP/UDP bridge are implemented. A production `/dev/vspwX` CUSE presenter remains an optional post-v0.4 layer tracked by #78. Embedded/RTOS adapters and physical FPGA/vendor implementations follow on the roadmap.
 
 ## Public API boundary
 
@@ -168,7 +168,20 @@ The public backend configuration contains only a bounded endpoint path and daemo
 
 The backend translates lifecycle, DATA, EOP/EEP, time codes, state/capabilities and statistics to VSPD. It reassembles logical packets before returning them through `spw_port_receive()` and preserves receive-too-small retry semantics. After daemon/session loss, subsequent normal API calls attempt reconnect/HELLO/ATTACH and restore START intent without requiring a new public port object.
 
-The current userspace socket is both the implementation transport and unprivileged CI boundary. CUSE remains a candidate for presenting `/dev/vspwX` without committing immediately to a kernel module. That future presentation must remain below `spw_port_*`; `/dev/vspwX` is not a second application API.
+The current userspace socket is both the implementation transport and unprivileged CI boundary. CUSE/libfuse3 feasibility has been validated with a packet-record prototype; the production event-driven presenter is tracked in #78. Any future `/dev/vspwX` presentation remains below `spw_port_*` and does not become a second application API.
+
+`vspwd` may also reserve one of the two reference ports as a topology-owned VSPW-TP/UDP bridge endpoint:
+
+```text
+local application -> SPW_BACKEND_DEVICE -> VSPD -> vspwd
+                                                local port <-> bridged port
+                                                                 |
+                                                            SPW_BACKEND_UDP
+                                                                 |
+                                                            remote peer
+```
+
+The bridge reuses the existing UDP backend and keeps VSPW-TP reliability/transport logic out of the daemon itself.
 
 The future physical `/dev/spwX` path should reuse the same application-facing contract while replacing the implementation beneath it.
 

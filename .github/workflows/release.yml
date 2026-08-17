@@ -1,0 +1,356 @@
+name: Release audit
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/spwkit/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - "LICENSE"
+      - "NOTICE"
+      - ".github/workflows/release.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/spwkit/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - "LICENSE"
+      - "NOTICE"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Release metadata and version boundary
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify package, API and documentation version alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cmake_version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
+          api_major="$(sed -nE 's/^#define SPWKIT_API_VERSION_MAJOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_minor="$(sed -nE 's/^#define SPWKIT_API_VERSION_MINOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_patch="$(sed -nE 's/^#define SPWKIT_API_VERSION_PATCH ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_version="${api_major}.${api_minor}.${api_patch}"
+
+          test -n "$cmake_version"
+          test "$api_version" = "$cmake_version"
+          grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/installed/CMakeLists.txt
+          grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/distributed/CMakeLists.txt
+          grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/installed_device/CMakeLists.txt
+          test -f LICENSE
+          test -f NOTICE
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            test "$GITHUB_REF_NAME" = "v${cmake_version}"
+            grep -Eq "^## v${cmake_version} — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
+            ! grep -q "^## v${cmake_version} — unreleased$" CHANGELOG.md
+            git fetch origin main
+            test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          else
+            grep -q "^## v${cmake_version} — unreleased$" CHANGELOG.md
+          fi
+
+      - name: Record release boundary
+        shell: bash
+        run: |
+          {
+            echo '### SpWKit release boundary'
+            echo
+            echo '- Project/API version: 0.4.0'
+            echo '- Linux device/service feature set: release candidate'
+            echo '- Production CUSE (#78): deferred'
+            echo '- Native Winsock VSPW-TP (#42): deferred'
+            echo '- Physical HIL: manual/non-blocking until hardware exists'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  integrated-sanitizers:
+    name: Pure-C device/service/bridge ASan + UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure complete device/service bridge sanitizer profile
+        env:
+          CC: clang
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-release-san \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-release-san/CMakeCache.txt; then
+            echo "Integrated sanitizer profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build and run complete device/service integration under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          cmake --build build-release-san --parallel
+          ctest --test-dir build-release-san -L device --output-on-failure --no-tests=error
+          ctest --test-dir build-release-san -R '^vspd_protocol_codec$' --output-on-failure --no-tests=error
+
+  shared-device-package:
+    name: Shared-library installed Linux device path
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure shared pure-C device package
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-shared-device \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-shared-device/CMakeCache.txt; then
+            echo "Shared device package unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build and install shared package
+        run: |
+          cmake --build build-shared-device --parallel
+          cmake --install build-shared-device --prefix "$PWD/install-shared-device"
+          test -f "$PWD/install-shared-device/lib/libspwkit.so"
+          test -x "$PWD/install-shared-device/bin/vspwd"
+          test -f "$PWD/install-shared-device/share/doc/spwkit/LICENSE"
+          test -f "$PWD/install-shared-device/share/doc/spwkit/NOTICE"
+
+      - name: Configure standalone installed C device consumer
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S examples/installed_device -B build-shared-device-consumer \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-shared-device" \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-shared-device-consumer/CMakeCache.txt; then
+            echo "Shared installed C device consumer unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+          cmake --build build-shared-device-consumer --parallel
+
+      - name: Run installed shared-library device peer pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          socket="$tmpdir/vspwd.sock"
+          daemon_pid=""
+          peer0_pid=""
+          libpath="$PWD/install-shared-device/lib"
+          cleanup() {
+            set +e
+            [[ -n "$peer0_pid" ]] && kill "$peer0_pid" 2>/dev/null || true
+            [[ -n "$peer0_pid" ]] && wait "$peer0_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && kill -TERM "$daemon_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && wait "$daemon_pid" 2>/dev/null || true
+            rm -rf "$tmpdir"
+          }
+          trap cleanup EXIT
+
+          env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
+            "$PWD/install-shared-device/bin/vspwd" --socket "$socket" >"$tmpdir/vspwd.log" 2>&1 & daemon_pid=$!
+          for _ in $(seq 1 100); do [[ -S "$socket" ]] && break; sleep 0.02; done
+          [[ -S "$socket" ]] || { cat "$tmpdir/vspwd.log"; exit 1; }
+
+          timeout 10s env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
+            "$PWD/build-shared-device-consumer/spwkit_installed_device_c" "$socket" 0 >"$tmpdir/p0.log" 2>&1 & peer0_pid=$!
+          sleep 0.05
+          timeout 10s env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
+            "$PWD/build-shared-device-consumer/spwkit_installed_device_c" "$socket" 1 >"$tmpdir/p1.log" 2>&1 || {
+              cat "$tmpdir/vspwd.log" "$tmpdir/p0.log" "$tmpdir/p1.log"
+              exit 1
+            }
+          wait "$peer0_pid" || {
+            cat "$tmpdir/vspwd.log" "$tmpdir/p0.log" "$tmpdir/p1.log"
+            exit 1
+          }
+          peer0_pid=""
+
+  release-matrix:
+    name: Fan-out full release CI matrix
+    if: ${{ github.ref_type == 'tag' }}
+    needs: [metadata, integrated-sanitizers, shared-device-package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch and require every automated release gate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          sha = os.environ['GITHUB_SHA']
+          ref = os.environ['GITHUB_REF_NAME']
+          token = os.environ['GH_TOKEN']
+          workflows = [
+              ('ci.yml', 'CI'),
+              ('c-core.yml', 'C-only runtime'),
+              ('simulator.yml', 'Simulator'),
+              ('d2d.yml', 'Device-to-device'),
+              ('embedded.yml', 'Embedded portability'),
+              ('device.yml', 'Virtual device'),
+              ('tools.yml', 'Tools'),
+              ('installed-device-examples.yml', 'Installed device examples'),
+              ('tooling.yml', 'Tooling'),
+          ]
+
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'spwkit-release-audit',
+          }
+
+          def api(url, method='GET', payload=None):
+              data = None if payload is None else json.dumps(payload).encode('utf-8')
+              request = urllib.request.Request(url, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      body = response.read()
+                      return None if not body else json.loads(body)
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode('utf-8', errors='replace')
+                  raise RuntimeError(f'{method} {url} -> HTTP {exc.code}: {body}') from exc
+
+          started = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=5)
+          print(f'Dispatching v0.4 release matrix for {ref} at {sha}')
+          for filename, name in workflows:
+              url = f'https://api.github.com/repos/{repo}/actions/workflows/{filename}/dispatches'
+              api(url, method='POST', payload={'ref': ref})
+              print(f'  dispatched {name}')
+
+          deadline = time.monotonic() + 30 * 60
+          latest = {}
+          while time.monotonic() < deadline:
+              query = urllib.parse.urlencode({
+                  'head_sha': sha,
+                  'event': 'workflow_dispatch',
+                  'per_page': 100,
+              })
+              runs = api(f'https://api.github.com/repos/{repo}/actions/runs?{query}')['workflow_runs']
+              latest.clear()
+              for run in runs:
+                  created = dt.datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
+                  if created < started:
+                      continue
+                  for filename, name in workflows:
+                      path = run.get('path', '').split('@', 1)[0]
+                      if path == f'.github/workflows/{filename}':
+                          current = latest.get(name)
+                          if current is None or run['created_at'] > current['created_at']:
+                              latest[name] = run
+
+              failed = []
+              pending = []
+              for _, name in workflows:
+                  run = latest.get(name)
+                  if run is None:
+                      pending.append(f'{name}: awaiting run creation')
+                  elif run.get('status') != 'completed':
+                      pending.append(f"{name}: {run.get('status')}")
+                  elif run.get('conclusion') != 'success':
+                      failed.append(f"{name}: {run.get('conclusion')} ({run.get('html_url')})")
+
+              if failed:
+                  print('Release matrix failed:', file=sys.stderr)
+                  for item in failed:
+                      print(f'  - {item}', file=sys.stderr)
+                  sys.exit(1)
+              if not pending:
+                  break
+
+              print('Waiting for release matrix: ' + '; '.join(pending))
+              time.sleep(15)
+          else:
+              print('Timed out waiting for release matrix:', file=sys.stderr)
+              for item in pending:
+                  print(f'  - {item}', file=sys.stderr)
+              sys.exit(1)
+
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          lines = [
+              '### Full automated release matrix',
+              '',
+              f'All automated v0.4 gates passed for `{sha}`:',
+              '',
+          ]
+          for _, name in workflows:
+              run = latest[name]
+              lines.append(f"- {name}: success ({run.get('html_url')})")
+          lines.extend([
+              '',
+              'HIL is intentionally excluded: v0.4 makes no physical-hardware claim.',
+          ])
+          if summary_path:
+              with open(summary_path, 'a', encoding='utf-8') as summary:
+                  summary.write('\n'.join(lines) + '\n')
+
+          print('All automated v0.4 release gates passed for', sha)
+          print('HIL is intentionally excluded: v0.4 makes no physical-hardware claim.')
+          PY

@@ -9,6 +9,12 @@ static_assert(std::is_same_v<decltype(&spw_port_open),
                              spw_result_t (*)(const spw_port_config_t*, spw_port_t**)>);
 static_assert(std::is_same_v<decltype(&spw_port_send),
                              spw_result_t (*)(spw_port_t*, const spw_packet_t*, spw_timeout_us_t)>);
+static_assert(std::is_same_v<decltype(&spw_port_wait),
+                             spw_result_t (*)(spw_port_t*, spw_ready_events_t,
+                                             spw_timeout_us_t, spw_ready_events_t*)>);
+static_assert(SPW_UDP_CONFIG_VERSION == 3u);
+static_assert(SPW_DEVICE_CONFIG_VERSION == 1u);
+static_assert(SPW_SIMULATOR_CONFIG_VERSION == 1u);
 
 static_assert(sizeof(spw_result_t) == sizeof(std::int32_t));
 static_assert(sizeof(spw_timeout_us_t) == sizeof(std::uint64_t));

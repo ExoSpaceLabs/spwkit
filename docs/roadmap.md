@@ -1,6 +1,6 @@
 # Roadmap
 
-SpWKit has completed the v0.1 portable-core, v0.2 distributed virtual SpaceWire, and v0.3 C-first runtime releases. The v0.4 line builds Linux virtual-device/service integration on that C substrate.
+SpWKit has completed the v0.1 portable-core, v0.2 distributed virtual SpaceWire, and v0.3 C-first runtime releases. The v0.4 feature set is complete and in release audit for the Linux virtual-device/service boundary.
 
 ## v0.1.0 — Portable core and local virtual link — released
 
@@ -69,28 +69,25 @@ The C API remains authoritative. The C++ wrapper has no backend implementation a
 
 `v0.3.0` is tagged at the audited C-first runtime boundary.
 
-## v0.4.0 — Linux virtual device and userspace service — active
+## v0.4.0 — Linux virtual device and userspace service — release audit
 
-Tracked by #54.
+Tracked by #54. Functional implementation is complete; #81 is the final release-hardening/audit gate before tagging.
 
-Planned slices:
+Delivered:
 
-- completed v0.3 naming/docs/CI reconciliation (#55);
-- versioned userspace virtual-device protocol and documented `/dev/vspwX` semantics (#57);
-- C `vspwd` service owning virtual ports;
-- C Linux-device backend selected through normal `spw_port_*` configuration;
-- unprivileged Unix-domain socket fallback for ordinary development/CI;
-- CUSE investigation for `/dev/vspwX` presentation without an immediate kernel module;
-- blocking/non-blocking packet API integration;
-- `poll()`/event readiness integration;
-- packet, EOP/EEP, time-code, link-state and statistics parity;
-- process disconnect/restart behavior;
-- `spwctl` management utility;
-- `spwmon` monitoring utility;
-- installed C and optional C++ examples;
-- daemon/process integration CI and eventual shared-backend-contract coverage.
+- private VSPD v1.3 with fixed-width network-order framing and bounded 1 MiB logical packets;
+- pure-C `vspwd` two-port userspace service over Linux `AF_UNIX`/`SOCK_SEQPACKET`;
+- public Linux `SPW_BACKEND_DEVICE` through the normal `spw_port_*` API;
+- full packet/EOP/EEP/zero-length/time-code/link/statistics/restart behavior;
+- backend-neutral level-triggered `spw_port_wait()` receive readiness;
+- shared backend-contract coverage for the device path;
+- non-owning `spwctl` management and passive `spwmon` observation;
+- standalone installed-package C and optional C++ device consumers with mixed-language peer tests;
+- CUSE/libfuse3 feasibility and a private packet-record prototype, with production presenter deferred to #78;
+- topology-owned `vspwd` VSPW-TP/UDP bridge with remote loss/restart recovery;
+- dedicated pure-C GCC/Clang device/service/tools/bridge CI, sanitizers and installed-consumer gates.
 
-The application must never call `vspwd` private protocol APIs directly. The virtual-device transport remains an implementation beneath the public C API.
+Explicitly deferred beyond v0.4: production CUSE presenter (#78), native Winsock UDP (#42), physical FPGA/HIL, and generic router/topology simulation.
 
 ## v0.5.0 — Embedded and HardRT
 

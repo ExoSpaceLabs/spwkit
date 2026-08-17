@@ -152,7 +152,7 @@ byte 2  reserved = 0
 byte 3  reserved = 0
 ```
 
-The v1.2 codec currently requires an exact 1.2 match. Version-range negotiation can be introduced in a later protocol revision rather than inferred from native package versions.
+The v1.3 codec currently requires an exact 1.3 match. Version-range negotiation can be introduced in a later protocol revision rather than inferred from native package versions.
 
 Protocol version and SpWKit package/API version are intentionally independent.
 
@@ -169,7 +169,7 @@ Initial v0.4 semantics:
 - daemon configuration/topology decides which virtual ports are peers or bridges;
 - application code does not configure private daemon routing through VSPD DATA operations.
 
-VSPD 1.1 added a separate non-owning management connection used by `spwctl`. A management client performs HELLO but never ATTACHes to a virtual port. It can discover daemon bounds, inspect per-port ownership/link/queue state, read per-port statistics, and clear statistics without displacing the application owner. VSPD 1.3 extends the same HELLO-only plane with passive subscriptions used by `spwmon`; lifecycle overrides and topology mutation remain deliberately absent.
+VSPD 1.1 added a separate non-owning management connection used by `spwctl`. A management client performs HELLO but never ATTACHes to a virtual port. It can discover daemon bounds, inspect per-port ownership/link/queue state, read per-port statistics, and clear statistics without displacing the application owner. VSPD 1.2 extended the same HELLO-only plane with passive subscriptions used by `spwmon`; VSPD 1.3 adds bridged-port metadata. Lifecycle overrides and topology mutation remain deliberately absent.
 
 ## Link-state semantics
 
@@ -287,11 +287,11 @@ Successful `GET_STATISTICS` response is nine network-order `u64` values, 72 byte
 
 `GET_SERVER_INFO` is valid after HELLO without ATTACH. Its 20-byte success payload is five network-order `u32` values: port count, client capacity, packet queue depth, time-code queue depth, and maximum logical packet size.
 
-`GET_PORT_INFO` is also HELLO-only and uses the header `port_id` as the queried port. Its 16-byte success payload contains flags, link state, queued packet count, and queued time-code count. Flags report attached, started, reset-latched and ever-attached state.
+`GET_PORT_INFO` is also HELLO-only and uses the header `port_id` as the queried port. Its 16-byte success payload contains flags, link state, queued packet count, and queued time-code count. Flags report attached, started, reset-latched, ever-attached and topology-owned bridged state.
 
 `GET_PORT_STATISTICS` returns the normal 72-byte statistics payload for the selected port. `CLEAR_PORT_STATISTICS` clears those counters and returns no payload. These operations do not ATTACH, START, STOP, RESET, dequeue traffic, or alter application ownership.
 
-VSPD 1.3 adds `SUBSCRIBE_PORT` and `UNSUBSCRIBE_PORT` on the same HELLO-only management connection. A successful subscription queues an immediate `PORT_SNAPSHOT_EVENT`, then the daemon emits another snapshot whenever observable metadata changes. The 88-byte snapshot is the 16-byte port-info payload followed by the 72-byte statistics payload. Events are coalesced per subscribed port while pending, so a slow monitor observes the latest bounded snapshot rather than causing an unbounded daemon queue. Snapshot events never contain application DATA payload bytes.
+VSPD 1.2 added `SUBSCRIBE_PORT` and `UNSUBSCRIBE_PORT` on the same HELLO-only management connection. A successful subscription queues an immediate `PORT_SNAPSHOT_EVENT`, then the daemon emits another snapshot whenever observable metadata changes. VSPD 1.3 keeps that subscription wire shape and adds the `BRIDGED` flag to the existing port-info flags field. The 88-byte snapshot is the 16-byte port-info payload followed by the 72-byte statistics payload. Events are coalesced per subscribed port while pending, so a slow monitor observes the latest bounded snapshot rather than causing an unbounded daemon queue. Snapshot events never contain application DATA payload bytes.
 
 ## Blocking, non-blocking and `poll()` direction
 

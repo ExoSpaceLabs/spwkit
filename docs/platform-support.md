@@ -4,16 +4,14 @@ SpWKit separates **public API/source portability** from **hosted backend runtime
 
 ## Current hosted support matrix
 
-| Host | C11 core / loopback | Local simulator | VSPW-TP/UDP runtime | Current validation level |
-|---|---|---|---|---|
-| Linux | supported | supported | **supported** | full GCC/Clang host CI, pure-C static/shared consumers, simulator, D2D, process + network-namespace integration |
-| macOS | supported | supported | **supported** | host CI and shared UDP contract |
-| Windows | supported | supported | **not implemented yet** | MSVC build/test/install consumers; UDP selection returns `SPW_ERR_UNSUPPORTED` |
-| other CMake `UNIX` hosts | build path enabled | build path enabled where applicable | best effort / not release-validated | no release-support claim without dedicated evidence |
+| Host | C11 core / loopback | Local simulator | VSPW-TP/UDP runtime | Linux device / `vspwd` | Current validation level |
+|---|---|---|---|---|---|
+| Linux | supported | supported | **supported** | **supported** | full GCC/Clang host CI, pure-C static/shared consumers, simulator, D2D, VSPD/device/service/tools/bridge integration |
+| macOS | supported | supported | **supported** | not implemented | host CI and UDP shared contract |
+| Windows | supported | supported | **not implemented yet** | not implemented | MSVC build/test/install consumers; unsupported backend selection is verified |
+| other CMake `UNIX` hosts | build path enabled | build path enabled where applicable | best effort / not release-validated | not release-validated | no release-support claim without dedicated evidence |
 
-The distributed reference target remains POSIX-hosted, with Linux as the primary distributed/device-development platform and macOS covered as a second POSIX host. Native Windows/Winsock UDP transport remains tracked separately in #42.
-
-This is a runtime support decision, not a public-API fork. `spwkit/udp.h`, `SPW_BACKEND_UDP`, `spw_udp_config_t`, VSPW-TP concepts and the common `spw_port_*` operations remain available to Windows source consumers.
+Linux is the primary distributed and virtual-device host. macOS is a supported second POSIX UDP host. Native Windows/Winsock UDP remains #42; the production Linux CUSE presenter remains #78. Neither is required for the v0.4 package boundary.
 
 ## C and C++ language support
 
@@ -75,6 +73,8 @@ The generated `SpWKitConfig.cmake` exports:
 SpWKit_UDP_RUNTIME_SUPPORTED
 SpWKit_UDP_RUNTIME_SCOPE
 SpWKit_SIMULATOR_RUNTIME_SUPPORTED
+SpWKit_DEVICE_RUNTIME_SUPPORTED
+SpWKit_DEVICE_RUNTIME_SCOPE
 SpWKit_CPP_WRAPPER_AVAILABLE
 ```
 
@@ -84,7 +84,7 @@ A pure-C CMake consumer can gate a hosted UDP example without probing native soc
 
 ```cmake
 project(my_app LANGUAGES C)
-find_package(SpWKit 0.3 CONFIG REQUIRED)
+find_package(SpWKit 0.4 CONFIG REQUIRED)
 
 if(SpWKit_UDP_RUNTIME_SUPPORTED)
     add_executable(my_distributed_app main.c)
@@ -96,9 +96,13 @@ The metadata is descriptive convenience for build systems. Runtime/backend-neutr
 
 The installed-package CI consumer validates the metadata against `spw_port_workspace_requirements()` on every host matrix entry. Windows therefore verifies the unsupported UDP runtime path through the installed package, not merely by compiling `udp.h`.
 
-## Linux virtual-device direction
+## Linux virtual-device support
 
-The v0.4 Linux virtual-device/userspace-service work is additive to this matrix. Its initial unprivileged Unix-domain-socket fallback is Linux-hosted implementation detail beneath the same public C API. CUSE `/dev/vspwX` presentation will be investigated separately and will only be claimed supported when CI/runtime evidence exists.
+v0.4 adds the Linux `SPW_BACKEND_DEVICE` runtime and pure-C `vspwd` service beneath the same public `spw_port_*` API. The installed package reports `SpWKit_DEVICE_RUNTIME_SUPPORTED` and `SpWKit_DEVICE_RUNTIME_SCOPE=Linux` so applications can gate hosted examples without exposing Unix socket types.
+
+The unprivileged reference path uses private VSPD over `AF_UNIX`/`SOCK_SEQPACKET`. `spwctl` and `spwmon` are optional installed service tools. `vspwd` can also reserve one of its two reference ports as a VSPW-TP/UDP bridge endpoint while the opposite port remains a normal public device endpoint.
+
+CUSE feasibility has been validated separately with libfuse3 and a private packet-record prototype. The production event-driven `/dev/vspwX` presenter remains #78 and is not claimed as part of v0.4.
 
 ## Why Winsock remains separate
 
@@ -131,7 +135,7 @@ Public configuration contains only portable descriptive values. Backend implemen
 
 For current hosted support:
 
-- Linux is the primary fully exercised distributed and upcoming virtual-device platform;
+- Linux is the primary fully exercised distributed and virtual-device/service platform;
 - macOS is a supported POSIX UDP host with host/shared-contract coverage;
 - Windows is supported for the portable C runtime, simulator and package, but not yet for the UDP runtime backend;
 - no claim is made for unvalidated UNIX/POSIX systems merely because CMake's `UNIX` condition enables implementation source.

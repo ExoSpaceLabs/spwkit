@@ -4,26 +4,45 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
 
 ## v0.4.0 — unreleased
 
-Linux virtual-device and userspace-service development line.
+Linux virtual-device and userspace-service release candidate. The public C API remains authoritative; VSPD, Unix sockets, CUSE and daemon-management protocol details remain private implementation layers.
 
 ### Added
 
-- private VSPD v1 backend↔daemon protocol, distinct from VSPW-TP, with a fixed 40-byte network-order header;
-- request/response correlation plus asynchronous DATA/TIME_CODE/link-state events;
-- bounded DATA fragmentation with 32 KiB local IPC records and a 1 MiB logical-packet ceiling;
-- explicit EOP/EEP, link-state, capability, statistics and fixed status encodings without native structure layout on wire;
-- pure-C golden/malformed protocol vectors;
-- Linux `AF_UNIX`/`SOCK_SEQPACKET` integration coverage for record preservation, non-blocking receive, `poll()` readiness and disconnect;
-- dedicated pure-C Virtual device CI on GCC/Clang.
+- private VSPD v1.3 backend↔daemon protocol with a fixed 40-byte network-order header, bounded 32 KiB records and 1 MiB logical DATA fragmentation/reassembly;
+- Linux `SPW_BACKEND_DEVICE` selected through the normal `spw_port_*` API, including reconnect/reattach after daemon loss;
+- pure-C `vspwd` userspace service with two deterministic virtual ports, lifecycle, packets, EOP/EEP, zero-length packets, time codes, statistics and restart recovery;
+- backend-neutral `SPW_CAP_READINESS`, `SPW_READY_RX_PACKET`, `SPW_READY_RX_TIME_CODE` and non-consuming level-triggered `spw_port_wait()`;
+- VSPD 1.1 HELLO-only non-owning management and installed pure-C `spwctl` (`list`, `show`, `stats`, `clear-stats`);
+- VSPD 1.2 bounded passive subscriptions and installed pure-C `spwmon` with human and JSON Lines output;
+- standalone installed-package C11 and optional C++17 Linux device consumers, including mixed C/C++ peer validation;
+- CUSE/libfuse3 feasibility work with a private fixed-width packet-record prototype; the production presenter remains tracked separately in #78;
+- VSPD 1.3 bridged-port metadata and an optional topology-owned `vspwd` endpoint backed by the existing VSPW-TP/UDP runtime;
+- end-to-end device↔daemon↔VSPW-TP/UDP DATA/time-code exchange with remote peer loss and fresh-process restart recovery;
+- release packaging of Apache-2.0 `LICENSE` and `NOTICE` metadata.
 
-### Direction
+### Changed
 
-- `vspwd` and the Linux device backend will use VSPD beneath the existing `spw_port_*` API;
-- Unix-domain `SOCK_SEQPACKET` is the unprivileged reference transport;
-- CUSE `/dev/vspwX` remains a presentation-layer investigation rather than a prerequisite for CI/development;
-- VSPD codec logic remains portable C and participates in the freestanding/no-heap portability gate.
+- completed the C-first v0.3 architecture by keeping `vspwd`, the Linux device backend and all daemon tools pure C with no mandatory C++ runtime;
+- extended the shared backend contract to the Linux device backend and documented distributed/service-specific queue and peer-loss timing semantics;
+- kept `/dev/vspwX` CUSE presentation optional and outside `libspwkit`; no kernel module or libfuse dependency is introduced into ordinary builds;
+- kept bridge transport reliability in the existing `SPW_BACKEND_UDP` implementation rather than creating a second VSPW-TP stack inside `vspwd`.
 
-No `v0.4.0` release tag is implied by this development section.
+### Verification
+
+- Linux device, daemon, management, monitoring and bridge profiles run under GCC and Clang with `CXX=/bin/false`;
+- public device and daemon paths run under ASan+UBSan;
+- standalone installed C and C++ device consumers exercise C↔C, C++↔C++, C↔C++ and C++↔C interoperability;
+- the existing cross-platform package matrix, pure-C static/shared gates, simulator contract, VSPW-TP D2D/network-namespace tests, freestanding portability checks and Wireshark/tshark validation remain release gates;
+- CUSE feasibility is compile/API validated under GCC and Clang without claiming `/dev/cuse` runtime evidence when hosted runners do not expose it.
+
+### Deferred beyond v0.4
+
+- production event-driven CUSE `/dev/vspwX` presenter (#78);
+- native Windows/Winsock VSPW-TP runtime (#42);
+- physical FPGA/HIL backend and electrical interoperability evidence;
+- generic SpaceWire routing/topology management and router simulation.
+
+No `v0.4.0` tag is implied until the release audit is complete.
 
 ## v0.3.0 — 2026-08-16
 

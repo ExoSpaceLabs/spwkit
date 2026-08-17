@@ -2,7 +2,7 @@
 
 SpWKit exposes one authoritative C11 runtime/API. C applications use it directly. C++ applications may either call the same C API or opt into the header-only `spwkit::cpp` convenience wrapper. There is no separate C++ backend implementation.
 
-The current v0.3 engineering line contains the v0.1 portable core, v0.2 VSPW-TP/UDP distributed backend, and the C11 runtime conversion. The next milestone is the Linux virtual-device/userspace-service layer tracked by #54.
+The v0.4 release candidate contains the v0.1 portable core, v0.2 VSPW-TP/UDP distributed backend, v0.3 C11 runtime conversion, and the Linux virtual-device/userspace-service layer tracked by #54. Production CUSE `/dev/vspwX`, native Winsock UDP and physical HIL remain separately tracked beyond this release boundary.
 
 ## Pure-C build from source
 
@@ -54,7 +54,7 @@ Pure-C consumer:
 cmake_minimum_required(VERSION 3.20)
 project(my_spw_application LANGUAGES C)
 
-find_package(SpWKit 0.3 CONFIG REQUIRED)
+find_package(SpWKit 0.4 CONFIG REQUIRED)
 add_executable(my_app main.c)
 target_link_libraries(my_app PRIVATE spwkit::spwkit)
 ```
@@ -65,7 +65,7 @@ Optional C++ wrapper consumer, when the package was built with `SPWKIT_ENABLE_CP
 
 ```cmake
 project(my_cpp_spw_application LANGUAGES CXX)
-find_package(SpWKit 0.3 CONFIG REQUIRED)
+find_package(SpWKit 0.4 CONFIG REQUIRED)
 add_executable(my_app main.cpp)
 target_link_libraries(my_app PRIVATE spwkit::cpp)
 ```
@@ -250,6 +250,32 @@ The distributed backend includes logical-message ACK/retransmission, duplicate s
 
 `examples/distributed` is deliberately a **C-only installed-package consumer**. The D2D workflow builds it with `CXX=/bin/false`, then runs independent-process and Linux network-namespace restart scenarios.
 
+## Linux virtual-device service
+
+Build the public Linux device backend and daemon without enabling C++:
+
+```sh
+CC=gcc CXX=/bin/false cmake -S . -B build-device \
+  -DSPWKIT_BUILD_CPP_TESTS=OFF \
+  -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+  -DSPWKIT_BUILD_DEVICE=ON \
+  -DSPWKIT_BUILD_VSPWD=ON
+cmake --build build-device --parallel
+```
+
+Run `vspwd`, then open one daemon port through the same public API:
+
+```c
+spw_device_config_t device = SPW_DEVICE_CONFIG_INITIALIZER(0u);
+spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_DEVICE);
+config.backend_config = &device;
+config.backend_config_size = sizeof(device);
+```
+
+`spw_port_wait()` provides non-consuming packet/time-code readiness when the device backend advertises `SPW_CAP_READINESS`. `spwctl` and `spwmon` are optional installed daemon tools when `SPWKIT_BUILD_TOOLS=ON`; they never become an alternate application data API.
+
+Standalone installed-package device consumers live under `examples/installed_device` and `examples/installed_device_cpp`.
+
 ## Errors and timeouts
 
 All public operations return `spw_result_t`. Applications should handle results explicitly rather than rely on exceptions.
@@ -269,6 +295,8 @@ Finite timeout values are expressed in microseconds.
 - `examples/cpp_wrapper_loopback.cpp`: optional `spwkit::Port` convenience wrapper;
 - `examples/installed`: standalone C-only installed consumer;
 - `examples/installed_cpp`: standalone optional C++ wrapper consumer;
-- `examples/distributed`: C-only installed VSPW-TP/UDP equal-peer process used by D2D CI.
+- `examples/distributed`: C-only installed VSPW-TP/UDP equal-peer process used by D2D CI;
+- `examples/c_device_peer.c` / `examples/cpp_device_peer.cpp`: in-tree Linux device peers;
+- `examples/installed_device` / `examples/installed_device_cpp`: standalone installed-package Linux device consumers.
 
 All examples use public headers only.
