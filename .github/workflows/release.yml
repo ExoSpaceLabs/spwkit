@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          cmake_version="$(sed -nE 's/^project\(spwkit VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C\)$/\1/p' CMakeLists.txt)"
+          cmake_version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
           api_major="$(sed -nE 's/^#define SPWKIT_API_VERSION_MAJOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_minor="$(sed -nE 's/^#define SPWKIT_API_VERSION_MINOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_patch="$(sed -nE 's/^#define SPWKIT_API_VERSION_PATCH ([0-9]+)u$/\1/p' include/spwkit/api.h)"
@@ -163,7 +163,8 @@ jobs:
                   if created < started:
                       continue
                   for filename, name in workflows:
-                      if run.get('path') == f'.github/workflows/{filename}':
+                      path = run.get('path', '').split('@', 1)[0]
+                      if path == f'.github/workflows/{filename}':
                           current = latest.get(name)
                           if current is None or run['created_at'] > current['created_at']:
                               latest[name] = run
