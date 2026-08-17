@@ -30,7 +30,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: release-audit-${{ github.ref }}
@@ -84,73 +83,136 @@ jobs:
             echo '- Physical HIL: manual/non-blocking until hardware exists'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  evidence:
-    name: Exact-SHA release CI evidence
+  release-matrix:
+    name: Fan-out full release CI matrix
     if: ${{ github.ref_type == 'tag' }}
     needs: metadata
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Require every automated release gate green on the tagged commit
+      - name: Dispatch and require every automated release gate
         shell: bash
         run: |
           python3 - <<'PY'
+          import datetime as dt
           import json
           import os
           import sys
+          import time
+          import urllib.error
+          import urllib.parse
           import urllib.request
 
           repo = os.environ['GITHUB_REPOSITORY']
           sha = os.environ['GITHUB_SHA']
+          ref = os.environ['GITHUB_REF_NAME']
           token = os.environ['GH_TOKEN']
-          expected = [
-              'CI',
-              'C-only runtime',
-              'Simulator',
-              'Device-to-device',
-              'Embedded portability',
-              'Virtual device',
-              'Tools',
-              'Installed device examples',
-              'Tooling',
+          workflows = [
+              ('ci.yml', 'CI'),
+              ('c-core.yml', 'C-only runtime'),
+              ('simulator.yml', 'Simulator'),
+              ('d2d.yml', 'Device-to-device'),
+              ('embedded.yml', 'Embedded portability'),
+              ('device.yml', 'Virtual device'),
+              ('tools.yml', 'Tools'),
+              ('installed-device-examples.yml', 'Installed device examples'),
+              ('tooling.yml', 'Tooling'),
           ]
 
-          url = f'https://api.github.com/repos/{repo}/actions/runs?head_sha={sha}&per_page=100'
-          request = urllib.request.Request(
-              url,
-              headers={
-                  'Authorization': f'Bearer {token}',
-                  'Accept': 'application/vnd.github+json',
-                  'X-GitHub-Api-Version': '2022-11-28',
-              },
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              runs = json.load(response)['workflow_runs']
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'spwkit-release-audit',
+          }
 
-          by_name = {}
-          for run in runs:
-              by_name.setdefault(run['name'], []).append(run)
+          def api(url, method='GET', payload=None):
+              data = None if payload is None else json.dumps(payload).encode('utf-8')
+              request = urllib.request.Request(url, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      body = response.read()
+                      return None if not body else json.loads(body)
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode('utf-8', errors='replace')
+                  raise RuntimeError(f'{method} {url} -> HTTP {exc.code}: {body}') from exc
 
-          missing = []
-          for name in expected:
-              candidates = by_name.get(name, [])
-              good = [r for r in candidates
-                      if r.get('status') == 'completed' and r.get('conclusion') == 'success']
-              if not good:
-                  states = ', '.join(
-                      f"{r.get('event')}:{r.get('status')}:{r.get('conclusion')}"
-                      for r in candidates
-                  ) or 'no run found'
-                  missing.append(f'{name}: {states}')
+          started = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=5)
+          print(f'Dispatching v0.4 release matrix for {ref} at {sha}')
+          for filename, name in workflows:
+              url = f'https://api.github.com/repos/{repo}/actions/workflows/{filename}/dispatches'
+              api(url, method='POST', payload={'ref': ref})
+              print(f'  dispatched {name}')
 
-          if missing:
-              print('Tagged commit lacks green release evidence:', file=sys.stderr)
-              for item in missing:
+          deadline = time.monotonic() + 30 * 60
+          latest = {}
+          while time.monotonic() < deadline:
+              query = urllib.parse.urlencode({
+                  'head_sha': sha,
+                  'event': 'workflow_dispatch',
+                  'per_page': 100,
+              })
+              runs = api(f'https://api.github.com/repos/{repo}/actions/runs?{query}')['workflow_runs']
+              latest.clear()
+              for run in runs:
+                  created = dt.datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
+                  if created < started:
+                      continue
+                  for filename, name in workflows:
+                      if run.get('path') == f'.github/workflows/{filename}':
+                          current = latest.get(name)
+                          if current is None or run['created_at'] > current['created_at']:
+                              latest[name] = run
+
+              failed = []
+              pending = []
+              for _, name in workflows:
+                  run = latest.get(name)
+                  if run is None:
+                      pending.append(f'{name}: awaiting run creation')
+                  elif run.get('status') != 'completed':
+                      pending.append(f"{name}: {run.get('status')}")
+                  elif run.get('conclusion') != 'success':
+                      failed.append(f"{name}: {run.get('conclusion')} ({run.get('html_url')})")
+
+              if failed:
+                  print('Release matrix failed:', file=sys.stderr)
+                  for item in failed:
+                      print(f'  - {item}', file=sys.stderr)
+                  sys.exit(1)
+              if not pending:
+                  break
+
+              print('Waiting for release matrix: ' + '; '.join(pending))
+              time.sleep(15)
+          else:
+              print('Timed out waiting for release matrix:', file=sys.stderr)
+              for item in pending:
                   print(f'  - {item}', file=sys.stderr)
-              print('Re-run or complete the missing workflow(s), then rerun Release audit.', file=sys.stderr)
               sys.exit(1)
 
-          print('All automated v0.4 release gates are green for', sha)
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          lines = [
+              '### Full automated release matrix',
+              '',
+              f'All automated v0.4 gates passed for `{sha}`:',
+              '',
+          ]
+          for _, name in workflows:
+              run = latest[name]
+              lines.append(f"- {name}: success ({run.get('html_url')})")
+          lines.extend([
+              '',
+              'HIL is intentionally excluded: v0.4 makes no physical-hardware claim.',
+          ])
+          if summary_path:
+              with open(summary_path, 'a', encoding='utf-8') as summary:
+                  summary.write('\n'.join(lines) + '\n')
+
+          print('All automated v0.4 release gates passed for', sha)
           print('HIL is intentionally excluded: v0.4 makes no physical-hardware claim.')
           PY
