@@ -6,11 +6,13 @@ on:
     paths:
       - "tools/wireshark/**"
       - ".github/workflows/tooling.yml"
+      - ".github/workflows/release.yml"
   pull_request:
     branches: [main]
     paths:
       - "tools/wireshark/**"
       - ".github/workflows/tooling.yml"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions:
