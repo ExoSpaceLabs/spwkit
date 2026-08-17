@@ -5,6 +5,7 @@ on:
     branches: [agent/develop]
     paths:
       - ".github/agent_release_audit_patch.py"
+      - ".github/agent_release_audit_fix.py"
       - ".github/workflows/agent-release-audit-patch.yml"
   workflow_dispatch:
 
@@ -20,7 +21,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply release-audit source and documentation patch
-        run: python3 .github/agent_release_audit_patch.py
+        run: |
+          python3 .github/agent_release_audit_patch.py
+          python3 .github/agent_release_audit_fix.py
 
       - name: Verify current integration guidance
         shell: bash
