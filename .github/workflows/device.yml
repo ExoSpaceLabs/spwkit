@@ -9,18 +9,22 @@ on:
       - "include/spwkit/api.h"
       - "include/spwkit/config.h"
       - "include/spwkit/device.h"
+      - "include/spwkit/udp.h"
       - "include/spwkit/spwkit.h"
       - "include/spwkit/spwkit.hpp"
       - "src/core/port.c"
       - "src/backends/device/**"
+      - "src/backends/ethernet/**"
       - "src/vspwd/**"
       - "examples/c_device_peer.c"
       - "examples/cpp_device_peer.cpp"
+      - "examples/distributed/**"
       - "examples/CMakeLists.txt"
       - "tests/vspw_device_protocol.c"
       - "tests/vspw_seqpacket.c"
       - "tests/vspwd_*.c"
       - "tests/device_public_peer.c"
+      - "tests/device_bridge_peer.c"
       - "tests/contract/device_contract.cpp"
       - "tests/device/**"
       - "tests/CMakeLists.txt"
@@ -35,18 +39,22 @@ on:
       - "include/spwkit/api.h"
       - "include/spwkit/config.h"
       - "include/spwkit/device.h"
+      - "include/spwkit/udp.h"
       - "include/spwkit/spwkit.h"
       - "include/spwkit/spwkit.hpp"
       - "src/core/port.c"
       - "src/backends/device/**"
+      - "src/backends/ethernet/**"
       - "src/vspwd/**"
       - "examples/c_device_peer.c"
       - "examples/cpp_device_peer.cpp"
+      - "examples/distributed/**"
       - "examples/CMakeLists.txt"
       - "tests/vspw_device_protocol.c"
       - "tests/vspw_seqpacket.c"
       - "tests/vspwd_*.c"
       - "tests/device_public_peer.c"
+      - "tests/device_bridge_peer.c"
       - "tests/contract/device_contract.cpp"
       - "tests/device/**"
       - "tests/CMakeLists.txt"
@@ -203,6 +211,55 @@ jobs:
           cmake --install build-device --prefix "$PWD/install-device"
           grep -q 'SpWKit_DEVICE_RUNTIME_SUPPORTED ON' "$PWD/install-device/lib/cmake/SpWKit/SpWKitConfig.cmake"
           test -f "$PWD/install-device/include/spwkit/device.h"
+
+  udp-bridge:
+    name: vspwd VSPW-TP bridge / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+          - compiler: clang
+            cc: clang
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure pure-C bridge profile
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-bridge \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=ON \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-bridge/CMakeCache.txt; then
+            echo "Bridge profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build bridge, public device peer and distributed UDP peer
+        run: cmake --build build-bridge --parallel
+
+      - name: Run remote loss/restart bridge contract
+        run: ctest --test-dir build-bridge -R '^vspwd_udp_bridge_remote_restart$' --output-on-failure --no-tests=error
+
+      - name: Run management regressions with VSPD 1.3 bridge metadata
+        run: ctest --test-dir build-bridge -R '^(spwctl_management_non_owning|spwmon_passive_push_observation|vspd_protocol_codec)$' --output-on-failure --no-tests=error
 
   public-cpp:
     name: Optional C++ device wrapper + shared contract
