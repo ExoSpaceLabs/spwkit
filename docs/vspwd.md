@@ -242,3 +242,37 @@ The initial public backend does **not** yet provide:
 - physical SpaceWire hardware.
 
 Those remain later v0.4+ layers above the now-testable C application -> device backend -> VSPD -> `vspwd` path.
+
+
+## VSPW-TP/UDP bridge
+
+`vspwd` can reserve either virtual port as a VSPW-TP/UDP endpoint while the opposite port remains a normal `SPW_BACKEND_DEVICE` application port.
+
+```text
+application -> SPW_BACKEND_DEVICE -> VSPD -> vspwd port 0
+                                              |
+                                              +-> port 1 [bridged]
+                                                     |
+                                                 VSPW-TP/UDP
+                                                     |
+                                               remote spw_port_*
+```
+
+Example:
+
+```sh
+vspwd --socket /tmp/vspwd.sock \
+  --bridge-port 1 \
+  --udp-local-port 46001 \
+  --udp-remote-port 46002 \
+  --udp-remote-address 127.0.0.1 \
+  --udp-link-id 42 \
+  --udp-keepalive-ms 1000 \
+  --udp-peer-timeout-ms 3000
+```
+
+The bridge reuses the normal `SPW_BACKEND_UDP` implementation internally. `vspwd` does not contain a second VSPW-TP codec/reliability stack. The daemon services that cooperative backend from its event loop, forwards DATA and time codes through the existing bounded per-port queues, and projects the remote UDP link state onto the paired local VSPD port.
+
+The bridged daemon port is topology-owned: ordinary VSPD ATTACH requests for that port are rejected. `spwctl` and `spwmon` expose the `bridged` flag so an operator can distinguish it from an unattached application port.
+
+The v0.4 bridge deliberately supports one bridged endpoint in the two-port reference daemon. Arbitrary routing tables, multi-hop routing and hardware bridging are outside this slice.

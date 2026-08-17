@@ -40,6 +40,24 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS OFF)
 
+    if(SPWKIT_UDP_RUNTIME_SUPPORTED AND SPWKIT_ENABLE_HEAP)
+        add_executable(spwkit_device_bridge_peer ../device_bridge_peer.c)
+        target_link_libraries(spwkit_device_bridge_peer PRIVATE spwkit::spwkit)
+        target_compile_features(spwkit_device_bridge_peer PRIVATE c_std_11)
+        set_target_properties(spwkit_device_bridge_peer PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
+
+        add_executable(spwkit_bridge_udp_peer ../../examples/distributed/udp_peer.c)
+        target_link_libraries(spwkit_bridge_udp_peer PRIVATE spwkit::spwkit)
+        target_compile_features(spwkit_bridge_udp_peer PRIVATE c_std_11)
+        set_target_properties(spwkit_bridge_udp_peer PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
+    endif()
+
     if(SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
         add_executable(spwkit_device_hold_peer ../device_hold_peer.c)
         target_link_libraries(spwkit_device_hold_peer PRIVATE spwkit::spwkit)
@@ -87,6 +105,21 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
     set_tests_properties(device_public_api_process_pair_restart PROPERTIES
         LABELS "device;contract;integration;process;restart;c"
         TIMEOUT 45)
+
+    if(SPWKIT_UDP_RUNTIME_SUPPORTED AND SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
+        add_test(
+            NAME vspwd_udp_bridge_remote_restart
+            COMMAND bash
+                    ${CMAKE_CURRENT_SOURCE_DIR}/run_udp_bridge.sh
+                    $<TARGET_FILE:vspwd>
+                    $<TARGET_FILE:spwkit_device_bridge_peer>
+                    $<TARGET_FILE:spwkit_bridge_udp_peer>
+                    $<TARGET_FILE:spwctl>
+                    $<TARGET_FILE:spwkit_example_c_device_peer>)
+        set_tests_properties(vspwd_udp_bridge_remote_restart PROPERTIES
+            LABELS "device;bridge;transport;integration;process;restart;c"
+            TIMEOUT 60)
+    endif()
 
     if(SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
         add_test(
