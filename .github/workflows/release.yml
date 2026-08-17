@@ -57,7 +57,6 @@ jobs:
 
           test -n "$cmake_version"
           test "$api_version" = "$cmake_version"
-          grep -q "^## v${cmake_version} — unreleased$" CHANGELOG.md
           grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/installed/CMakeLists.txt
           grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/distributed/CMakeLists.txt
           grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/installed_device/CMakeLists.txt
@@ -66,8 +65,12 @@ jobs:
 
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             test "$GITHUB_REF_NAME" = "v${cmake_version}"
+            grep -Eq "^## v${cmake_version} — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
+            ! grep -q "^## v${cmake_version} — unreleased$" CHANGELOG.md
             git fetch origin main
             test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          else
+            grep -q "^## v${cmake_version} — unreleased$" CHANGELOG.md
           fi
 
       - name: Record release boundary
