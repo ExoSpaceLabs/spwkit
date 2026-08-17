@@ -16,23 +16,19 @@ The v0.4 decision is therefore:
 
 libfuse3 CUSE provides character-device callbacks for `open`, direct-I/O `read`/`write`, `ioctl` and `poll`. A userspace process can therefore create a Linux character device without a custom kernel module.
 
-The repository contains `spwcuse_probe`, an opt-in compile/runtime probe. It links only to libfuse3 and does not add FUSE to `libspwkit`.
+The repository contains `spwcuse_probe`, an opt-in standalone compile/runtime probe under `tools/cuse-probe`. It links only to libfuse3 and does not add FUSE discovery or linkage to the main SpWKit CMake project or `libspwkit`.
 
 ```sh
-cmake -S . -B build-cuse \
-  -DSPWKIT_BUILD_CUSE_PROBE=ON \
-  -DSPWKIT_BUILD_TESTS=ON \
-  -DSPWKIT_BUILD_CPP_TESTS=OFF \
-  -DSPWKIT_BUILD_EXAMPLES=OFF \
-  -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
-cmake --build build-cuse --parallel
-build-cuse/spwcuse_probe --api-check
+cmake -S tools/cuse-probe -B build-cuse-probe \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cuse-probe --parallel
+build-cuse-probe/spwcuse_probe --api-check
 ```
 
 When the host exposes `/dev/cuse` and permits CUSE device creation, the probe can create a temporary character device:
 
 ```sh
-sudo build-cuse/spwcuse_probe --serve spwkit-cuse-probe
+sudo build-cuse-probe/spwcuse_probe --serve spwkit-cuse-probe
 ls -l /dev/spwkit-cuse-probe
 ```
 
@@ -133,10 +129,10 @@ The CUSE workflow always validates:
 
 - pure-C record codec tests under GCC and Clang;
 - `libfuse3` discovery through `pkg-config`;
-- compilation/linking of the CUSE probe;
+- compilation/linking of the standalone CUSE probe with `CXX=/bin/false`;
 - `spwcuse_probe --api-check`.
 
-GitHub-hosted runners are not treated as proof that the host kernel exposes `/dev/cuse`. If `/dev/cuse` is available, CI may additionally create the probe device; otherwise that runtime portion is reported as unavailable rather than faked.
+GitHub-hosted runners are not treated as proof that the host kernel exposes `/dev/cuse`. The workflow reports whether the device exists but does not turn a hosted-runner kernel feature into a release requirement.
 
 Real `/dev/vspwX` behavior should eventually be exercised on a runner/container/VM where `/dev/cuse` is explicitly provided.
 
