@@ -230,19 +230,16 @@ The dedicated **Virtual device** workflow is intentionally split into two profil
 
 ASan+UBSan runs the complete hosted backend + daemon path. The raw daemon tests remain separate from the public backend test, so both VSPD protocol correctness and application-facing behavior are exercised.
 
-## Not in this slice
+## Deliberately outside the v0.4 core release
 
-The initial public backend does **not** yet provide:
+The completed v0.4 device/service boundary still does **not** claim:
 
-- `/dev/vspwX`/CUSE presentation;
-- `spwctl`;
-- `spwmon`;
-- VSPW-TP/UDP bridging inside the daemon;
-- router/topology configuration;
-- physical SpaceWire hardware.
+- the production event-driven `/dev/vspwX` CUSE presenter tracked by #78;
+- generic router/topology configuration or multi-hop SpaceWire routing;
+- external administrative START/STOP/RESET override of application-owned ports;
+- physical SpaceWire hardware, FPGA/DMA drivers or electrical interoperability evidence.
 
-Those remain later v0.4+ layers above the now-testable C application -> device backend -> VSPD -> `vspwd` path.
-
+`spwctl`, `spwmon` and the single topology-owned VSPW-TP/UDP bridge are part of v0.4 and remain private service layers beneath the public application API.
 
 ## VSPW-TP/UDP bridge
 

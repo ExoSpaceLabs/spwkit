@@ -266,6 +266,12 @@ if(SPWKIT_ENABLE_CPP)
     )
 endif()
 
+# Preserve Apache-2.0 distribution metadata in installed/package artifacts.
+install(
+    FILES LICENSE NOTICE
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/spwkit
+)
+
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SpWKitConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/SpWKitConfig.cmake

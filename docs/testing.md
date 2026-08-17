@@ -43,7 +43,7 @@ The dedicated Simulator workflow enables the process-local simulator and runs bo
 
 ### Device-to-device
 
-The D2D workflow runs the real VSPW-TP/UDP integration tests and `backend_contract_udp`. It installs SpWKit, then builds `examples/distributed` as a **separate C-only** `find_package(SpWKit 0.3)` consumer with `CXX=/bin/false`.
+The D2D workflow runs the real VSPW-TP/UDP integration tests and `backend_contract_udp`. It installs SpWKit, then builds `examples/distributed` as a **separate C-only** `find_package(SpWKit 0.4)` consumer with `CXX=/bin/false`.
 
 It executes both:
 
@@ -71,9 +71,25 @@ The Tooling workflow is deliberately separate from runtime/library gates. It ins
 
 Wireshark/tshark remain development dependencies only; nothing from this gate is linked into `libspwkit`.
 
+### Virtual device
+
+The Virtual device workflow separates the portable daemon/protocol profile from the hosted public backend. GCC and Clang pure-C jobs cover VSPD codec/seqpacket behavior, `vspwd` process lifecycle, public `SPW_BACKEND_DEVICE`, the shared backend contract, readiness, peer loss/restart and ASan+UBSan. A separate pure-C bridge job exercises device↔`vspwd`↔VSPW-TP/UDP exchange and remote restart.
+
+### Tools
+
+The Tools workflow builds `vspwd`, `spwctl` and `spwmon` with GCC and Clang under `CXX=/bin/false`, runs live management/monitor integration, then installs and smoke-tests all three CLIs.
+
+### Installed device examples
+
+The Installed device examples workflow installs an actual device-enabled package, builds standalone C and optional C++ consumers against exported targets only, and executes C↔C, C++↔C++, C↔C++ and C++↔C process pairs through the installed daemon.
+
+### CUSE feasibility
+
+CUSE feasibility runs inside the C-only workflow under GCC and Clang. It validates the private record codec and linked libfuse3 API without claiming full `/dev/cuse` runtime evidence on hosted runners that do not expose the device. Production CUSE is tracked by #78 and is not a v0.4 release gate.
+
 ### HIL
 
-The HIL workflow remains explicit/manual and must fail if someone claims hardware is ready without the required harness. No hosted workflow result is presented as physical SpaceWire evidence.
+The HIL workflow remains explicit/manual and must fail if someone claims hardware is ready without the required harness. No hosted workflow result is presented as physical SpaceWire evidence, and HIL is not a v0.4 release blocker while hardware is unavailable.
 
 ## Test labels
 
@@ -96,7 +112,7 @@ cpp
 wrapper
 ```
 
-Future device/physical/standards work may additionally use `device`, `embedded`, `hil`, and `compliance` as evidence categories.
+Additional active labels include `device`, `protocol`, `process`, `restart`, `tools`, `management`, `monitor` and `bridge`. Future physical/standards work may add `hil` and `compliance` evidence when real targets exist.
 
 ## C versus C++ test policy
 
@@ -210,7 +226,7 @@ The VSPW-TP codec also has golden-vector and malformed-frame tests covering magi
 
 ```cmake
 project(spwkit_distributed_peer LANGUAGES C)
-find_package(SpWKit 0.3 CONFIG REQUIRED)
+find_package(SpWKit 0.4 CONFIG REQUIRED)
 target_link_libraries(spwkit_udp_peer PRIVATE spwkit::spwkit)
 ```
 
@@ -251,31 +267,37 @@ Host CI installs SpWKit to a temporary prefix and separately configures C and op
 C consumer:
 
 ```cmake
-find_package(SpWKit 0.3 CONFIG REQUIRED)
+find_package(SpWKit 0.4 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE spwkit::spwkit)
 ```
 
 Optional C++ wrapper consumer:
 
 ```cmake
-find_package(SpWKit 0.3 CONFIG REQUIRED)
+find_package(SpWKit 0.4 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE spwkit::cpp)
 ```
 
 These gates catch broken exports, stale target names, missing installed headers and accidental dependencies on source-private paths.
 
-## v0.4 device verification direction
+## v0.4 device verification
 
-The Linux virtual-device milestone must add a new integration layer without weakening existing gates. Planned evidence includes:
+The v0.4 Linux virtual-device/service boundary has executable evidence for:
 
-- versioned daemon/device protocol golden and malformed-message tests;
-- daemon process lifecycle and restart;
-- C-only installed application through the Linux-device backend;
-- optional C++ wrapper application through the same backend;
-- `poll()`/non-blocking readiness behavior;
-- packet, EOP/EEP, time-code, link-state and statistics parity with existing backends;
-- unprivileged Unix-socket fallback in normal CI;
-- CUSE `/dev/vspwX` integration where the runner environment permits it.
+- VSPD golden/malformed protocol vectors and Linux seqpacket behavior;
+- raw daemon process lifecycle, edge cases and restart;
+- public C device applications and the optional C++ wrapper through the same backend;
+- backend-neutral non-consuming packet/time-code readiness;
+- shared contract packet, EOP/EEP, zero-length, no-truncation, timeout, statistics and recovery behavior;
+- `spwctl` non-owning management and `spwmon` bounded passive observation;
+- installed-package C/C++ device consumers and mixed-language process pairs;
+- VSPW-TP/UDP bridging with DATA/time codes, remote peer loss and fresh-process recovery under GCC and Clang;
+- ASan+UBSan on the public device/daemon path;
+- CUSE record/libfuse3 feasibility without a false hosted-kernel claim.
+
+The broader release matrix additionally retains simulator, VSPW-TP D2D/network-namespace, static/shared package, freestanding, cross-platform host and Wireshark/tshark evidence.
+
+Release tags must execute the release-critical CI workflows; physical HIL remains manual and outside the v0.4 claim.
 
 ## ECSS evidence
 

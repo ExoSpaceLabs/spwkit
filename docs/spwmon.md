@@ -50,7 +50,7 @@ spwmon --port 0 --count 5 --json
 Each event contains only daemon metadata:
 
 - port identity;
-- attached, started, reset-latched and ever-attached flags;
+- attached, started, reset-latched, ever-attached and bridged flags;
 - link state;
 - packet and time-code queue occupancy;
 - TX/RX packet and byte counters;

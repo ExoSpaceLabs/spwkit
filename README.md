@@ -75,13 +75,22 @@ The release adds pure-C behavioral CI, C-only static/shared installed consumers,
 
 The C API is authoritative. C++ does not provide a second implementation or different SpaceWire semantics.
 
-### v0.4.0 — Linux virtual device — development
+### v0.4.0 — Linux virtual device and userspace service — release candidate
 
-The v0.4 development line is building an OS-visible virtual SpaceWire layer on top of the v0.3 C11 runtime.
+The v0.4 implementation is feature-complete and is undergoing its final release audit before the tag is created. It adds a Linux virtual-device/service layer without changing the application-facing `spw_port_*` model.
 
-The foundation includes the private **VSPD v1** daemon/device protocol over Linux `AF_UNIX`/`SOCK_SEQPACKET`, fixed network-order encodings, bounded fragmentation/reassembly up to 1 MiB logical packets, and pure-C protocol/poll/disconnect tests. The pure-C `vspwd` daemon provides two equal virtual ports with link lifecycle, packets, EOP/EEP, time codes, statistics and restart recovery.
+The release includes:
 
-The public Linux client layer is now `SPW_BACKEND_DEVICE`. C applications use the normal `spw_port_*` API, and optional C++ applications use the same backend through `spwkit::Port`; neither surface exposes VSPD or Unix socket types. The remaining v0.4 work is the `/dev/vspwX` presentation and management/monitoring tooling.
+- private VSPD v1.3 over Linux `AF_UNIX`/`SOCK_SEQPACKET` with fixed network-order encodings and bounded 1 MiB logical packets;
+- pure-C `vspwd` with deterministic two-port lifecycle, packet, EOP/EEP, zero-length packet, time-code, statistics and peer restart behavior;
+- public `SPW_BACKEND_DEVICE` plus backend-neutral level-triggered `spw_port_wait()` receive readiness;
+- HELLO-only non-owning management through `spwctl` and passive coalesced observation through `spwmon`;
+- standalone installed-package C11 and optional C++17 device consumers, including mixed C/C++ peer interoperability;
+- a CUSE/libfuse3 feasibility result and private packet-record prototype while the production `/dev/vspwX` presenter remains separately tracked in #78;
+- an optional topology-owned `vspwd` port bridged through the existing VSPW-TP/UDP backend, including remote loss/restart recovery;
+- dedicated pure-C GCC/Clang device, tools, bridge and installed-consumer CI with `CXX=/bin/false`.
+
+Physical FPGA/HIL verification, the production CUSE presenter and native Winsock VSPW-TP remain explicitly outside the v0.4 release boundary.
 
 ## Virtual SpaceWire
 
@@ -262,7 +271,7 @@ Install:
 cmake --install build --prefix /path/to/spwkit-install
 ```
 
-Consumer CMake for the v0.4 development line:
+Consumer CMake for v0.4:
 
 ```cmake
 find_package(SpWKit 0.4 CONFIG REQUIRED)
@@ -293,7 +302,9 @@ CI builds standalone installed-package consumers so exported package metadata ca
 - `examples/cpp_device_peer.cpp`: optional `spwkit::Port` device peer using the same `SPW_BACKEND_DEVICE` runtime;
 - `examples/installed`: standalone **C-only** installed-package consumer that verifies package/runtime metadata without enabling C++;
 - `examples/installed_cpp`: optional C++17 wrapper consumer built against `spwkit::cpp`;
-- `examples/distributed`: standalone **C-only** installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios.
+- `examples/distributed`: standalone **C-only** installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios;
+- `examples/installed_device`: standalone C11 installed-package Linux device consumer;
+- `examples/installed_device_cpp`: standalone optional C++17 wrapper device consumer.
 
 The device C and C++ examples are executed as real peer processes against `vspwd` in the Virtual device workflow. Raw VSPD clients remain test infrastructure and are not public examples.
 
@@ -321,6 +332,9 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [Distributed VSPW-TP transport](docs/vspw-tp.md)
 - [Linux VSPD device protocol](docs/vspw-device-protocol.md)
 - [`vspwd` userspace virtual-device service](docs/vspwd.md)
+- [`spwmon` passive daemon observation](docs/spwmon.md)
+- [Installed-package Linux device examples](docs/installed-device-examples.md)
+- [CUSE `/dev/vspwX` feasibility](docs/cuse-feasibility.md)
 - [VSPW-TP capture and Wireshark tooling](tools/wireshark/README.md)
 - [Testing strategy](docs/testing.md)
 - [Architecture](docs/architecture.md)
