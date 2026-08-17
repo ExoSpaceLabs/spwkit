@@ -1,0 +1,92 @@
+name: CUSE feasibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "src/cuse/**"
+      - "tests/cuse_record_protocol.c"
+      - "docs/cuse-feasibility.md"
+      - ".github/workflows/cuse.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "src/cuse/**"
+      - "tests/cuse_record_protocol.c"
+      - "docs/cuse-feasibility.md"
+      - ".github/workflows/cuse.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cuse-feasibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: record codec + libfuse3 / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+          - compiler: clang
+            cc: clang
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install libfuse3 development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse3-dev pkg-config
+          pkg-config --modversion fuse3
+
+      - name: Configure pure-C CUSE feasibility profile
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-cuse \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE_PROBE=ON \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-cuse/CMakeCache.txt; then
+            echo "CUSE feasibility profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build-cuse --parallel
+
+      - name: Run record protocol tests
+        run: ctest --test-dir build-cuse -R '^cuse_record_protocol$' --output-on-failure --no-tests=error
+
+      - name: Validate linked CUSE API surface
+        run: build-cuse/spwcuse_probe --api-check
+
+      - name: Report runtime CUSE availability
+        shell: bash
+        run: |
+          if [[ -c /dev/cuse ]]; then
+            echo "/dev/cuse is present on this runner; full device creation is intentionally not a release gate yet."
+          else
+            echo "/dev/cuse is not exposed by this hosted runner; compile/API feasibility remains validated."
+          fi
