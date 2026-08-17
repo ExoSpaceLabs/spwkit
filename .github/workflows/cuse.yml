@@ -4,17 +4,17 @@ on:
   push:
     branches: [main]
     paths:
-      - "CMakeLists.txt"
       - "src/cuse/**"
       - "tests/cuse_record_protocol.c"
+      - "tools/cuse-probe/**"
       - "docs/cuse-feasibility.md"
       - ".github/workflows/cuse.yml"
   pull_request:
     branches: [main]
     paths:
-      - "CMakeLists.txt"
       - "src/cuse/**"
       - "tests/cuse_record_protocol.c"
+      - "tools/cuse-probe/**"
       - "docs/cuse-feasibility.md"
       - ".github/workflows/cuse.yml"
   workflow_dispatch:
@@ -48,39 +48,34 @@ jobs:
           sudo apt-get install -y libfuse3-dev pkg-config
           pkg-config --modversion fuse3
 
-      - name: Configure pure-C CUSE feasibility profile
+      - name: Build and run private packet-record codec
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          "$CC" -std=c11 -Wall -Wextra -Werror -pedantic \
+            -Isrc \
+            tests/cuse_record_protocol.c \
+            src/cuse/vspw_cuse_record.c \
+            -o cuse-record-test
+          ./cuse-record-test
+
+      - name: Configure standalone pure-C CUSE probe
         env:
           CC: ${{ matrix.cc }}
           CXX: /bin/false
         run: |
-          cmake -S . -B build-cuse \
+          cmake -S tools/cuse-probe -B build-cuse-probe \
             -DCMAKE_BUILD_TYPE=Release \
-            -DSPWKIT_BUILD_TESTS=ON \
-            -DSPWKIT_BUILD_CPP_TESTS=OFF \
-            -DSPWKIT_BUILD_EXAMPLES=OFF \
-            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
-            -DSPWKIT_BUILD_SIMULATOR=OFF \
-            -DSPWKIT_BUILD_UDP=OFF \
-            -DSPWKIT_BUILD_DEVICE=OFF \
-            -DSPWKIT_BUILD_VSPWD=OFF \
-            -DSPWKIT_BUILD_TOOLS=OFF \
-            -DSPWKIT_BUILD_CUSE_PROBE=ON \
-            -DSPWKIT_ENABLE_HEAP=OFF \
-            -DSPWKIT_ENABLE_CPP=OFF \
             -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
-          if grep -q '^CMAKE_CXX_COMPILER:' build-cuse/CMakeCache.txt; then
-            echo "CUSE feasibility profile unexpectedly enabled CXX" >&2
+          if grep -q '^CMAKE_CXX_COMPILER:' build-cuse-probe/CMakeCache.txt; then
+            echo "CUSE probe unexpectedly enabled CXX" >&2
             exit 1
           fi
 
-      - name: Build
-        run: cmake --build build-cuse --parallel
-
-      - name: Run record protocol tests
-        run: ctest --test-dir build-cuse -R '^cuse_record_protocol$' --output-on-failure --no-tests=error
-
-      - name: Validate linked CUSE API surface
-        run: build-cuse/spwcuse_probe --api-check
+      - name: Build and validate linked CUSE API surface
+        run: |
+          cmake --build build-cuse-probe --parallel
+          build-cuse-probe/spwcuse_probe --api-check
 
       - name: Report runtime CUSE availability
         shell: bash
