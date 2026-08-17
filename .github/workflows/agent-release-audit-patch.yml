@@ -1,0 +1,87 @@
+name: Agent release audit patch
+
+on:
+  push:
+    branches: [agent/develop]
+    paths:
+      - ".github/agent_release_audit_patch.py"
+      - ".github/workflows/agent-release-audit-patch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply release-audit source and documentation patch
+        run: python3 .github/agent_release_audit_patch.py
+
+      - name: Verify current integration guidance
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -nF 'find_package(SpWKit 0.3 CONFIG REQUIRED)' \
+            docs/getting-started.md docs/platform-support.md docs/testing.md docs/language-bindings.md
+          grep -q '^## v0.4.0 — unreleased$' CHANGELOG.md
+          grep -q 'VSPD v1.3' docs/vspw-device-protocol.md
+          grep -q 'exact 1.3 match' docs/vspw-device-protocol.md
+          grep -q 'VSPD 1.2 added `SUBSCRIBE_PORT`' docs/vspw-device-protocol.md
+          grep -q 'VSPD_PORT_INFO_BRIDGED' docs/vspw-device-protocol.md
+
+      - name: Configure pure-C complete hosted release profile
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-audit \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=ON \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS='-Wall -Wextra -Werror'
+          if grep -q '^CMAKE_CXX_COMPILER:' build-audit/CMakeCache.txt; then
+            echo 'release pure-C profile unexpectedly enabled CXX' >&2
+            exit 1
+          fi
+
+      - name: Build and test pure-C hosted profile
+        run: |
+          cmake --build build-audit --parallel
+          ctest --test-dir build-audit --output-on-failure --no-tests=error
+
+      - name: Verify installed release metadata
+        run: |
+          cmake --install build-audit --prefix "$PWD/install-audit"
+          test -f "$PWD/install-audit/share/doc/spwkit/LICENSE"
+          test -f "$PWD/install-audit/share/doc/spwkit/NOTICE"
+          test -f "$PWD/install-audit/include/spwkit/udp.h"
+          grep -q '#include "spwkit/udp.h"' include/spwkit/spwkit.h
+          grep -q 'set(SpWKit_DEVICE_RUNTIME_SUPPORTED ON)' "$PWD/install-audit/lib/cmake/SpWKit/SpWKitConfig.cmake"
+          grep -q 'set(SpWKit_UDP_RUNTIME_SUPPORTED ON)' "$PWD/install-audit/lib/cmake/SpWKit/SpWKitConfig.cmake"
+
+      - name: Publish validated source and docs
+        run: |
+          git config user.name "Robert A Incze"
+          git config user.email "98164670+Inczert@users.noreply.github.com"
+          git add CMakeLists.txt README.md CHANGELOG.md include tests docs
+          if git diff --cached --quiet; then
+            echo 'No release-audit changes to publish'
+            exit 0
+          fi
+          git commit -m 'chore(spwkit): harden v0.4 release boundary'
+          git push origin HEAD:agent/develop
