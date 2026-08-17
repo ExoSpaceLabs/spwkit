@@ -12,7 +12,7 @@ static_assert(std::is_same_v<decltype(&spw_port_send),
 static_assert(std::is_same_v<decltype(&spw_port_wait),
                              spw_result_t (*)(spw_port_t*, spw_ready_events_t,
                                              spw_timeout_us_t, spw_ready_events_t*)>);
-static_assert(SPW_UDP_CONFIG_VERSION == 1u);
+static_assert(SPW_UDP_CONFIG_VERSION == 3u);
 static_assert(SPW_DEVICE_CONFIG_VERSION == 1u);
 static_assert(SPW_SIMULATOR_CONFIG_VERSION == 1u);
 
