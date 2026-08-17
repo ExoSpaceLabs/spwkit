@@ -83,10 +83,144 @@ jobs:
             echo '- Physical HIL: manual/non-blocking until hardware exists'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  integrated-sanitizers:
+    name: Pure-C device/service/bridge ASan + UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure complete device/service bridge sanitizer profile
+        env:
+          CC: clang
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-release-san \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-release-san/CMakeCache.txt; then
+            echo "Integrated sanitizer profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build and run complete device/service integration under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          cmake --build build-release-san --parallel
+          ctest --test-dir build-release-san -L device --output-on-failure --no-tests=error
+          ctest --test-dir build-release-san -R '^vspd_protocol_codec$' --output-on-failure --no-tests=error
+
+  shared-device-package:
+    name: Shared-library installed Linux device path
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure shared pure-C device package
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-shared-device \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-shared-device/CMakeCache.txt; then
+            echo "Shared device package unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build and install shared package
+        run: |
+          cmake --build build-shared-device --parallel
+          cmake --install build-shared-device --prefix "$PWD/install-shared-device"
+          test -f "$PWD/install-shared-device/lib/libspwkit.so"
+          test -x "$PWD/install-shared-device/bin/vspwd"
+          test -f "$PWD/install-shared-device/share/doc/spwkit/LICENSE"
+          test -f "$PWD/install-shared-device/share/doc/spwkit/NOTICE"
+
+      - name: Configure standalone installed C device consumer
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S examples/installed_device -B build-shared-device-consumer \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-shared-device" \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-shared-device-consumer/CMakeCache.txt; then
+            echo "Shared installed C device consumer unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+          cmake --build build-shared-device-consumer --parallel
+
+      - name: Run installed shared-library device peer pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          socket="$tmpdir/vspwd.sock"
+          daemon_pid=""
+          peer0_pid=""
+          libpath="$PWD/install-shared-device/lib"
+          cleanup() {
+            set +e
+            [[ -n "$peer0_pid" ]] && kill "$peer0_pid" 2>/dev/null || true
+            [[ -n "$peer0_pid" ]] && wait "$peer0_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && kill -TERM "$daemon_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && wait "$daemon_pid" 2>/dev/null || true
+            rm -rf "$tmpdir"
+          }
+          trap cleanup EXIT
+
+          env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
+            "$PWD/install-shared-device/bin/vspwd" --socket "$socket" >"$tmpdir/vspwd.log" 2>&1 & daemon_pid=$!
+          for _ in $(seq 1 100); do [[ -S "$socket" ]] && break; sleep 0.02; done
+          [[ -S "$socket" ]] || { cat "$tmpdir/vspwd.log"; exit 1; }
+
+          timeout 10s env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
+            "$PWD/build-shared-device-consumer/spwkit_installed_device_c" "$socket" 0 >"$tmpdir/p0.log" 2>&1 & peer0_pid=$!
+          sleep 0.05
+          timeout 10s env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
+            "$PWD/build-shared-device-consumer/spwkit_installed_device_c" "$socket" 1 >"$tmpdir/p1.log" 2>&1 || {
+              cat "$tmpdir/vspwd.log" "$tmpdir/p0.log" "$tmpdir/p1.log"
+              exit 1
+            }
+          wait "$peer0_pid" || {
+            cat "$tmpdir/vspwd.log" "$tmpdir/p0.log" "$tmpdir/p1.log"
+            exit 1
+          }
+          peer0_pid=""
+
   release-matrix:
     name: Fan-out full release CI matrix
     if: ${{ github.ref_type == 'tag' }}
-    needs: metadata
+    needs: [metadata, integrated-sanitizers, shared-device-package]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
