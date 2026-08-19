@@ -55,6 +55,33 @@ RUN apt-get update \
     && spwctl --help >/dev/null 2>&1 \
     && spwmon --help >/dev/null 2>&1
 
+# Compile and execute real consumers against the package after installing it in
+# the clean target userspace above. This prevents an architecture from being
+# advertised merely because CPack emitted a correctly-labelled archive.
+FROM validate AS consumer-validate
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY examples/installed /tmp/spwkit-consumer-c
+COPY examples/installed_cpp /tmp/spwkit-consumer-cpp
+
+RUN cmake -S /tmp/spwkit-consumer-c -B /tmp/build-consumer-c -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_PREFIX_PATH=/usr \
+    && cmake --build /tmp/build-consumer-c --parallel \
+    && ctest --test-dir /tmp/build-consumer-c --output-on-failure --no-tests=error \
+    && cmake -S /tmp/spwkit-consumer-cpp -B /tmp/build-consumer-cpp -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_PREFIX_PATH=/usr \
+    && cmake --build /tmp/build-consumer-cpp --parallel \
+    && ctest --test-dir /tmp/build-consumer-cpp --output-on-failure --no-tests=error
+
 FROM validate AS runtime
 
 ARG VERSION=unreleased

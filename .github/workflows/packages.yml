@@ -96,13 +96,13 @@ jobs:
           docker buildx create --name spwkit-packages --driver docker-container --use
           docker buildx inspect --bootstrap
 
-      - name: Validate target-architecture DEB installation
+      - name: Validate target package and installed consumers
         run: >-
           docker buildx build
           --builder spwkit-packages
           --platform ${{ matrix.platform }}
           --file packaging/Dockerfile
-          --target validate
+          --target consumer-validate
           --progress plain
           .
 
