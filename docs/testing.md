@@ -43,7 +43,7 @@ The dedicated Simulator workflow enables the process-local simulator and runs bo
 
 ### Device-to-device
 
-The D2D workflow runs the real VSPW-TP/UDP integration tests and `backend_contract_udp`. It installs SpWKit, then builds `examples/distributed` as a **separate C-only** `find_package(SpWKit 0.4)` consumer with `CXX=/bin/false`.
+The D2D workflow runs the real VSPW-TP/UDP integration tests and `backend_contract_udp`. It installs SpWKit, then builds `examples/distributed` as a **separate C-only** `find_package(SpWKit 0.5)` consumer with `CXX=/bin/false`.
 
 It executes both:
 
@@ -226,7 +226,7 @@ The VSPW-TP codec also has golden-vector and malformed-frame tests covering magi
 
 ```cmake
 project(spwkit_distributed_peer LANGUAGES C)
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 target_link_libraries(spwkit_udp_peer PRIVATE spwkit::spwkit)
 ```
 
@@ -267,14 +267,14 @@ Host CI installs SpWKit to a temporary prefix and separately configures C and op
 C consumer:
 
 ```cmake
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE spwkit::spwkit)
 ```
 
 Optional C++ wrapper consumer:
 
 ```cmake
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE spwkit::cpp)
 ```
 

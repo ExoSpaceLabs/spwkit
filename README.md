@@ -22,6 +22,20 @@ The design goal is simple: application SpaceWire logic should not change just be
 
 ## Release status
 
+### v0.5.0 — Hosted platform and embedded/RTOS integration (development)
+
+`main` now targets v0.5.0. The released v0.4.0 tag and binary artifacts remain immutable while v0.5 expands the same public C API into additional hosted and embedded environments.
+
+Planned v0.5 work includes:
+
+- production event-driven CUSE `/dev/vspwX` presentation (#78);
+- native Windows/Winsock VSPW-TP runtime parity (#42);
+- evidence-backed hosted binary expansion (#88). `arm64` is AArch64 and is already released in v0.4; 32-bit ARM (`armhf`) and `riscv64` are the next hosted candidates;
+- generic RTOS/bare-metal integration demonstrated first with HardRT POSIX and Cortex-M (#89), without making HardRT a `libspwkit` dependency;
+- optional CCSDSPack 2.x producer/consumer integration after a validated CCSDSPack 2.x release is available (#90).
+
+Bare-metal artifacts are treated as target-toolchain SDK/static builds, not Debian or OCI packages. Physical SpaceWire interoperability remains a separate HIL claim until hardware exists.
+
 ### v0.1.0 baseline
 
 `v0.1.0` is tagged at the completed portable-core boundary. It includes:
@@ -277,10 +291,10 @@ Install:
 cmake --install build --prefix /path/to/spwkit-install
 ```
 
-Consumer CMake for v0.4:
+Consumer CMake for v0.5 development:
 
 ```cmake
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE spwkit::spwkit)
 
 if(SpWKit_UDP_RUNTIME_SUPPORTED)
@@ -335,6 +349,7 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [Zero-copy buffers](docs/buffers.md)
 - [C and C++ integration](docs/language-bindings.md)
 - [Portability contract](docs/portability.md)
+- [HardRT POSIX integration](integrations/hardrt_posix/README.md)
 - [Backend contract](docs/backend-contract.md)
 - [Local virtual simulator](docs/simulator.md)
 - [Distributed VSPW-TP transport](docs/vspw-tp.md)

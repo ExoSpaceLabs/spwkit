@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.20)
 # public C ABI and is never required by the runtime implementation.
 project(
     spwkit
-    VERSION 0.4.0
+    VERSION 0.5.0
     DESCRIPTION "SpaceWire Development & Integration Toolkit"
     LANGUAGES C
 )

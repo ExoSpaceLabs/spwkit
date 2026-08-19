@@ -72,7 +72,7 @@ Pure-C consumer:
 cmake_minimum_required(VERSION 3.20)
 project(my_spw_application LANGUAGES C)
 
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 add_executable(my_app main.c)
 target_link_libraries(my_app PRIVATE spwkit::spwkit)
 ```
@@ -83,7 +83,7 @@ Optional C++ wrapper consumer, when the package was built with `SPWKIT_ENABLE_CP
 
 ```cmake
 project(my_cpp_spw_application LANGUAGES CXX)
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 add_executable(my_app main.cpp)
 target_link_libraries(my_app PRIVATE spwkit::cpp)
 ```
