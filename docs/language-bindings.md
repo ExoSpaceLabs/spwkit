@@ -45,7 +45,7 @@ A C project does not enable C++:
 cmake_minimum_required(VERSION 3.20)
 project(flight LANGUAGES C)
 
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 
 add_executable(flight main.c)
 target_link_libraries(flight PRIVATE spwkit::spwkit)
@@ -86,7 +86,7 @@ Then a C++ application can use:
 
 ```cmake
 project(app LANGUAGES CXX)
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 
 target_link_libraries(app PRIVATE spwkit::cpp)
 ```

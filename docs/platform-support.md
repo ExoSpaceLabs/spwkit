@@ -84,7 +84,7 @@ A pure-C CMake consumer can gate a hosted UDP example without probing native soc
 
 ```cmake
 project(my_app LANGUAGES C)
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 
 if(SpWKit_UDP_RUNTIME_SUPPORTED)
     add_executable(my_distributed_app main.c)
