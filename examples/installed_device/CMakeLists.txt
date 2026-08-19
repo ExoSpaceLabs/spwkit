@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(spwkit_installed_device_c LANGUAGES C)
 
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 
 if(NOT SpWKit_DEVICE_RUNTIME_SUPPORTED)
     message(FATAL_ERROR "Installed SpWKit package does not provide the Linux device runtime")
