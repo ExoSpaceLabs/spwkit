@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 compose_file="$repo_root/tests/d2d/compose.yml"
 project="spwkit-d2d-${GITHUB_RUN_ID:-local}-$$"
+image="spwkit-d2d-peer:${GITHUB_RUN_ID:-local}-$$"
 
 if ! docker compose version >/dev/null 2>&1; then
     echo "docker compose v2 is required" >&2
@@ -12,11 +13,13 @@ fi
 
 cleanup() {
     docker compose -p "$project" -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
+    docker image rm "$image" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 cd "$repo_root"
-docker compose -p "$project" -f "$compose_file" build
+docker build -f tests/d2d/docker/Dockerfile -t "$image" .
+export SPWKIT_D2D_IMAGE="$image"
 
 run_combo() {
     local a_impl="$1"
