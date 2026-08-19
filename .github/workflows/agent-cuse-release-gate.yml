@@ -1,0 +1,64 @@
+name: Agent CUSE release-gate patch
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/agent-cuse-release-gate.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/develop
+          fetch-depth: 0
+
+      - name: Add CUSE to exact-ref release audit
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/release.yml')
+          text = path.read_text(encoding='utf-8')
+
+          workflow_path = '      - ".github/workflows/cuse.yml"\n'
+          anchor = '      - ".github/workflows/embedded.yml"\n'
+          if workflow_path not in text:
+              count = text.count(anchor)
+              if count != 2:
+                  raise SystemExit(f'expected two release trigger anchors, found {count}')
+              text = text.replace(anchor, workflow_path + anchor)
+
+          matrix_entry = "              ('cuse.yml', 'CUSE device'),\n"
+          matrix_anchor = "              ('embedded.yml', 'Embedded portability'),\n"
+          if matrix_entry not in text:
+              if text.count(matrix_anchor) != 1:
+                  raise SystemExit('release matrix anchor not found exactly once')
+              text = text.replace(matrix_anchor, matrix_entry + matrix_anchor, 1)
+
+          old_summary = "            echo '- Embedded/RTOS evidence is defined by Embedded portability CI.'\n"
+          new_summary = old_summary + "            echo '- Linux /dev/vspwX presentation is execution-gated by CUSE device CI.'\n"
+          if "Linux /dev/vspwX presentation is execution-gated" not in text:
+              if old_summary not in text:
+                  raise SystemExit('release summary anchor not found')
+              text = text.replace(old_summary, new_summary, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          git rm .github/workflows/agent-cuse-release-gate.yml
+
+      - name: Commit release gate
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "ci(spwkit): require CUSE in release audit"
+          git push origin HEAD:agent/develop
