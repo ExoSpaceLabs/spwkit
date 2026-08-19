@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(spwkit_installed_cpp_consumer LANGUAGES CXX)
 
 include(CTest)
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 
 if(NOT SpWKit_CPP_WRAPPER_AVAILABLE)
     message(FATAL_ERROR "Installed SpWKit package does not contain the optional C++ wrapper")
