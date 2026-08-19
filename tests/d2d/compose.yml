@@ -1,8 +1,6 @@
 services:
   peer-a:
-    build:
-      context: ../..
-      dockerfile: tests/d2d/docker/Dockerfile
+    image: ${SPWKIT_D2D_IMAGE:-spwkit-d2d-peer:local}
     environment:
       SPWKIT_IMPL: ${SPWKIT_PEER_A_IMPL:-c}
       SPWKIT_ID: A
@@ -16,9 +14,7 @@ services:
         ipv4_address: 172.28.0.10
 
   peer-b:
-    build:
-      context: ../..
-      dockerfile: tests/d2d/docker/Dockerfile
+    image: ${SPWKIT_D2D_IMAGE:-spwkit-d2d-peer:local}
     environment:
       SPWKIT_IMPL: ${SPWKIT_PEER_B_IMPL:-c}
       SPWKIT_ID: B
