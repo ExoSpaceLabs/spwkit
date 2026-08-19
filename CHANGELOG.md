@@ -2,6 +2,25 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
+## v0.5.0 — unreleased
+
+Hosted-platform and embedded/RTOS integration development release. v0.5 builds on the released v0.4 software-simulation/service boundary without changing the rule that the public C API remains authoritative.
+
+### In development
+
+- production event-driven CUSE `/dev/vspwX` presentation (#78);
+- native Windows/Winsock VSPW-TP runtime parity (#42);
+- evidence-backed hosted release expansion beyond `amd64` and `arm64`/AArch64, starting with `armhf` and `riscv64` candidates (#88);
+- generic embedded/RTOS integration boundaries demonstrated first with HardRT POSIX and Cortex-M, without introducing a HardRT dependency into `libspwkit` (#89);
+- optional downstream CCSDSPack 2.x packet-transport integration after a validated CCSDSPack release is available (#90).
+
+### Release policy
+
+- hosted precompiled artifacts are published only for architectures that are installed and executed in a target userspace during CI;
+- bare-metal artifacts are kept separate from `.deb`/OCI distribution and must identify their target triple, CPU/ABI and toolchain assumptions;
+- HardRT is an external integration fixture rather than part of the SpWKit runtime dependency graph;
+- physical SpaceWire HIL remains outside automated claims until suitable hardware is available.
+
 ## v0.4.0 — 2026-08-19
 
 Linux virtual-device and userspace-service release. The public C API remains authoritative; VSPD, Unix sockets, CUSE and daemon-management protocol details remain private implementation layers.
