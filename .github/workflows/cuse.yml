@@ -1,0 +1,227 @@
+name: CUSE device
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/Packaging.cmake"
+      - "src/cuse/**"
+      - "src/backends/device/**"
+      - "src/vspwd/**"
+      - "tests/cuse_*.c"
+      - "docs/cuse.md"
+      - "packaging/Dockerfile"
+      - ".github/workflows/cuse.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/Packaging.cmake"
+      - "src/cuse/**"
+      - "src/backends/device/**"
+      - "src/vspwd/**"
+      - "tests/cuse_*.c"
+      - "docs/cuse.md"
+      - "packaging/Dockerfile"
+      - ".github/workflows/cuse.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cuse-device-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: CUSE build/package boundary / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: GCC
+            cc: gcc
+          - compiler: Clang
+            cc: clang
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install libfuse3 development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse3-dev pkg-config
+          pkg-config --modversion fuse3
+
+      - name: Configure pure-C production CUSE profile
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-cuse \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-cuse/CMakeCache.txt; then
+            echo "CUSE profile unexpectedly enabled CXX" >&2
+            exit 1
+          fi
+
+      - name: Build production presenter and fixtures
+        run: cmake --build build-cuse --parallel
+
+      - name: Validate production CUSE API surface
+        run: |
+          build-cuse/spwcuse --api-check
+          test -x build-cuse/spwkit_cuse_raw_client
+          test -x build-cuse/spwkit_cuse_vspd_peer
+
+      - name: Preserve packet-record codec regression
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          "$CC" -std=c11 -Wall -Wextra -Werror -pedantic \
+            -Isrc \
+            tests/cuse_record_protocol.c \
+            src/cuse/vspw_cuse_record.c \
+            -o cuse-record-test
+          ./cuse-record-test
+
+      - name: Install presenter without polluting libspwkit
+        run: |
+          cmake --install build-cuse --prefix "$PWD/install-cuse"
+          test -x "$PWD/install-cuse/bin/spwcuse"
+          "$PWD/install-cuse/bin/spwcuse" --api-check
+          library="$(find "$PWD/install-cuse" -type f -name 'libspwkit.so.0*' -print -quit)"
+          test -n "$library"
+          if ldd "$library" | grep -qi fuse; then
+            echo "libspwkit unexpectedly depends on libfuse" >&2
+            ldd "$library"
+            exit 1
+          fi
+
+  live-cuse:
+    name: Live /dev/cuse packet contract
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install CUSE runtime and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fuse3 libfuse3-dev pkg-config kmod
+          sudo modprobe cuse
+          test -c /dev/cuse
+
+      - name: Configure and build live CUSE fixture
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-cuse-live \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          cmake --build build-cuse-live --parallel
+
+      - name: Exercise real character-device semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          socket="$tmpdir/vspwd.sock"
+          device="vspw-ci-${GITHUB_RUN_ID}"
+          device_path="/dev/$device"
+          daemon_pid=""
+          presenter_pid=""
+          peer_pid=""
+          cleanup() {
+            set +e
+            [[ -n "$peer_pid" ]] && kill "$peer_pid" 2>/dev/null || true
+            [[ -n "$peer_pid" ]] && wait "$peer_pid" 2>/dev/null || true
+            [[ -n "$presenter_pid" ]] && sudo kill -TERM "$presenter_pid" 2>/dev/null || true
+            [[ -n "$presenter_pid" ]] && wait "$presenter_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && kill -TERM "$daemon_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && wait "$daemon_pid" 2>/dev/null || true
+            rm -rf "$tmpdir"
+          }
+          trap cleanup EXIT
+
+          build-cuse-live/vspwd --socket "$socket" >"$tmpdir/vspwd.log" 2>&1 &
+          daemon_pid=$!
+          for _ in $(seq 1 100); do
+            [[ -S "$socket" ]] && break
+            sleep 0.02
+          done
+          [[ -S "$socket" ]] || { cat "$tmpdir/vspwd.log"; exit 1; }
+
+          sudo -E build-cuse-live/spwcuse \
+            --socket "$socket" \
+            --port 0 \
+            --device "$device" \
+            >"$tmpdir/spwcuse.log" 2>&1 &
+          presenter_pid=$!
+          for _ in $(seq 1 150); do
+            [[ -c "$device_path" ]] && break
+            sleep 0.02
+          done
+          [[ -c "$device_path" ]] || {
+            cat "$tmpdir/spwcuse.log"
+            exit 1
+          }
+
+          timeout 10s build-cuse-live/spwkit_cuse_vspd_peer "$socket" \
+            >"$tmpdir/peer.log" 2>&1 &
+          peer_pid=$!
+          sleep 0.05
+
+          sudo timeout 10s build-cuse-live/spwkit_cuse_raw_client "$device_path" \
+            >"$tmpdir/client.log" 2>&1 || {
+              cat "$tmpdir/vspwd.log" "$tmpdir/spwcuse.log" "$tmpdir/peer.log" "$tmpdir/client.log"
+              exit 1
+            }
+          wait "$peer_pid" || {
+            cat "$tmpdir/vspwd.log" "$tmpdir/spwcuse.log" "$tmpdir/peer.log" "$tmpdir/client.log"
+            exit 1
+          }
+          peer_pid=""
+
+          sudo kill -TERM "$presenter_pid"
+          wait "$presenter_pid" || true
+          presenter_pid=""
+          for _ in $(seq 1 100); do
+            [[ ! -e "$device_path" ]] && break
+            sleep 0.02
+          done
+          [[ ! -e "$device_path" ]] || {
+            echo "CUSE device node remained after presenter exit" >&2
+            exit 1
+          }
