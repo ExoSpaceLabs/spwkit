@@ -1,0 +1,103 @@
+name: Agent CUSE nonblocking edge fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/agent-cuse-edge-fix.yml"
+      - "src/cuse/spwcuse.c"
+      - "tests/cuse_raw_client.c"
+      - "tests/cuse_vspd_peer.c"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/develop
+          fetch-depth: 0
+
+      - name: Tighten nonblocking read semantics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/cuse/spwcuse.c')
+          text = path.read_text(encoding='utf-8')
+
+          text = text.replace(
+              '''typedef struct spwcuse_pending_read {\n    fuse_req_t req;\n    size_t size;\n} spwcuse_pending_read_t;''',
+              '''typedef struct spwcuse_pending_read {\n    fuse_req_t req;\n    size_t size;\n    bool nonblocking;\n} spwcuse_pending_read_t;''',
+              1)
+
+          text = text.replace(
+              '''static bool enqueue_read_locked(spwcuse_state_t* state,\n                                fuse_req_t req,\n                                size_t size) {''',
+              '''static bool enqueue_read_locked(spwcuse_state_t* state,\n                                fuse_req_t req,\n                                size_t size,\n                                bool nonblocking) {''',
+              1)
+          text = text.replace(
+              '''    state->reads[index].req = req;\n    state->reads[index].size = size;\n    ++state->read_count;''',
+              '''    state->reads[index].req = req;\n    state->reads[index].size = size;\n    state->reads[index].nonblocking = nonblocking;\n    ++state->read_count;''',
+              1)
+
+          old = '''static void* broker_main(void* opaque) {\n    spwcuse_state_t* state = (spwcuse_state_t*)opaque;\n\n    for (;;) {\n        spwcuse_pending_write_t pending_write = {0};\n        struct fuse_pollhandle* poll_handle = NULL;\n        bool should_wait_backend;\n        bool have_write;'''
+          new = '''static void* broker_main(void* opaque) {\n    spwcuse_state_t* state = (spwcuse_state_t*)opaque;\n\n    for (;;) {\n        spwcuse_pending_write_t pending_write = {0};\n        struct fuse_pollhandle* poll_handle = NULL;\n        spw_timeout_us_t wait_timeout = SPWCUSE_BACKEND_WAIT_US;\n        bool should_wait_backend;\n        bool have_write;'''
+          if old not in text:
+              raise SystemExit('broker declaration anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        should_wait_backend =\n            !have_write && state->record_count < SPWCUSE_RECORD_QUEUE_DEPTH &&\n            (state->read_count != 0u || state->poll_handle != NULL);\n\n        if (!have_write && !should_wait_backend) {'''
+          new = '''        should_wait_backend =\n            !have_write && state->record_count < SPWCUSE_RECORD_QUEUE_DEPTH &&\n            (state->read_count != 0u || state->poll_handle != NULL);\n        if (state->read_count != 0u &&\n            state->reads[state->read_head].nonblocking) {\n            wait_timeout = SPW_TIMEOUT_IMMEDIATE;\n        }\n\n        if (!have_write && !should_wait_backend) {'''
+          if old not in text:
+              raise SystemExit('broker wait decision anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''            spw_result_t result = spw_port_wait(\n                state->port,\n                SPW_READY_ALL,\n                SPWCUSE_BACKEND_WAIT_US,\n                &ready);\n            if (result == SPW_OK && ready != SPW_READY_NONE) {'''
+          new = '''            spw_result_t result = spw_port_wait(\n                state->port,\n                SPW_READY_ALL,\n                wait_timeout,\n                &ready);\n            if (result == SPW_ERR_TIMEOUT &&\n                wait_timeout == SPW_TIMEOUT_IMMEDIATE) {\n                fuse_req_t nonblocking_req = NULL;\n                pthread_mutex_lock(&state->mutex);\n                if (state->record_count == 0u && state->read_count != 0u &&\n                    state->reads[state->read_head].nonblocking) {\n                    nonblocking_req = state->reads[state->read_head].req;\n                    state->reads[state->read_head] = (spwcuse_pending_read_t){0};\n                    state->read_head =\n                        (state->read_head + 1u) % SPWCUSE_READ_QUEUE_DEPTH;\n                    --state->read_count;\n                }\n                pthread_mutex_unlock(&state->mutex);\n                if (nonblocking_req != NULL) {\n                    (void)fuse_reply_err(nonblocking_req, EAGAIN);\n                }\n            } else if (result == SPW_OK && ready != SPW_READY_NONE) {'''
+          if old not in text:
+              raise SystemExit('broker wait call anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    bool nonblocking = (fi->flags & O_NONBLOCK) != 0;\n    bool queued = false;\n    bool have_record;\n\n    (void)off;\n    pthread_mutex_lock(&state->mutex);\n    have_record = state->record_count != 0u;\n    if (have_record || !nonblocking) {\n        queued = enqueue_read_locked(state, req, size);\n        if (queued) {\n            (void)pthread_cond_signal(&state->cond);\n        }\n    }\n    pthread_mutex_unlock(&state->mutex);\n\n    if (queued) {\n        return;\n    }\n    (void)fuse_reply_err(req, have_record || !nonblocking ? ENOBUFS : EAGAIN);'''
+          new = '''    bool nonblocking = (fi->flags & O_NONBLOCK) != 0;\n    bool queued;\n\n    (void)off;\n    pthread_mutex_lock(&state->mutex);\n    queued = enqueue_read_locked(state, req, size, nonblocking);\n    if (queued) {\n        (void)pthread_cond_signal(&state->cond);\n    }\n    pthread_mutex_unlock(&state->mutex);\n\n    if (queued) {\n        return;\n    }\n    (void)fuse_reply_err(req, nonblocking ? EAGAIN : ENOBUFS);'''
+          if old not in text:
+              raise SystemExit('CUSE read callback anchor not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+          peer = Path('tests/cuse_vspd_peer.c')
+          text = peer.read_text(encoding='utf-8')
+          old = '''    sleep_ms(300);\n    if (!send_packet(port, world, 0u, SPW_TERMINATOR_EOP)) {\n        goto done;\n    }\n\n    exit_code = 0;'''
+          new = '''    sleep_ms(300);\n    if (!send_packet(port, world, 0u, SPW_TERMINATOR_EOP)) {\n        goto done;\n    }\n    sleep_ms(300);\n    if (!send_packet(port, world, sizeof(world), SPW_TERMINATOR_EOP)) {\n        goto done;\n    }\n\n    exit_code = 0;'''
+          if old not in text:
+              raise SystemExit('peer delayed packet anchor not found')
+          peer.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          client = Path('tests/cuse_raw_client.c')
+          text = client.read_text(encoding='utf-8')
+          anchor = '''static double monotonic_seconds(void) {\n'''
+          helper = '''static void sleep_ms(long milliseconds) {\n    struct timespec delay;\n    delay.tv_sec = milliseconds / 1000;\n    delay.tv_nsec = (milliseconds % 1000) * 1000000L;\n    (void)nanosleep(&delay, NULL);\n}\n\n'''
+          if anchor not in text:
+              raise SystemExit('client sleep helper anchor not found')
+          text = text.replace(anchor, helper + anchor, 1)
+          old = '''    errno = 0;\n    received = read(fd, buffer, sizeof(buffer));\n    if (received >= 0 || errno != EAGAIN) {\n        fprintf(stderr, "post-consume nonblocking read did not return EAGAIN\\n");\n        close(fd);\n        return 1;\n    }\n\n    close(fd);'''
+          new = '''    errno = 0;\n    received = read(fd, buffer, sizeof(buffer));\n    if (received >= 0 || errno != EAGAIN) {\n        fprintf(stderr, "post-consume nonblocking read did not return EAGAIN\\n");\n        close(fd);\n        return 1;\n    }\n\n    /* Let a final record reach VSPD without calling poll first. A nonblocking\n     * read must perform an immediate backend readiness check rather than\n     * confusing an empty presenter-local queue with an empty device. */\n    sleep_ms(400);\n    received = read(fd, buffer, sizeof(buffer));\n    if (received < 0 ||\n        !parse_record(buffer,\n                      (size_t)received,\n                      VSPW_CUSE_RECORD_DATA,\n                      0u,\n                      world,\n                      sizeof(world))) {\n        fprintf(stderr, "nonblocking read missed already-ready VSPD DATA\\n");\n        close(fd);\n        return 1;\n    }\n\n    errno = 0;\n    received = read(fd, buffer, sizeof(buffer));\n    if (received >= 0 || errno != EAGAIN) {\n        fprintf(stderr, "final nonblocking read did not return EAGAIN\\n");\n        close(fd);\n        return 1;\n    }\n\n    close(fd);'''
+          if old not in text:
+              raise SystemExit('client nonblocking edge anchor not found')
+          client.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          git rm .github/workflows/agent-cuse-edge-fix.yml
+
+      - name: Commit edge-case fix
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/cuse/spwcuse.c tests/cuse_raw_client.c tests/cuse_vspd_peer.c .github/workflows/agent-cuse-edge-fix.yml
+          git diff --cached --check
+          git commit -m "fix(spwkit): probe backend on nonblocking CUSE reads"
+          git push origin HEAD:agent/develop
