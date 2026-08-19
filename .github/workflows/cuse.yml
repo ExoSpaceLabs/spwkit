@@ -106,7 +106,8 @@ jobs:
         run: |
           cmake --install build-cuse --prefix "$PWD/install-cuse"
           test -x "$PWD/install-cuse/bin/spwcuse"
-          "$PWD/install-cuse/bin/spwcuse" --api-check
+          LD_LIBRARY_PATH="$PWD/install-cuse/lib:${LD_LIBRARY_PATH:-}" \
+            "$PWD/install-cuse/bin/spwcuse" --api-check
           library="$(find "$PWD/install-cuse" -type f -name 'libspwkit.so.0*' -print -quit)"
           test -n "$library"
           if ldd "$library" | grep -qi fuse; then
