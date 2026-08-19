@@ -32,10 +32,10 @@ jobs:
             docs/testing.md
             docs/language-bindings.md
             examples
+            tests/d2d/README.md
           )
           legacy_target="$(printf '%s%s' 'SpWKit:' ':')"
           legacy_linker="$(printf '%s%s' 'LINKER_LANGUAGE' ' CXX')"
-          legacy_package="$(printf '%s%s' 'find_package(SpWKit ' '0.3')"
           legacy_port="$(printf '%s%s' 'src/core/port.' 'cpp')"
 
           if git grep -nF "$legacy_target" -- "${scopes[@]}"; then
@@ -46,10 +46,13 @@ jobs:
             echo "C consumers must not force a C++ linker." >&2
             exit 1
           fi
-          if git grep -nF "$legacy_package" -- "${current_version_scopes[@]}"; then
-            echo "Current v0.4 integration documentation/examples must request SpWKit 0.4." >&2
-            exit 1
-          fi
+          for stale_version in 0.1 0.2 0.3; do
+            legacy_package="$(printf '%s%s' 'find_package(SpWKit ' "$stale_version")"
+            if git grep -nF "$legacy_package" -- "${current_version_scopes[@]}"; then
+              echo "Current v0.4 integration documentation/examples must request SpWKit 0.4." >&2
+              exit 1
+            fi
+          done
           if git grep -nF "$legacy_port" -- .github/workflows docs; then
             echo "A stale pre-C11 runtime source path remains." >&2
             exit 1
