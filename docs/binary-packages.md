@@ -72,7 +72,7 @@ ghcr.io/exospacelabs/spwkit:0.4
 ghcr.io/exospacelabs/spwkit:latest
 ```
 
-The immutable version tag is the preferred deployment reference. `latest` is a convenience alias and may move on future stable releases, because apparently humans enjoy giving mutable things names that sound immutable.
+The immutable version tag is the preferred deployment reference. `latest` is a convenience alias and may move on future stable releases.
 
 The image installs the same `.deb` payload used for the GitHub Release and contains `vspwd`, `spwctl`, `spwmon`, the shared library, public headers and CMake package metadata.
 
