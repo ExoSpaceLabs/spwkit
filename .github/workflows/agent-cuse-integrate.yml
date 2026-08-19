@@ -1,0 +1,177 @@
+name: Agent CUSE integration patch
+
+on:
+  push:
+    branches: [agent/develop]
+    paths:
+      - ".github/workflows/agent-cuse-integrate.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/develop
+          fetch-depth: 0
+
+      - name: Wire production CUSE presenter into build and packaging
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          cmake = Path('CMakeLists.txt')
+          text = cmake.read_text(encoding='utf-8')
+
+          old = 'option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)\noption(SPWKIT_ENABLE_HEAP'
+          new = 'option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)\noption(SPWKIT_BUILD_CUSE "Build/install the Linux CUSE /dev/vspwX presenter" OFF)\noption(SPWKIT_ENABLE_HEAP'
+          if old not in text:
+              raise SystemExit('CUSE option insertion anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''if(SPWKIT_BUILD_TOOLS AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "SPWKIT_BUILD_TOOLS currently requires Linux")
+endif()
+'''
+          new = old + '''
+if(SPWKIT_BUILD_CUSE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "SPWKIT_BUILD_CUSE currently requires Linux")
+endif()
+if(SPWKIT_BUILD_CUSE AND NOT SPWKIT_DEVICE_RUNTIME_SUPPORTED)
+    message(FATAL_ERROR
+        "SPWKIT_BUILD_CUSE requires the Linux SPW_BACKEND_DEVICE runtime")
+endif()
+'''
+          if old not in text:
+              raise SystemExit('CUSE platform guard anchor not found')
+          text = text.replace(old, new, 1)
+
+          anchor = '''if(SPWKIT_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+'''
+          block = '''if(SPWKIT_BUILD_CUSE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FUSE3 REQUIRED IMPORTED_TARGET fuse3)
+    find_package(Threads REQUIRED)
+
+    add_executable(spwcuse
+        src/cuse/spwcuse.c
+        src/cuse/vspw_cuse_record.c)
+    target_link_libraries(spwcuse PRIVATE
+        spwkit::spwkit
+        PkgConfig::FUSE3
+        Threads::Threads)
+    target_include_directories(spwcuse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(spwcuse PRIVATE c_std_11)
+    set_target_properties(spwcuse PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF)
+
+    if(SPWKIT_BUILD_TESTS)
+        add_executable(spwkit_cuse_raw_client
+            tests/cuse_raw_client.c
+            src/cuse/vspw_cuse_record.c)
+        target_include_directories(spwkit_cuse_raw_client PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_compile_features(spwkit_cuse_raw_client PRIVATE c_std_11)
+        set_target_properties(spwkit_cuse_raw_client PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
+
+        add_executable(spwkit_cuse_vspd_peer tests/cuse_vspd_peer.c)
+        target_link_libraries(spwkit_cuse_vspd_peer PRIVATE spwkit::spwkit)
+        target_compile_features(spwkit_cuse_vspd_peer PRIVATE c_std_11)
+        set_target_properties(spwkit_cuse_vspd_peer PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
+    endif()
+endif()
+
+'''
+          if anchor not in text:
+              raise SystemExit('CUSE target insertion anchor not found')
+          text = text.replace(anchor, block + anchor, 1)
+
+          old = '''if(SPWKIT_BUILD_TOOLS)
+    install(TARGETS spwctl spwmon RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+'''
+          new = old + '''if(SPWKIT_BUILD_CUSE)
+    install(TARGETS spwcuse RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+'''
+          if old not in text:
+              raise SystemExit('CUSE install anchor not found')
+          text = text.replace(old, new, 1)
+          cmake.write_text(text, encoding='utf-8')
+
+          packaging = Path('cmake/Packaging.cmake')
+          text = packaging.read_text(encoding='utf-8')
+          text = text.replace(
+              '    # v0.4 binary packages are intentionally one self-contained development +\n',
+              '    # Hosted binary packages are intentionally one self-contained development +\n',
+              1)
+          old = '    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.35)")\n'
+          new = '''    set(_spwkit_debian_depends "libc6 (>= 2.35)")
+    if(SPWKIT_BUILD_CUSE)
+        string(APPEND _spwkit_debian_depends ", libfuse3-3")
+    endif()
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "${_spwkit_debian_depends}")
+'''
+          if old not in text:
+              raise SystemExit('Debian dependency anchor not found')
+          packaging.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          dockerfile = Path('packaging/Dockerfile')
+          text = dockerfile.read_text(encoding='utf-8')
+          old = '''        dpkg-dev \\
+        ninja-build \\
+'''
+          new = '''        dpkg-dev \\
+        libfuse3-dev \\
+        ninja-build \\
+        pkg-config \\
+'''
+          if old not in text:
+              raise SystemExit('Docker package dependency anchor not found')
+          text = text.replace(old, new, 1)
+          old = '''        -DSPWKIT_BUILD_TOOLS=ON \\
+        -DSPWKIT_ENABLE_HEAP=ON \\
+'''
+          new = '''        -DSPWKIT_BUILD_TOOLS=ON \\
+        -DSPWKIT_BUILD_CUSE=ON \\
+        -DSPWKIT_ENABLE_HEAP=ON \\
+'''
+          if old not in text:
+              raise SystemExit('Docker CMake option anchor not found')
+          text = text.replace(old, new, 1)
+          old = '''    && spwctl --help >/dev/null 2>&1 \\
+    && spwmon --help >/dev/null 2>&1
+'''
+          new = '''    && spwctl --help >/dev/null 2>&1 \\
+    && spwmon --help >/dev/null 2>&1 \\
+    && spwcuse --api-check >/dev/null 2>&1
+'''
+          if old not in text:
+              raise SystemExit('Docker CUSE validation anchor not found')
+          dockerfile.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          git rm .github/workflows/agent-cuse-integrate.yml
+
+      - name: Commit build integration
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CMakeLists.txt cmake/Packaging.cmake packaging/Dockerfile .github/workflows/agent-cuse-integrate.yml
+          git diff --cached --check
+          git commit -m "build(spwkit): wire production CUSE presenter"
+          git push origin HEAD:agent/develop
