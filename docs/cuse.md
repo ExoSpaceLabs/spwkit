@@ -122,8 +122,10 @@ CUSE uses direct I/O. SpWKit deliberately does not split a record to satisfy a s
 - if a complete record is available and the supplied read buffer is large enough, the complete record is returned and consumed;
 - if the buffer is too small, `read()` fails with `EMSGSIZE` and the record remains pending;
 - `poll()`/`select()` remains readable after that short-read error;
-- an empty `O_NONBLOCK` read returns `EAGAIN`;
+- an `O_NONBLOCK` read first performs one immediate backend readiness probe; it returns a complete already-ready record when VSPD has one, otherwise it returns `EAGAIN`;
 - a blocking read remains pending until a complete record arrives.
+
+The immediate nonblocking probe matters because an empty presenter-local queue is not proof that the daemon-side socket has no pending packet. The broker still remains event/request-driven: it does not continuously poll VSPD while no read or poll waiter exists.
 
 Read readiness is level-triggered and non-consuming.
 
@@ -152,6 +154,6 @@ The dedicated CUSE workflow has two boundaries:
 1. GCC/Clang pure-C compile/API/package tests with `CXX=/bin/false`, including proof that `libspwkit` has no libfuse dependency.
 2. A live Linux CUSE test that explicitly loads the kernel `cuse` module, requires `/dev/cuse`, creates a real `/dev/vspw*` node, and exchanges DATA, EOP/EEP, zero-length DATA and a time code with an independent public `SPW_BACKEND_DEVICE` peer through `vspwd`.
 
-The live test also verifies single-open ownership, nonblocking `EAGAIN`, `poll()` readiness, short-read `EMSGSIZE` without consumption, and a genuinely blocking read.
+The live test also verifies single-open ownership, empty nonblocking `EAGAIN`, direct nonblocking delivery of a record already pending in VSPD without a preceding `poll()`, `poll()` readiness, short-read `EMSGSIZE` without consumption, and a genuinely blocking read.
 
 This remains software-device evidence. It is not physical SpaceWire signalling or FPGA/HIL interoperability evidence.
