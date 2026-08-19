@@ -2,7 +2,25 @@
 
 SpWKit exposes one authoritative C11 runtime/API. C applications use it directly. C++ applications may either call the same C API or opt into the header-only `spwkit::cpp` convenience wrapper. There is no separate C++ backend implementation.
 
-The v0.4 release candidate contains the v0.1 portable core, v0.2 VSPW-TP/UDP distributed backend, v0.3 C11 runtime conversion, and the Linux virtual-device/userspace-service layer tracked by #54. Production CUSE `/dev/vspwX`, native Winsock UDP and physical HIL remain separately tracked beyond this release boundary.
+The v0.4 release contains the v0.1 portable core, v0.2 VSPW-TP/UDP distributed backend, v0.3 C11 runtime conversion, and the Linux virtual-device/userspace-service layer tracked by #54. Production CUSE `/dev/vspwX`, native Winsock UDP, additional precompiled architectures and physical HIL remain separately tracked beyond this release boundary.
+
+## Install a v0.4 binary package
+
+Tagged v0.4 releases publish Ubuntu 22.04+ Debian packages for `amd64` and `arm64`. The package contains the shared runtime, public C headers, optional header-only C++ wrapper, exported CMake package metadata, `vspwd`, `spwctl` and `spwmon`.
+
+On x86-64:
+
+```sh
+sudo apt install ./spwkit_0.4.0-1_amd64.deb
+```
+
+On 64-bit ARM:
+
+```sh
+sudo apt install ./spwkit_0.4.0-1_arm64.deb
+```
+
+A multi-architecture runtime/toolbox image is also published as `ghcr.io/exospacelabs/spwkit:v0.4.0`, with `0.4` and `latest` aliases. See [Binary release artifacts](binary-packages.md) for the supported binary matrix and publication rules.
 
 ## Pure-C build from source
 
@@ -248,7 +266,7 @@ Applications still call `spw_port_start`, `spw_port_send`, `spw_port_receive`, t
 
 The distributed backend includes logical-message ACK/retransmission, duplicate suppression, peer session/keepalive/disconnect detection and restart recovery, configurable virtual latency/rate, deterministic transport fault injection, and explicit SpaceWire-side EEP injection.
 
-`examples/distributed` is deliberately a **C-only installed-package consumer**. The D2D workflow builds it with `CXX=/bin/false`, then runs independent-process and Linux network-namespace restart scenarios.
+`examples/distributed` is the C-only installed-package consumer and `examples/distributed_cpp` exercises the optional C++ wrapper. The D2D workflow runs C↔C, C++↔C++, C↔C++ and C++↔C as independent processes, retains the Linux network-namespace scenario, and also executes the same loss/restart contract across two isolated Docker Compose containers.
 
 ## Linux virtual-device service
 
@@ -296,6 +314,7 @@ Finite timeout values are expressed in microseconds.
 - `examples/installed`: standalone C-only installed consumer;
 - `examples/installed_cpp`: standalone optional C++ wrapper consumer;
 - `examples/distributed`: C-only installed VSPW-TP/UDP equal-peer process used by D2D CI;
+- `examples/distributed_cpp`: optional C++17 installed VSPW-TP/UDP equal-peer process;
 - `examples/c_device_peer.c` / `examples/cpp_device_peer.cpp`: in-tree Linux device peers;
 - `examples/installed_device` / `examples/installed_device_cpp`: standalone installed-package Linux device consumers.
 
