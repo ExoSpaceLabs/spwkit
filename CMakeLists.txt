@@ -21,6 +21,7 @@ option(SPWKIT_BUILD_UDP "Build the distributed VSPW-TP/UDP backend when supporte
 option(SPWKIT_BUILD_DEVICE "Build the hosted VSPD virtual-device backend when supported" ON)
 option(SPWKIT_BUILD_VSPWD "Build/install the Linux vspwd userspace service" OFF)
 option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
+option(SPWKIT_BUILD_CUSE "Build/install the Linux CUSE /dev/vspwX presenter" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 option(SPWKIT_ENABLE_CPP "Enable/install the optional C++17 convenience wrapper" OFF)
 
@@ -54,6 +55,14 @@ endif()
 
 if(SPWKIT_BUILD_TOOLS AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "SPWKIT_BUILD_TOOLS currently requires Linux")
+endif()
+
+if(SPWKIT_BUILD_CUSE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "SPWKIT_BUILD_CUSE currently requires Linux")
+endif()
+if(SPWKIT_BUILD_CUSE AND NOT SPWKIT_DEVICE_RUNTIME_SUPPORTED)
+    message(FATAL_ERROR
+        "SPWKIT_BUILD_CUSE requires the Linux SPW_BACKEND_DEVICE runtime")
 endif()
 
 # Enable CXX only when an explicitly requested build product needs it. This is
@@ -215,6 +224,47 @@ if(SPWKIT_BUILD_TOOLS)
         C_EXTENSIONS OFF)
 endif()
 
+if(SPWKIT_BUILD_CUSE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FUSE3 REQUIRED IMPORTED_TARGET fuse3)
+    find_package(Threads REQUIRED)
+
+    add_executable(spwcuse
+        src/cuse/spwcuse.c
+        src/cuse/vspw_cuse_record.c)
+    target_link_libraries(spwcuse PRIVATE
+        spwkit::spwkit
+        PkgConfig::FUSE3
+        Threads::Threads)
+    target_include_directories(spwcuse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(spwcuse PRIVATE c_std_11)
+    set_target_properties(spwcuse PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF)
+
+    if(SPWKIT_BUILD_TESTS)
+        add_executable(spwkit_cuse_raw_client
+            tests/cuse_raw_client.c
+            src/cuse/vspw_cuse_record.c)
+        target_include_directories(spwkit_cuse_raw_client PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_compile_features(spwkit_cuse_raw_client PRIVATE c_std_11)
+        set_target_properties(spwkit_cuse_raw_client PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
+
+        add_executable(spwkit_cuse_vspd_peer tests/cuse_vspd_peer.c)
+        target_link_libraries(spwkit_cuse_vspd_peer PRIVATE spwkit::spwkit)
+        target_compile_features(spwkit_cuse_vspd_peer PRIVATE c_std_11)
+        set_target_properties(spwkit_cuse_vspd_peer PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
+    endif()
+endif()
+
 if(SPWKIT_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
@@ -252,6 +302,9 @@ if(SPWKIT_BUILD_VSPWD)
 endif()
 if(SPWKIT_BUILD_TOOLS)
     install(TARGETS spwctl spwmon RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+if(SPWKIT_BUILD_CUSE)
+    install(TARGETS spwcuse RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
 # C headers are always installed. The optional C++ convenience header is only
