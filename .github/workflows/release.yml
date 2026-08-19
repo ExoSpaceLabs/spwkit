@@ -11,10 +11,12 @@ on:
       - "README.md"
       - "CHANGELOG.md"
       - "docs/**"
+      - "integrations/**"
       - "packaging/**"
       - ".dockerignore"
       - "LICENSE"
       - "NOTICE"
+      - ".github/workflows/embedded.yml"
       - ".github/workflows/packages.yml"
       - ".github/workflows/release.yml"
   pull_request:
@@ -26,10 +28,12 @@ on:
       - "README.md"
       - "CHANGELOG.md"
       - "docs/**"
+      - "integrations/**"
       - "packaging/**"
       - ".dockerignore"
       - "LICENSE"
       - "NOTICE"
+      - ".github/workflows/embedded.yml"
       - ".github/workflows/packages.yml"
       - ".github/workflows/release.yml"
   workflow_dispatch:
@@ -60,13 +64,20 @@ jobs:
           api_minor="$(sed -nE 's/^#define SPWKIT_API_VERSION_MINOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_patch="$(sed -nE 's/^#define SPWKIT_API_VERSION_PATCH ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_version="${api_major}.${api_minor}.${api_patch}"
+          package_minor="${api_major}.${api_minor}"
 
           test -n "$cmake_version"
           test "$api_version" = "$cmake_version"
-          grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/installed/CMakeLists.txt
-          grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/distributed/CMakeLists.txt
-          grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/distributed_cpp/CMakeLists.txt
-          grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/installed_device/CMakeLists.txt
+          for consumer in \
+            examples/installed/CMakeLists.txt \
+            examples/installed_cpp/CMakeLists.txt \
+            examples/distributed/CMakeLists.txt \
+            examples/distributed_cpp/CMakeLists.txt \
+            examples/installed_device/CMakeLists.txt \
+            examples/installed_device_cpp/CMakeLists.txt \
+            integrations/hardrt_posix/CMakeLists.txt; do
+            grep -q "find_package(SpWKit ${package_minor} CONFIG REQUIRED)" "$consumer"
+          done
           test -f LICENSE
           test -f NOTICE
           test -f packaging/Dockerfile
@@ -98,12 +109,11 @@ jobs:
             if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
               echo "- Release tag: ${GITHUB_REF_NAME}"
             else
-              echo '- Release state: candidate / finalized-prep boundary'
+              echo '- Release state: development / release-candidate boundary'
             fi
-            echo '- Binary release targets: Ubuntu 22.04+ amd64/arm64 DEB + multi-arch GHCR'
-            echo '- Production CUSE (#78): deferred'
-            echo '- Native Winsock VSPW-TP (#42): deferred'
-            echo '- Physical HIL: manual/non-blocking until hardware exists'
+            echo '- Hosted binary release targets are defined and execution-gated by Binary packages CI.'
+            echo '- Embedded/RTOS evidence is defined by Embedded portability CI.'
+            echo '- Physical HIL remains manual until hardware exists.'
           } >> "$GITHUB_STEP_SUMMARY"
 
   integrated-sanitizers:
@@ -268,6 +278,7 @@ jobs:
           sha = os.environ['GITHUB_SHA']
           ref = os.environ['GITHUB_REF_NAME']
           token = os.environ['GH_TOKEN']
+          version = ref.removeprefix('v')
           workflows = [
               ('ci.yml', 'CI'),
               ('c-core.yml', 'C-only runtime'),
@@ -300,7 +311,7 @@ jobs:
                   raise RuntimeError(f'{method} {url} -> HTTP {exc.code}: {body}') from exc
 
           started = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=5)
-          print(f'Dispatching v0.4 release matrix for {ref} at {sha}')
+          print(f'Dispatching v{version} release matrix for {ref} at {sha}')
           for filename, name in workflows:
               url = f'https://api.github.com/repos/{repo}/actions/workflows/{filename}/dispatches'
               api(url, method='POST', payload={'ref': ref})
@@ -358,7 +369,7 @@ jobs:
           lines = [
               '### Full automated release matrix',
               '',
-              f'All automated v0.4 gates passed for `{sha}`:',
+              f'All automated v{version} gates passed for `{sha}`:',
               '',
           ]
           for _, name in workflows:
@@ -366,18 +377,18 @@ jobs:
               lines.append(f"- {name}: success ({run.get('html_url')})")
           lines.extend([
               '',
-              'HIL is intentionally excluded: v0.4 makes no physical-hardware claim.',
+              'Physical HIL is intentionally excluded until matching hardware evidence exists.',
           ])
           if summary_path:
               with open(summary_path, 'a', encoding='utf-8') as summary:
                   summary.write('\n'.join(lines) + '\n')
 
-          print('All automated v0.4 release gates passed for', sha)
-          print('HIL is intentionally excluded: v0.4 makes no physical-hardware claim.')
+          print(f'All automated v{version} release gates passed for', sha)
+          print('Physical HIL is intentionally excluded until matching hardware evidence exists.')
           PY
 
   publish-release:
-    name: Publish v0.4.0 binary release
+    name: Publish binary release
     if: ${{ github.ref_type == 'tag' }}
     needs: [release-matrix]
     permissions:
