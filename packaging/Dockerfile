@@ -57,7 +57,7 @@ RUN apt-get update \
 
 FROM validate AS runtime
 
-ARG VERSION=0.4.0
+ARG VERSION=unreleased
 LABEL org.opencontainers.image.title="SpWKit" \
       org.opencontainers.image.description="SpaceWire Development & Integration Toolkit Linux runtime and tools" \
       org.opencontainers.image.version="${VERSION}" \
