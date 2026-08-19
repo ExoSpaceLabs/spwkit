@@ -106,7 +106,9 @@ jobs:
           test "$(dpkg-deb -f "$package" Architecture)" = "${{ matrix.arch }}"
           test "$(dpkg-deb -f "$package" Version)" = "0.4.0-1"
           dpkg-deb --info "$package"
-          sha256sum "$package" | tee "$package.sha256"
+          package_dir="$(dirname "$package")"
+          package_name="$(basename "$package")"
+          (cd "$package_dir" && sha256sum "$package_name" > "$package_name.sha256")
 
       - name: Validate runtime image for architecture
         run: |
@@ -214,7 +216,7 @@ jobs:
           test "$(find dist -maxdepth 1 -name 'spwkit_*.deb.sha256' | wc -l)" -eq 2
           dpkg-deb -f "$(find dist -name '*_amd64.deb' -print -quit)" Architecture | grep -qx amd64
           dpkg-deb -f "$(find dist -name '*_arm64.deb' -print -quit)" Architecture | grep -qx arm64
-          sha256sum -c dist/*.sha256
+          (cd dist && sha256sum -c *.sha256)
 
       - name: Enable QEMU
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64
