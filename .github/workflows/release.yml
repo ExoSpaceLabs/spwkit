@@ -59,28 +59,43 @@ jobs:
           test "$api_version" = "$cmake_version"
           grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/installed/CMakeLists.txt
           grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/distributed/CMakeLists.txt
+          grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/distributed_cpp/CMakeLists.txt
           grep -q "find_package(SpWKit ${api_major}.${api_minor} CONFIG REQUIRED)" examples/installed_device/CMakeLists.txt
           test -f LICENSE
           test -f NOTICE
 
+          unreleased_pattern="^## v${cmake_version} — unreleased$"
+          released_pattern="^## v${cmake_version} — [0-9]{4}-[0-9]{2}-[0-9]{2}$"
+
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             test "$GITHUB_REF_NAME" = "v${cmake_version}"
-            grep -Eq "^## v${cmake_version} — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
-            ! grep -q "^## v${cmake_version} — unreleased$" CHANGELOG.md
+            grep -Eq "$released_pattern" CHANGELOG.md
+            ! grep -Eq "$unreleased_pattern" CHANGELOG.md
             git fetch origin main
             test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
           else
-            grep -q "^## v${cmake_version} — unreleased$" CHANGELOG.md
+            # The release-preparation commit must be merged to main before the
+            # tag can point exactly at main, so PR/main validation accepts both
+            # the normal unreleased heading and one finalized dated heading.
+            if ! grep -Eq "$unreleased_pattern|$released_pattern" CHANGELOG.md; then
+              echo "Current version needs either an unreleased or finalized dated changelog heading" >&2
+              exit 1
+            fi
           fi
 
       - name: Record release boundary
         shell: bash
         run: |
+          cmake_version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
           {
             echo '### SpWKit release boundary'
             echo
-            echo '- Project/API version: 0.4.0'
-            echo '- Linux device/service feature set: release candidate'
+            echo "- Project/API version: ${cmake_version}"
+            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+              echo "- Release tag: ${GITHUB_REF_NAME}"
+            else
+              echo '- Release state: candidate / finalized-prep boundary'
+            fi
             echo '- Production CUSE (#78): deferred'
             echo '- Native Winsock VSPW-TP (#42): deferred'
             echo '- Physical HIL: manual/non-blocking until hardware exists'
