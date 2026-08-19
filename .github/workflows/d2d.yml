@@ -6,7 +6,7 @@ on:
     paths:
       - "CMakeLists.txt"
       - "cmake/**"
-      - "include/spwkit/udp.h"
+      - "include/spwkit/**"
       - "src/backends/ethernet/**"
       - "src/core/port.c"
       - "tests/udp*.cpp"
@@ -14,6 +14,7 @@ on:
       - "tests/d2d/**"
       - "tests/CMakeLists.txt"
       - "examples/distributed/**"
+      - "examples/distributed_cpp/**"
       - "examples/installed/**"
       - ".github/workflows/d2d.yml"
   pull_request:
@@ -21,7 +22,7 @@ on:
     paths:
       - "CMakeLists.txt"
       - "cmake/**"
-      - "include/spwkit/udp.h"
+      - "include/spwkit/**"
       - "src/backends/ethernet/**"
       - "src/core/port.c"
       - "tests/udp*.cpp"
@@ -29,6 +30,7 @@ on:
       - "tests/d2d/**"
       - "tests/CMakeLists.txt"
       - "examples/distributed/**"
+      - "examples/distributed_cpp/**"
       - "examples/installed/**"
       - ".github/workflows/d2d.yml"
   workflow_dispatch:
@@ -60,7 +62,7 @@ jobs:
           -DSPWKIT_BUILD_SIMULATOR=ON
           -DSPWKIT_BUILD_UDP=ON
           -DSPWKIT_ENABLE_HEAP=ON
-          -DSPWKIT_ENABLE_CPP=OFF
+          -DSPWKIT_ENABLE_CPP=ON
 
       - name: Build
         run: cmake --build build-d2d --parallel
@@ -84,11 +86,25 @@ jobs:
             exit 1
           fi
 
-      - name: Build installed distributed peer example
+      - name: Build installed C distributed peer
         run: cmake --build build-distributed --parallel
 
-      - name: Run two-process restart scenario
+      - name: Configure and build installed C++ distributed peer
+        run: |
+          cmake -S examples/distributed_cpp -B build-distributed-cpp \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build-d2d/install \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra -Werror"
+          cmake --build build-distributed-cpp --parallel
+
+      - name: Run two-process C restart scenario
         run: bash tests/d2d/run_multi_process.sh "${{ github.workspace }}/build-distributed/spwkit_udp_peer"
+
+      - name: Run C/C++ cross-language process matrix
+        run: >-
+          bash tests/d2d/run_cross_language.sh
+          "${{ github.workspace }}/build-distributed/spwkit_udp_peer"
+          "${{ github.workspace }}/build-distributed-cpp/spwkit_udp_peer_cpp"
 
       - name: Ensure network namespace tooling
         run: |
@@ -100,3 +116,9 @@ jobs:
 
       - name: Run network-namespace restart scenario
         run: bash tests/d2d/run_netns.sh "${{ github.workspace }}/build-distributed/spwkit_udp_peer"
+
+      - name: Validate Docker Compose availability
+        run: docker compose version
+
+      - name: Run two-container C/C++ Compose matrix
+        run: bash tests/d2d/run_compose.sh
