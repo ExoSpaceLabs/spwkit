@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/cuse/spwcuse.c tests/cuse_raw_client.c tests/cuse_vspd_peer.c .github/workflows/agent-cuse-edge-fix.yml
+          git add -A
           git diff --cached --check
           git commit -m "fix(spwkit): probe backend on nonblocking CUSE reads"
           git push origin HEAD:agent/develop
