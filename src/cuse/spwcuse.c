@@ -26,6 +26,7 @@
 typedef struct spwcuse_pending_read {
     fuse_req_t req;
     size_t size;
+    bool nonblocking;
 } spwcuse_pending_read_t;
 
 typedef struct spwcuse_pending_write {
@@ -108,7 +109,8 @@ static unsigned current_poll_events_locked(const spwcuse_state_t* state) {
 
 static bool enqueue_read_locked(spwcuse_state_t* state,
                                 fuse_req_t req,
-                                size_t size) {
+                                size_t size,
+                                bool nonblocking) {
     size_t index;
     if (state->read_count >= SPWCUSE_READ_QUEUE_DEPTH) {
         return false;
@@ -116,6 +118,7 @@ static bool enqueue_read_locked(spwcuse_state_t* state,
     index = (state->read_head + state->read_count) % SPWCUSE_READ_QUEUE_DEPTH;
     state->reads[index].req = req;
     state->reads[index].size = size;
+    state->reads[index].nonblocking = nonblocking;
     ++state->read_count;
     return true;
 }
@@ -349,6 +352,7 @@ static void* broker_main(void* opaque) {
     for (;;) {
         spwcuse_pending_write_t pending_write = {0};
         struct fuse_pollhandle* poll_handle = NULL;
+        spw_timeout_us_t wait_timeout = SPWCUSE_BACKEND_WAIT_US;
         bool should_wait_backend;
         bool have_write;
 
@@ -367,6 +371,10 @@ static void* broker_main(void* opaque) {
         should_wait_backend =
             !have_write && state->record_count < SPWCUSE_RECORD_QUEUE_DEPTH &&
             (state->read_count != 0u || state->poll_handle != NULL);
+        if (state->read_count != 0u &&
+            state->reads[state->read_head].nonblocking) {
+            wait_timeout = SPW_TIMEOUT_IMMEDIATE;
+        }
 
         if (!have_write && !should_wait_backend) {
             (void)pthread_cond_wait(&state->cond, &state->mutex);
@@ -387,9 +395,25 @@ static void* broker_main(void* opaque) {
             spw_result_t result = spw_port_wait(
                 state->port,
                 SPW_READY_ALL,
-                SPWCUSE_BACKEND_WAIT_US,
+                wait_timeout,
                 &ready);
-            if (result == SPW_OK && ready != SPW_READY_NONE) {
+            if (result == SPW_ERR_TIMEOUT &&
+                wait_timeout == SPW_TIMEOUT_IMMEDIATE) {
+                fuse_req_t nonblocking_req = NULL;
+                pthread_mutex_lock(&state->mutex);
+                if (state->record_count == 0u && state->read_count != 0u &&
+                    state->reads[state->read_head].nonblocking) {
+                    nonblocking_req = state->reads[state->read_head].req;
+                    state->reads[state->read_head] = (spwcuse_pending_read_t){0};
+                    state->read_head =
+                        (state->read_head + 1u) % SPWCUSE_READ_QUEUE_DEPTH;
+                    --state->read_count;
+                }
+                pthread_mutex_unlock(&state->mutex);
+                if (nonblocking_req != NULL) {
+                    (void)fuse_reply_err(nonblocking_req, EAGAIN);
+                }
+            } else if (result == SPW_OK && ready != SPW_READY_NONE) {
                 while (receive_one_ready_record(state, ready)) {
                     ready = SPW_READY_NONE;
                     result = spw_port_wait(
@@ -440,24 +464,20 @@ static void cuse_read(fuse_req_t req,
                       struct fuse_file_info* fi) {
     spwcuse_state_t* state = (spwcuse_state_t*)fuse_req_userdata(req);
     bool nonblocking = (fi->flags & O_NONBLOCK) != 0;
-    bool queued = false;
-    bool have_record;
+    bool queued;
 
     (void)off;
     pthread_mutex_lock(&state->mutex);
-    have_record = state->record_count != 0u;
-    if (have_record || !nonblocking) {
-        queued = enqueue_read_locked(state, req, size);
-        if (queued) {
-            (void)pthread_cond_signal(&state->cond);
-        }
+    queued = enqueue_read_locked(state, req, size, nonblocking);
+    if (queued) {
+        (void)pthread_cond_signal(&state->cond);
     }
     pthread_mutex_unlock(&state->mutex);
 
     if (queued) {
         return;
     }
-    (void)fuse_reply_err(req, have_record || !nonblocking ? ENOBUFS : EAGAIN);
+    (void)fuse_reply_err(req, nonblocking ? EAGAIN : ENOBUFS);
 }
 
 static void cuse_write(fuse_req_t req,

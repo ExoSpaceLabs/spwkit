@@ -68,6 +68,13 @@ static int parse_record(const uint8_t* buffer,
            memcmp(payload, expected_payload, expected_payload_size) == 0;
 }
 
+static void sleep_ms(long milliseconds) {
+    struct timespec delay;
+    delay.tv_sec = milliseconds / 1000;
+    delay.tv_nsec = (milliseconds % 1000) * 1000000L;
+    (void)nanosleep(&delay, NULL);
+}
+
 static double monotonic_seconds(void) {
     struct timespec now;
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
@@ -214,6 +221,31 @@ int main(int argc, char** argv) {
     received = read(fd, buffer, sizeof(buffer));
     if (received >= 0 || errno != EAGAIN) {
         fprintf(stderr, "post-consume nonblocking read did not return EAGAIN\n");
+        close(fd);
+        return 1;
+    }
+
+    /* Let a final record reach VSPD without calling poll first. A nonblocking
+     * read must perform an immediate backend readiness check rather than
+     * confusing an empty presenter-local queue with an empty device. */
+    sleep_ms(400);
+    received = read(fd, buffer, sizeof(buffer));
+    if (received < 0 ||
+        !parse_record(buffer,
+                      (size_t)received,
+                      VSPW_CUSE_RECORD_DATA,
+                      0u,
+                      world,
+                      sizeof(world))) {
+        fprintf(stderr, "nonblocking read missed already-ready VSPD DATA\n");
+        close(fd);
+        return 1;
+    }
+
+    errno = 0;
+    received = read(fd, buffer, sizeof(buffer));
+    if (received >= 0 || errno != EAGAIN) {
+        fprintf(stderr, "final nonblocking read did not return EAGAIN\n");
         close(fd);
         return 1;
     }

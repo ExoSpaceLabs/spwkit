@@ -102,6 +102,10 @@ int main(int argc, char** argv) {
     if (!send_packet(port, world, 0u, SPW_TERMINATOR_EOP)) {
         goto done;
     }
+    sleep_ms(300);
+    if (!send_packet(port, world, sizeof(world), SPW_TERMINATOR_EOP)) {
+        goto done;
+    }
 
     exit_code = 0;
 
