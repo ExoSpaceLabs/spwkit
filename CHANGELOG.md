@@ -104,18 +104,17 @@ Distributed virtual SpaceWire over the existing portable application API.
 - reliable DATA and TIME_CODE delivery using session-bound logical-message ACKs, bounded retransmission and duplicate suppression;
 - KEEPALIVE/session peer discovery, timeout detection and restart recovery;
 - deterministic virtual SpaceWire rate/latency modelling separate from incidental host-network timing;
-- deterministic seeded transport drop/duplicate/reorder/delay injection;
-- explicit SpaceWire-side EEP injection with transport/SpaceWire fault-domain counters;
-- reusable shared public backend contract plus distributed peer-loss/restart contract;
-- installed-package equal-peer example for independent processes/hosts;
-- active D2D CI exercising localhost processes and two Linux network namespaces in addition to transport/recovery/timing/fault tests;
-- VSPW-TP Wireshark/tshark capture tooling with deterministic real-dissector validation;
-- explicit v0.2 platform policy and installed package UDP runtime metadata.
+- deterministic transport drop/duplicate/reorder/delay injection and explicit SpaceWire-side EEP injection;
+- backend-neutral fault-domain statistics;
+- reusable shared public backend contract coverage for the UDP backend and distributed peer-loss/restart extensions;
+- installed-package equal-peer distributed example with two-process and Linux network-namespace integration;
+- VSPW-TP Wireshark Lua dissector plus deterministic PCAP/tshark validation;
+- installed-package metadata describing whether the current build contains the UDP runtime.
 
 ### Platform scope
 
 - Linux is the primary fully exercised distributed runtime platform;
-- macOS is supported as a POSIX UDP host through the host/shared-contract CI;
+- macOS is supported as a POSIX UDP host through host/shared-contract CI;
 - Windows retains the portable API/package and public UDP configuration surface, but the v0.2 UDP runtime is not implemented and returns `SPW_ERR_UNSUPPORTED`;
 - native Winsock transport is deferred beyond v0.2.0 and tracked separately.
 
@@ -131,13 +130,11 @@ Distributed virtual SpaceWire over the existing portable application API.
 Portable core and process-local virtual SpaceWire baseline:
 
 - public C ABI and opaque port handles;
-- packet send/receive with EOP/EEP preservation;
-- explicit link state and lifecycle control;
-- time codes;
-- capabilities and statistics;
+- copied packet I/O with EOP/EEP preservation and no-truncation receive semantics;
+- link lifecycle/state, time codes, capabilities and statistics;
 - deterministic loopback backend;
-- process-local two-peer virtual SpaceWire simulator;
+- process-local equal-peer simulator;
+- caller-owned/no-heap port construction;
+- optional zero-copy ownership API;
 - reusable backend contract tests;
-- caller-owned no-heap port construction;
-- optional zero-copy ownership semantics;
 - CMake install/export and standalone `find_package(SpWKit)` consumption.
