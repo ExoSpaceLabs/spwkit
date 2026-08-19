@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(spwkit_installed_consumer LANGUAGES C)
 
 include(CTest)
-find_package(SpWKit 0.4 CONFIG REQUIRED)
+find_package(SpWKit 0.5 CONFIG REQUIRED)
 
 if(NOT DEFINED SpWKit_UDP_RUNTIME_SUPPORTED)
     message(FATAL_ERROR "Installed SpWKit package does not declare UDP runtime availability")
