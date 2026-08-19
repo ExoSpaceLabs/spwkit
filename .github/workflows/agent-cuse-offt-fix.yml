@@ -1,0 +1,51 @@
+name: Agent CUSE 64-bit off_t fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/agent-cuse-offt-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/develop
+          fetch-depth: 0
+
+      - name: Require libfuse 64-bit file offsets on 32-bit Linux
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('CMakeLists.txt')
+          text = path.read_text(encoding='utf-8')
+          old = '''    target_include_directories(spwcuse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(spwcuse PRIVATE c_std_11)
+'''
+          new = '''    target_include_directories(spwcuse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    # libfuse3 requires a 64-bit off_t ABI even on 32-bit Linux targets.
+    # Keep this definition presenter-local so portable libspwkit is unaffected.
+    target_compile_definitions(spwcuse PRIVATE _FILE_OFFSET_BITS=64)
+    target_compile_features(spwcuse PRIVATE c_std_11)
+'''
+          if old not in text:
+              raise SystemExit('spwcuse compile-options anchor not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git rm .github/workflows/agent-cuse-offt-fix.yml
+
+      - name: Commit fix
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(spwkit): use 64-bit offsets for CUSE"
+          git push origin HEAD:agent/develop
