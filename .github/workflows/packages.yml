@@ -51,6 +51,10 @@ on:
 permissions:
   contents: read
 
+env:
+  SPWKIT_RELEASE_DEB_ARCHES: "amd64 arm64 armhf riscv64"
+  SPWKIT_RELEASE_PLATFORMS: "linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64"
+
 concurrency:
   group: packages-${{ github.workflow }}-${{ github.ref }}-${{ inputs.publish || false }}
   cancel-in-progress: ${{ inputs.publish != true }}
@@ -67,6 +71,10 @@ jobs:
             platform: linux/amd64
           - arch: arm64
             platform: linux/arm64
+          - arch: armhf
+            platform: linux/arm/v7
+          - arch: riscv64
+            platform: linux/riscv64
 
     steps:
       - name: Checkout
@@ -80,8 +88,8 @@ jobs:
           test -n "$version"
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Enable QEMU
-        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+      - name: Enable non-native QEMU architectures
+        run: docker run --privileged --rm tonistiigi/binfmt --install all
 
       - name: Create buildx builder
         run: |
@@ -159,8 +167,8 @@ jobs:
           test -n "$version"
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Enable QEMU
-        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+      - name: Enable non-native QEMU architectures
+        run: docker run --privileged --rm tonistiigi/binfmt --install all
 
       - name: Create buildx builder
         run: |
@@ -171,7 +179,7 @@ jobs:
         run: >-
           docker buildx build
           --builder spwkit-multiarch
-          --platform linux/amd64,linux/arm64
+          --platform "$SPWKIT_RELEASE_PLATFORMS"
           --file packaging/Dockerfile
           --target runtime
           --build-arg VERSION=${{ steps.version.outputs.value }}
@@ -241,17 +249,20 @@ jobs:
           PROJECT_VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
-          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb' | wc -l)" -eq 2
-          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb.sha256' | wc -l)" -eq 2
-          dpkg-deb -f "$(find dist -name '*_amd64.deb' -print -quit)" Architecture | grep -qx amd64
-          dpkg-deb -f "$(find dist -name '*_arm64.deb' -print -quit)" Architecture | grep -qx arm64
-          for package in dist/spwkit_*.deb; do
+          read -ra arches <<< "$SPWKIT_RELEASE_DEB_ARCHES"
+          expected="${#arches[@]}"
+          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb' | wc -l)" -eq "$expected"
+          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb.sha256' | wc -l)" -eq "$expected"
+          for arch in "${arches[@]}"; do
+            package="$(find dist -maxdepth 1 -name "*_${arch}.deb" -print -quit)"
+            test -n "$package"
+            test "$(dpkg-deb -f "$package" Architecture)" = "$arch"
             test "$(dpkg-deb -f "$package" Version)" = "$PROJECT_VERSION-1"
           done
           (cd dist && sha256sum -c *.sha256)
 
-      - name: Enable QEMU
-        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+      - name: Enable non-native QEMU architectures
+        run: docker run --privileged --rm tonistiigi/binfmt --install all
 
       - name: Create buildx builder
         run: |
@@ -273,7 +284,7 @@ jobs:
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
           docker buildx build \
             --builder spwkit-publish \
-            --platform linux/amd64,linux/arm64 \
+            --platform "$SPWKIT_RELEASE_PLATFORMS" \
             --file packaging/Dockerfile \
             --target runtime \
             --build-arg "VERSION=$version" \
@@ -328,8 +339,10 @@ jobs:
             echo "GitHub Release $RELEASE_TAG already exists; refusing to overwrite immutable release assets" >&2
             exit 1
           fi
+          read -ra arches <<< "$SPWKIT_RELEASE_DEB_ARCHES"
+          expected_assets="$(( ${#arches[@]} * 2 ))"
           mapfile -t assets < <(find dist -maxdepth 1 -type f \( -name '*.deb' -o -name '*.sha256' \) -print | sort)
-          test "${#assets[@]}" -eq 4
+          test "${#assets[@]}" -eq "$expected_assets"
           gh release create "$RELEASE_TAG" \
             "${assets[@]}" \
             --verify-tag \
