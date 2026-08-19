@@ -25,13 +25,14 @@ jobs:
       - name: Reject stale runtime/package markers
         shell: bash
         run: |
-          scopes=(CMakeLists.txt cmake docs examples tests .github/workflows README.md)
+          scopes=(CMakeLists.txt cmake docs examples integrations tests .github/workflows README.md)
           current_version_scopes=(
             docs/getting-started.md
             docs/platform-support.md
             docs/testing.md
             docs/language-bindings.md
             examples
+            integrations
             tests/d2d/README.md
           )
           legacy_target="$(printf '%s%s' 'SpWKit:' ':')"
@@ -46,10 +47,10 @@ jobs:
             echo "C consumers must not force a C++ linker." >&2
             exit 1
           fi
-          for stale_version in 0.1 0.2 0.3; do
+          for stale_version in 0.1 0.2 0.3 0.4; do
             legacy_package="$(printf '%s%s' 'find_package(SpWKit ' "$stale_version")"
             if git grep -nF "$legacy_package" -- "${current_version_scopes[@]}"; then
-              echo "Current v0.4 integration documentation/examples must request SpWKit 0.4." >&2
+              echo "Current v0.5 integration documentation/examples must request SpWKit 0.5." >&2
               exit 1
             fi
           done
