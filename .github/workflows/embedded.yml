@@ -11,6 +11,7 @@ on:
       - "src/backends/loopback/**"
       - "src/backends/device/**"
       - "integrations/hardrt_posix/**"
+      - "integrations/hardrt_cortex_m/**"
       - "tests/embedded/**"
       - ".github/workflows/embedded.yml"
   pull_request:
@@ -23,6 +24,7 @@ on:
       - "src/backends/loopback/**"
       - "src/backends/device/**"
       - "integrations/hardrt_posix/**"
+      - "integrations/hardrt_cortex_m/**"
       - "tests/embedded/**"
       - ".github/workflows/embedded.yml"
   workflow_dispatch:
@@ -82,12 +84,11 @@ jobs:
             exit 1
           fi
 
-      - name: Note real-target boundary
+      - name: Note evidence boundary
         run: |
           echo "### Embedded portability" >> "$GITHUB_STEP_SUMMARY"
-          echo "This gate is a real freestanding C/no-heap compile, not target-HIL evidence." >> "$GITHUB_STEP_SUMMARY"
-          echo "The VSPD codec is included because protocol encoding must remain portable C; the Linux socket transport and vspwd service are explicitly disabled." >> "$GITHUB_STEP_SUMMARY"
-          echo "HardRT POSIX is exercised separately below; Cortex-M/arm-none-eabi remains the next #89 slice." >> "$GITHUB_STEP_SUMMARY"
+          echo "The freestanding gate is portable C/no-heap compile evidence, not target-HIL evidence." >> "$GITHUB_STEP_SUMMARY"
+          echo "HardRT POSIX runs task-level behavior; Cortex-M7 is cross-compiled and fully linked below." >> "$GITHUB_STEP_SUMMARY"
 
   hardrt-posix:
     name: HardRT POSIX / ${{ matrix.name }}
@@ -174,3 +175,104 @@ jobs:
 
       - name: Run HardRT task-level SpWKit contract
         run: timeout 15s "$PWD/build-hardrt-integration/spwkit_hardrt_posix"
+
+  hardrt-cortex-m7:
+    name: HardRT Cortex-M7 / arm-none-eabi
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout SpWKit
+        uses: actions/checkout@v6
+
+      - name: Checkout pinned HardRT integration dependency
+        uses: actions/checkout@v6
+        with:
+          repository: ExoSpaceLabs/hardrt
+          ref: 1b861393cd7967ce5d0b3ac6f45928828a2d63aa
+          path: external/hardrt
+
+      - name: Install ARM bare-metal toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi
+          arm-none-eabi-gcc --version
+
+      - name: Cross-build and install no-heap SpWKit
+        run: |
+          cmake -S . -B build-cortex-spwkit \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -ffreestanding -fno-builtin"
+          cmake --build build-cortex-spwkit --parallel
+          cmake --install build-cortex-spwkit --prefix "$PWD/install-cortex-spwkit"
+          archive="$PWD/install-cortex-spwkit/lib/libspwkit.a"
+          test -f "$archive"
+          if arm-none-eabi-nm -u "$archive" | grep -Eq '(pthread_|socket|sendto|recvfrom|poll|WSA|__cxa|_Z)'; then
+            echo "Cortex-M7 SpWKit archive contains hosted/C++ references" >&2
+            arm-none-eabi-nm -u "$archive"
+            exit 1
+          fi
+
+      - name: Cross-build and install HardRT Cortex-M
+        run: |
+          cmake -S external/hardrt -B build-cortex-hardrt \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHARDRT_PORT=cortex_m \
+            -DHARDRT_ENABLE_CPP=OFF \
+            -DHARDRT_BUILD_EXAMPLES=OFF \
+            -DHARDRT_BUILD_TESTS=OFF
+          cmake --build build-cortex-hardrt --parallel
+          cmake --install build-cortex-hardrt --prefix "$PWD/install-cortex-hardrt"
+          test -f "$PWD/install-cortex-hardrt/lib/libhardrt.a"
+
+      - name: Link standalone Cortex-M7 firmware from installed packages
+        run: |
+          cmake -S integrations/hardrt_cortex_m -B build-cortex-integration \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-cortex-spwkit;$PWD/install-cortex-hardrt"
+          cmake --build build-cortex-integration --parallel
+
+      - name: Inspect Cortex-M7 firmware evidence
+        run: |
+          elf="$PWD/build-cortex-integration/spwkit_hardrt_cortex_m7.elf"
+          map="$PWD/build-cortex-integration/spwkit_hardrt_cortex_m7.map"
+          test -f "$elf"
+          test -s "$map"
+          arm-none-eabi-readelf -h "$elf" | tee /tmp/elf-header.txt
+          grep -Eq 'Machine:[[:space:]]+ARM' /tmp/elf-header.txt
+          arm-none-eabi-readelf -A "$elf" | tee /tmp/elf-attributes.txt
+          grep -Eq 'Tag_CPU_arch: v7E-M|Tag_CPU_name:.*7E-M' /tmp/elf-attributes.txt
+          if arm-none-eabi-nm -u "$elf" | grep -q .; then
+            echo "Firmware contains unresolved symbols" >&2
+            arm-none-eabi-nm -u "$elf"
+            exit 1
+          fi
+          if arm-none-eabi-nm "$elf" | grep -Eq '(pthread_|socket|sendto|recvfrom|poll|WSA|__cxa|_Z)'; then
+            echo "Firmware contains hosted/C++ runtime symbols" >&2
+            exit 1
+          fi
+          arm-none-eabi-size "$elf"
+
+      - name: Upload Cortex-M7 ELF/map evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-hardrt-cortex-m7-evidence
+          path: |
+            build-cortex-integration/spwkit_hardrt_cortex_m7.elf
+            build-cortex-integration/spwkit_hardrt_cortex_m7.map
+          if-no-files-found: error
+          retention-days: 30
