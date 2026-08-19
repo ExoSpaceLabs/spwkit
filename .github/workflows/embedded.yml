@@ -5,20 +5,24 @@ on:
     branches: [main]
     paths:
       - "CMakeLists.txt"
+      - "cmake/**"
       - "include/**"
       - "src/core/**"
       - "src/backends/loopback/**"
       - "src/backends/device/**"
+      - "integrations/hardrt_posix/**"
       - "tests/embedded/**"
       - ".github/workflows/embedded.yml"
   pull_request:
     branches: [main]
     paths:
       - "CMakeLists.txt"
+      - "cmake/**"
       - "include/**"
       - "src/core/**"
       - "src/backends/loopback/**"
       - "src/backends/device/**"
+      - "integrations/hardrt_posix/**"
       - "tests/embedded/**"
       - ".github/workflows/embedded.yml"
   workflow_dispatch:
@@ -83,4 +87,90 @@ jobs:
           echo "### Embedded portability" >> "$GITHUB_STEP_SUMMARY"
           echo "This gate is a real freestanding C/no-heap compile, not target-HIL evidence." >> "$GITHUB_STEP_SUMMARY"
           echo "The VSPD codec is included because protocol encoding must remain portable C; the Linux socket transport and vspwd service are explicitly disabled." >> "$GITHUB_STEP_SUMMARY"
-          echo "ARM/HardRT target toolchains remain v0.5 work and will be added as separate jobs." >> "$GITHUB_STEP_SUMMARY"
+          echo "HardRT POSIX is exercised separately below; Cortex-M/arm-none-eabi remains the next #89 slice." >> "$GITHUB_STEP_SUMMARY"
+
+  hardrt-posix:
+    name: HardRT POSIX / ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC
+            cc: gcc
+            cxx: g++
+          - name: Clang
+            cc: clang
+            cxx: clang++
+
+    steps:
+      - name: Checkout SpWKit
+        uses: actions/checkout@v6
+
+      - name: Checkout pinned HardRT integration dependency
+        uses: actions/checkout@v6
+        with:
+          repository: ExoSpaceLabs/hardrt
+          ref: 1b861393cd7967ce5d0b3ac6f45928828a2d63aa
+          path: external/hardrt
+
+      - name: Configure pure-C no-heap SpWKit package
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-hardrt-spwkit \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          if grep -q '^CMAKE_CXX_COMPILER:' build-hardrt-spwkit/CMakeCache.txt; then
+            echo "HardRT integration unexpectedly enabled CXX in SpWKit" >&2
+            exit 1
+          fi
+
+      - name: Build and install SpWKit
+        run: |
+          cmake --build build-hardrt-spwkit --parallel
+          cmake --install build-hardrt-spwkit --prefix "$PWD/install-spwkit"
+          if grep -R -nF 'HardRT' "$PWD/install-spwkit"/lib*/cmake/SpWKit 2>/dev/null; then
+            echo "SpWKit package metadata must not depend on HardRT" >&2
+            exit 1
+          fi
+
+      - name: Configure and install pinned HardRT POSIX package
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          cmake -S external/hardrt -B build-hardrt \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHARDRT_PORT=posix \
+            -DHARDRT_ENABLE_CPP=OFF \
+            -DHARDRT_BUILD_EXAMPLES=OFF \
+            -DHARDRT_BUILD_TESTS=OFF
+          cmake --build build-hardrt --parallel
+          cmake --install build-hardrt --prefix "$PWD/install-hardrt"
+
+      - name: Build standalone HardRT + SpWKit consumer
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          cmake -S integrations/hardrt_posix -B build-hardrt-integration \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-spwkit;$PWD/install-hardrt" \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          cmake --build build-hardrt-integration --parallel
+
+      - name: Run HardRT task-level SpWKit contract
+        run: timeout 15s "$PWD/build-hardrt-integration/spwkit_hardrt_posix"
