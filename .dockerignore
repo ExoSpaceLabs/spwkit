@@ -1,0 +1,7 @@
+.git
+build*
+cmake-build-*
+dist
+*.deb
+*.tar.gz
+*.zip

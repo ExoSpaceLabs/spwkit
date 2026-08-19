@@ -75,9 +75,9 @@ The release adds pure-C behavioral CI, C-only static/shared installed consumers,
 
 The C API is authoritative. C++ does not provide a second implementation or different SpaceWire semantics.
 
-### v0.4.0 — Linux virtual device and userspace service — release candidate
+### v0.4.0 — Linux virtual device and userspace service
 
-The v0.4 implementation is feature-complete and is undergoing its final release audit before the tag is created. It adds a Linux virtual-device/service layer without changing the application-facing `spw_port_*` model.
+The v0.4 software boundary is finalized for the `v0.4.0` tag. It adds a Linux virtual-device/service layer without changing the application-facing `spw_port_*` model and adds reproducible Linux binary distribution for the primary hosted architectures.
 
 The release includes:
 
@@ -86,11 +86,17 @@ The release includes:
 - public `SPW_BACKEND_DEVICE` plus backend-neutral level-triggered `spw_port_wait()` receive readiness;
 - HELLO-only non-owning management through `spwctl` and passive coalesced observation through `spwmon`;
 - standalone installed-package C11 and optional C++17 device consumers, including mixed C/C++ peer interoperability;
+- installed-package C and C++ distributed VSPW-TP/UDP peers with C↔C, C++↔C++, C↔C++ and C++↔C process isolation tests;
+- Linux network-namespace and two-container Docker Compose distributed-simulation coverage, including peer loss and fresh-session recovery;
 - a CUSE/libfuse3 feasibility result and private packet-record prototype while the production `/dev/vspwX` presenter remains separately tracked in #78;
 - an optional topology-owned `vspwd` port bridged through the existing VSPW-TP/UDP backend, including remote loss/restart recovery;
-- dedicated pure-C GCC/Clang device, tools, bridge and installed-consumer CI with `CXX=/bin/false`.
+- dedicated pure-C GCC/Clang device, tools, bridge and installed-consumer CI with `CXX=/bin/false`;
+- validated Ubuntu 22.04+ `.deb` packages for `amd64` and `arm64`;
+- a multi-architecture GHCR runtime/toolbox image for `linux/amd64` and `linux/arm64`.
 
-Physical FPGA/HIL verification, the production CUSE presenter and native Winsock VSPW-TP remain explicitly outside the v0.4 release boundary.
+Physical FPGA/HIL verification, the production CUSE presenter, native Winsock VSPW-TP and additional precompiled architectures remain explicitly outside the v0.4 release boundary until matching target-specific evidence exists.
+
+See [Binary release artifacts](docs/binary-packages.md) for DEB contents, supported architectures, GHCR tags and publication rules.
 
 ## Virtual SpaceWire
 
@@ -132,7 +138,7 @@ The optional virtual timing model adds deterministic SpaceWire-side serializatio
 
 The UDP backend also supports fixed-size seeded fault rules for transport drop, duplicate, adjacent reorder and delay. These operate on VSPW-TP carrier datagrams and remain distinct from explicit SpaceWire-side EEP injection. Ordinary transport loss or reordering never synthesizes EEP. `spw_port_get_fault_statistics()` exposes separate counters for the two fault domains.
 
-The distributed backend runs the reusable public backend contract and is also exercised as genuinely separate applications. The D2D gate installs SpWKit, builds the **C-only** `examples/distributed` through `find_package(SpWKit)` with no C++ compiler, launches two peer processes, verifies peer loss/restart, and repeats the same 8 KiB EOP/EEP plus time-code exchange in two Linux network namespaces connected by a 1500-byte-MTU veth link. The applications never call VSPW-TP or socket-private APIs.
+The distributed backend runs the reusable public backend contract and is also exercised as genuinely separate applications. The D2D gate installs SpWKit, builds both the C-only `examples/distributed` consumer and the optional C++17 distributed consumer through `find_package(SpWKit)`, then runs C↔C, C++↔C++, C↔C++ and C++↔C restart/recovery combinations as independent processes. It additionally validates an 8 KiB EOP/EEP plus time-code exchange across two Linux network namespaces connected by a 1500-byte-MTU veth link and across two isolated Docker Compose containers. The applications never call VSPW-TP or socket-private APIs.
 
 Wire inspection is available separately under `tools/wireshark`: the Lua dissector recognizes VSPW-TP on configurable UDP ports, decodes v1 header/control fields, and is validated against a deterministic generated PCAP through tshark. This tooling is not linked into `libspwkit` and adds no runtime dependency.
 
@@ -303,6 +309,7 @@ CI builds standalone installed-package consumers so exported package metadata ca
 - `examples/installed`: standalone **C-only** installed-package consumer that verifies package/runtime metadata without enabling C++;
 - `examples/installed_cpp`: optional C++17 wrapper consumer built against `spwkit::cpp`;
 - `examples/distributed`: standalone **C-only** installed-package VSPW-TP/UDP equal peer for two processes or Linux hosts, including restart scenarios;
+- `examples/distributed_cpp`: standalone optional C++17 installed-package VSPW-TP/UDP equal peer using `spwkit::cpp`;
 - `examples/installed_device`: standalone C11 installed-package Linux device consumer;
 - `examples/installed_device_cpp`: standalone optional C++17 wrapper device consumer.
 
@@ -319,6 +326,7 @@ SpWKit uses these standards as design references. The project does **not** claim
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
+- [Binary release artifacts](docs/binary-packages.md)
 - [Public API contract](docs/api.md)
 - [Core public types](docs/types.md)
 - [Port/backend configuration](docs/configuration.md)

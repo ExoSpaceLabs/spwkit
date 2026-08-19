@@ -160,6 +160,8 @@ set_target_properties(spwkit PROPERTIES
     C_STANDARD_REQUIRED YES
     C_EXTENSIONS OFF
     POSITION_INDEPENDENT_CODE ON
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
     EXPORT_NAME spwkit
 )
 
@@ -297,3 +299,5 @@ install(
         ${CMAKE_CURRENT_BINARY_DIR}/SpWKitConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SpWKit
 )
+
+include(cmake/Packaging.cmake)

@@ -1,0 +1,294 @@
+name: Binary packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/spwkit/**"
+      - "src/**"
+      - "packaging/**"
+      - ".dockerignore"
+      - "LICENSE"
+      - "NOTICE"
+      - "CHANGELOG.md"
+      - ".github/workflows/packages.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/spwkit/**"
+      - "src/**"
+      - "packaging/**"
+      - ".dockerignore"
+      - "LICENSE"
+      - "NOTICE"
+      - "CHANGELOG.md"
+      - ".github/workflows/packages.yml"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish release assets and GHCR image"
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: "Existing release tag, required when publishing"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packages-${{ github.workflow }}-${{ github.ref }}-${{ inputs.publish || false }}
+  cancel-in-progress: ${{ inputs.publish != true }}
+
+jobs:
+  deb:
+    name: DEB / ${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enable QEMU
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+
+      - name: Create buildx builder
+        run: |
+          docker buildx create --name spwkit-packages --driver docker-container --use
+          docker buildx inspect --bootstrap
+
+      - name: Validate target-architecture DEB installation
+        run: >-
+          docker buildx build
+          --builder spwkit-packages
+          --platform ${{ matrix.platform }}
+          --file packaging/Dockerfile
+          --target validate
+          --progress plain
+          .
+
+      - name: Export DEB
+        run: |
+          mkdir -p "dist/${{ matrix.arch }}"
+          docker buildx build \
+            --builder spwkit-packages \
+            --platform "${{ matrix.platform }}" \
+            --file packaging/Dockerfile \
+            --target package-export \
+            --output "type=local,dest=dist/${{ matrix.arch }}" \
+            --progress plain \
+            .
+          package="$(find "dist/${{ matrix.arch }}" -maxdepth 1 -name 'spwkit_*.deb' -print -quit)"
+          test -n "$package"
+          test "$(dpkg-deb -f "$package" Architecture)" = "${{ matrix.arch }}"
+          test "$(dpkg-deb -f "$package" Version)" = "0.4.0-1"
+          dpkg-deb --info "$package"
+          package_dir="$(dirname "$package")"
+          package_name="$(basename "$package")"
+          (cd "$package_dir" && sha256sum "$package_name" > "$package_name.sha256")
+
+      - name: Validate runtime image for architecture
+        run: |
+          docker buildx build \
+            --builder spwkit-packages \
+            --platform "${{ matrix.platform }}" \
+            --file packaging/Dockerfile \
+            --target runtime \
+            --build-arg VERSION=0.4.0 \
+            --load \
+            --tag "spwkit-runtime-test:${{ matrix.arch }}" \
+            .
+          docker run --rm --platform "${{ matrix.platform }}" "spwkit-runtime-test:${{ matrix.arch }}" --help
+          docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/bin/spwctl "spwkit-runtime-test:${{ matrix.arch }}" --help
+          docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/bin/spwmon "spwkit-runtime-test:${{ matrix.arch }}" --help
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-deb-${{ matrix.arch }}
+          path: |
+            dist/${{ matrix.arch }}/*.deb
+            dist/${{ matrix.arch }}/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  multiarch-image:
+    name: Multi-arch runtime image
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enable QEMU
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+
+      - name: Create buildx builder
+        run: |
+          docker buildx create --name spwkit-multiarch --driver docker-container --use
+          docker buildx inspect --bootstrap
+
+      - name: Build multi-arch OCI image
+        run: >-
+          docker buildx build
+          --builder spwkit-multiarch
+          --platform linux/amd64,linux/arm64
+          --file packaging/Dockerfile
+          --target runtime
+          --build-arg VERSION=0.4.0
+          --output type=oci,dest=/tmp/spwkit-runtime.oci.tar
+          --progress plain
+          .
+
+      - name: Verify OCI archive
+        run: |
+          test -s /tmp/spwkit-runtime.oci.tar
+          tar -tf /tmp/spwkit-runtime.oci.tar | grep -q 'index.json'
+
+  publish:
+    name: Publish GitHub Release and GHCR image
+    if: ${{ inputs.publish == true }}
+    needs: [deb, multiarch-image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Validate publish boundary
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_TAG"
+          test "$RELEASE_TAG" = "v0.4.0"
+
+      - name: Checkout exact release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+
+      - name: Require tag to match main
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse origin/main)"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          grep -q '^## v0.4.0 — 2026-08-19$' CHANGELOG.md
+
+      - name: Download DEB artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spwkit-deb-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify release assets
+        run: |
+          set -euo pipefail
+          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb' | wc -l)" -eq 2
+          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb.sha256' | wc -l)" -eq 2
+          dpkg-deb -f "$(find dist -name '*_amd64.deb' -print -quit)" Architecture | grep -qx amd64
+          dpkg-deb -f "$(find dist -name '*_arm64.deb' -print -quit)" Architecture | grep -qx arm64
+          (cd dist && sha256sum -c *.sha256)
+
+      - name: Enable QEMU
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+
+      - name: Create buildx builder
+        run: |
+          docker buildx create --name spwkit-publish --driver docker-container --use
+          docker buildx inspect --bootstrap
+
+      - name: Login to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish multi-arch GHCR image
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          minor="${version%.*}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker buildx build \
+            --builder spwkit-publish \
+            --platform linux/amd64,linux/arm64 \
+            --file packaging/Dockerfile \
+            --target runtime \
+            --build-arg "VERSION=$version" \
+            --tag "$image:$RELEASE_TAG" \
+            --tag "$image:$minor" \
+            --tag "$image:latest" \
+            --push \
+            --progress plain \
+            .
+          docker buildx imagetools inspect "$image:$RELEASE_TAG"
+
+      - name: Build release notes from changelog
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          text = Path('CHANGELOG.md').read_text(encoding='utf-8')
+          marker = '## v0.4.0 — 2026-08-19\n'
+          start = text.index(marker) + len(marker)
+          end = text.index('\n## v0.3.0', start)
+          body = text[start:end].strip()
+          image = 'ghcr.io/exospacelabs/spwkit:v0.4.0'
+          notes = (
+              body
+              + '\n\n### Binary distribution\n\n'
+              + '- GitHub Release: `amd64` and `arm64` Debian packages plus SHA-256 files.\n'
+              + f'- GHCR multi-arch runtime/toolbox image: `{image}` (`linux/amd64`, `linux/arm64`).\n'
+              + '- Moving image aliases: `0.4` and `latest`.\n'
+              + '- Binary packages are keyed by architecture/userspace, not GCC version: the runtime ABI is C11 and the optional C++ layer is header-only.\n'
+          )
+          Path('release-notes.md').write_text(notes, encoding='utf-8')
+          PY
+
+      - name: Create GitHub Release with DEB assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists; refusing to overwrite immutable release assets" >&2
+            exit 1
+          fi
+          mapfile -t assets < <(find dist -maxdepth 1 -type f \( -name '*.deb' -o -name '*.sha256' \) -print | sort)
+          test "${#assets[@]}" -eq 4
+          gh release create "$RELEASE_TAG" \
+            "${assets[@]}" \
+            --verify-tag \
+            --title "SpWKit $RELEASE_TAG" \
+            --notes-file release-notes.md

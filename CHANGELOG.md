@@ -2,9 +2,9 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
-## v0.4.0 — unreleased
+## v0.4.0 — 2026-08-19
 
-Linux virtual-device and userspace-service release candidate. The public C API remains authoritative; VSPD, Unix sockets, CUSE and daemon-management protocol details remain private implementation layers.
+Linux virtual-device and userspace-service release. The public C API remains authoritative; VSPD, Unix sockets, CUSE and daemon-management protocol details remain private implementation layers.
 
 ### Added
 
@@ -15,9 +15,13 @@ Linux virtual-device and userspace-service release candidate. The public C API r
 - VSPD 1.1 HELLO-only non-owning management and installed pure-C `spwctl` (`list`, `show`, `stats`, `clear-stats`);
 - VSPD 1.2 bounded passive subscriptions and installed pure-C `spwmon` with human and JSON Lines output;
 - standalone installed-package C11 and optional C++17 Linux device consumers, including mixed C/C++ peer validation;
+- standalone installed-package C++17 VSPW-TP/UDP distributed peer using only `spwkit::cpp`;
 - CUSE/libfuse3 feasibility work with a private fixed-width packet-record prototype; the production presenter remains tracked separately in #78;
 - VSPD 1.3 bridged-port metadata and an optional topology-owned `vspwd` endpoint backed by the existing VSPW-TP/UDP runtime;
 - end-to-end device↔daemon↔VSPW-TP/UDP DATA/time-code exchange with remote peer loss and fresh-process restart recovery;
+- two-container Docker Compose distributed-simulation topology using isolated network namespaces and installed-package C/C++ peers;
+- reproducible Ubuntu 22.04+ Debian packages for `amd64` and `arm64`, including the shared runtime, public C/C++ integration surface, `vspwd`, `spwctl` and `spwmon`;
+- multi-architecture GHCR runtime/toolbox image for `linux/amd64` and `linux/arm64`, published under `v0.4.0`, `0.4` and `latest` tags;
 - release packaging of Apache-2.0 `LICENSE` and `NOTICE` metadata.
 
 ### Changed
@@ -25,14 +29,22 @@ Linux virtual-device and userspace-service release candidate. The public C API r
 - completed the C-first v0.3 architecture by keeping `vspwd`, the Linux device backend and all daemon tools pure C with no mandatory C++ runtime;
 - extended the shared backend contract to the Linux device backend and documented distributed/service-specific queue and peer-loss timing semantics;
 - kept `/dev/vspwX` CUSE presentation optional and outside `libspwkit`; no kernel module or libfuse dependency is introduced into ordinary builds;
-- kept bridge transport reliability in the existing `SPW_BACKEND_UDP` implementation rather than creating a second VSPW-TP stack inside `vspwd`.
+- kept bridge transport reliability in the existing `SPW_BACKEND_UDP` implementation rather than creating a second VSPW-TP stack inside `vspwd`;
+- clarified simulation boundaries: `SPW_BACKEND_SIMULATOR` is intentionally process-local, while VSPW-TP/UDP and DEVICE/VSPD provide process-isolated simulation paths;
+- versioned the shared library with SONAME major `0`, while the optional C++ wrapper remains header-only and compiled by the consuming application;
+- keyed precompiled Linux artifacts by userspace baseline and CPU architecture rather than GCC version because the compiled public runtime ABI is C11.
 
 ### Verification
 
 - Linux device, daemon, management, monitoring and bridge profiles run under GCC and Clang with `CXX=/bin/false`;
 - public device and daemon paths run under ASan+UBSan;
 - standalone installed C and C++ device consumers exercise C↔C, C++↔C++, C↔C++ and C++↔C interoperability;
-- the existing cross-platform package matrix, pure-C static/shared gates, simulator contract, VSPW-TP D2D/network-namespace tests, freestanding portability checks and Wireshark/tshark validation remain release gates;
+- installed VSPW-TP/UDP C and C++ peers exercise C↔C, C++↔C++, C↔C++ and C++↔C as independent processes with 8 KiB DATA, EOP/EEP, time codes, peer loss and fresh-session recovery;
+- distributed isolation is validated both with Linux network namespaces/veth and with a two-container Docker Compose bridge topology; these remain software simulation evidence, not physical HIL;
+- `amd64` and `arm64` DEBs are built for their target architecture, installed in clean Ubuntu 22.04 containers, smoke-tested with the installed tools and exported with SHA-256 sidecars;
+- ARM package and runtime-image validation executes under QEMU rather than relying on metadata-only cross packaging;
+- the multi-arch OCI runtime image is built for both `linux/amd64` and `linux/arm64` before the release can publish GHCR tags;
+- the cross-platform package matrix, pure-C static/shared gates, simulator contract, freestanding portability checks and Wireshark/tshark validation remain release gates;
 - CUSE feasibility is compile/API validated under GCC and Clang without claiming `/dev/cuse` runtime evidence when hosted runners do not expose it.
 
 ### Deferred beyond v0.4
@@ -40,9 +52,10 @@ Linux virtual-device and userspace-service release candidate. The public C API r
 - production event-driven CUSE `/dev/vspwX` presenter (#78);
 - native Windows/Winsock VSPW-TP runtime (#42);
 - physical FPGA/HIL backend and electrical interoperability evidence;
+- additional hosted precompiled architectures beyond `amd64` and `arm64` until target-specific CI evidence is added;
 - generic SpaceWire routing/topology management and router simulation.
 
-No `v0.4.0` tag is implied until the release audit is complete.
+The v0.4.0 software release boundary is finalized by the dated release-preparation commit; the `v0.4.0` tag is accepted only after the tag-triggered exact-ref release matrix passes. Binary artifacts are published only after that full matrix, including the binary-package gate, succeeds on the exact tag commit.
 
 ## v0.3.0 — 2026-08-16
 
@@ -56,7 +69,7 @@ C-first runtime and packaging architecture. The public C API remains authoritati
 - exported installed/runtime targets as lowercase `spwkit::spwkit` and optional `spwkit::cpp`, while retaining `find_package(SpWKit)` as the package lookup name;
 - separated pure-C tests/examples from optional C++ development fixtures so CTest can execute meaningful behavior with `CXX=/bin/false`;
 - made the installed distributed VSPW-TP example a genuine C-only project instead of forcing a C++ linker;
-- replaced the previous placeholder embedded workflow with a real freestanding C/no-heap portability build.
+- replaced the previous placeholder embedded workflow with a real freestanding/no-heap portability build.
 
 ### Added
 
