@@ -10,6 +10,10 @@
 #include <string.h>
 #include <windows.h>
 
+#ifndef SIO_UDP_CONNRESET
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+
 enum { SPW_WIN32_SOCKET_TABLE_SIZE = 64 };
 
 typedef struct spw_win32_socket_slot {
