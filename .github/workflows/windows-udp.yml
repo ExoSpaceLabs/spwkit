@@ -1,0 +1,105 @@
+name: Windows UDP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/SpWKitConfig.cmake.in"
+      - "src/backends/ethernet/**"
+      - "src/platform/win32/**"
+      - "tests/CMakeLists.txt"
+      - "tests/udp*.cpp"
+      - "tests/contract/**"
+      - "tests/windows_udp/**"
+      - ".github/workflows/windows-udp.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/SpWKitConfig.cmake.in"
+      - "src/backends/ethernet/**"
+      - "src/platform/win32/**"
+      - "tests/CMakeLists.txt"
+      - "tests/udp*.cpp"
+      - "tests/contract/**"
+      - "tests/windows_udp/**"
+      - ".github/workflows/windows-udp.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-udp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  winsock:
+    name: Native Winsock VSPW-TP
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure SpWKit with native UDP runtime
+        shell: pwsh
+        run: >-
+          cmake -S . -B build-winsock
+          -DCMAKE_BUILD_TYPE=Release
+          -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_CPP_TESTS=ON
+          -DSPWKIT_BUILD_EXAMPLES=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+          -DSPWKIT_BUILD_SIMULATOR=OFF
+          -DSPWKIT_BUILD_UDP=ON
+          -DSPWKIT_BUILD_DEVICE=OFF
+          -DSPWKIT_BUILD_VSPWD=OFF
+          -DSPWKIT_BUILD_TOOLS=OFF
+          -DSPWKIT_BUILD_CUSE=OFF
+          -DSPWKIT_ENABLE_HEAP=ON
+          -DSPWKIT_ENABLE_CPP=OFF
+
+      - name: Build runtime and shared UDP contract
+        run: cmake --build build-winsock --config Release --parallel
+
+      - name: Run Windows UDP contract matrix
+        shell: pwsh
+        run: >-
+          ctest --test-dir build-winsock -C Release
+          --output-on-failure
+          -R "udp_distributed_backend|udp_out_of_order_reassembly|udp_virtual_link_timing|udp_deterministic_faults|backend_contract_udp"
+
+      - name: Install package
+        shell: pwsh
+        run: cmake --install build-winsock --config Release --prefix "$PWD/install-winsock"
+
+      - name: Validate installed runtime metadata
+        shell: pwsh
+        run: |
+          $config = Get-Content -Raw "$PWD/install-winsock/lib/cmake/SpWKit/SpWKitConfig.cmake"
+          if ($config -notmatch 'set\(SpWKit_UDP_RUNTIME_SUPPORTED ON\)') {
+            throw "installed package does not advertise Windows UDP runtime support"
+          }
+          if ($config -notmatch 'set\(SpWKit_UDP_RUNTIME_SCOPE "Winsock"\)') {
+            throw "installed package does not advertise Winsock runtime scope"
+          }
+
+      - name: Configure installed-package process fixture
+        shell: pwsh
+        run: >-
+          cmake -S tests/windows_udp -B build-windows-peer
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$PWD/install-winsock"
+
+      - name: Build installed-package process fixture
+        run: cmake --build build-windows-peer --config Release --parallel
+
+      - name: Run full-duplex restart recovery as independent processes
+        shell: pwsh
+        run: |
+          $base = 39000 + (($env:GITHUB_RUN_NUMBER -as [int]) % 100) * 2
+          ./tests/windows_udp/run_restart.ps1 `
+            -Peer "$PWD/build-windows-peer/Release/spwkit_windows_udp_peer.exe" `
+            -BasePort $base
