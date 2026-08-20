@@ -18,6 +18,7 @@ on:
       - "NOTICE"
       - ".github/workflows/embedded.yml"
       - ".github/workflows/packages.yml"
+      - ".github/workflows/windows-udp.yml"
       - ".github/workflows/release.yml"
   pull_request:
     branches: [main]
@@ -35,6 +36,7 @@ on:
       - "NOTICE"
       - ".github/workflows/embedded.yml"
       - ".github/workflows/packages.yml"
+      - ".github/workflows/windows-udp.yml"
       - ".github/workflows/release.yml"
   workflow_dispatch:
 
@@ -284,6 +286,7 @@ jobs:
               ('c-core.yml', 'C-only runtime'),
               ('simulator.yml', 'Simulator'),
               ('d2d.yml', 'Device-to-device'),
+              ('windows-udp.yml', 'Windows UDP'),
               ('embedded.yml', 'Embedded portability'),
               ('device.yml', 'Virtual device'),
               ('tools.yml', 'Tools'),
