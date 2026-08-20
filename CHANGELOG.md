@@ -2,24 +2,44 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
-## v0.5.0 — unreleased
+## v0.5.0 — 2026-08-20
 
-Hosted-platform and embedded/RTOS integration development release. v0.5 builds on the released v0.4 software-simulation/service boundary without changing the rule that the public C API remains authoritative.
+Hosted-platform parity and embedded/RTOS integration release. v0.5 builds on the v0.4 software-simulation/service boundary while keeping the public C API authoritative and keeping host-, RTOS- and presentation-specific implementation details private.
 
-### In development
+### Added
 
-- production event-driven CUSE `/dev/vspwX` presentation (#78);
-- native Windows/Winsock VSPW-TP runtime parity (#42);
-- evidence-backed hosted release expansion beyond `amd64` and `arm64`/AArch64, starting with `armhf` and `riscv64` candidates (#88);
-- generic embedded/RTOS integration boundaries demonstrated first with HardRT POSIX and Cortex-M, without introducing a HardRT dependency into `libspwkit` (#89);
-- optional downstream CCSDSPack 2.x packet-transport integration after a validated CCSDSPack release is available (#90).
+- production event-driven Linux CUSE `/dev/vspwX` presentation over the existing DEVICE/VSPD path, preserving packet boundaries, EOP/EEP, zero-length DATA, time codes, blocking/non-blocking I/O and non-consuming readiness semantics (#78);
+- native Windows/Winsock implementation of `SPW_BACKEND_UDP` using the existing VSPW-TP wire contract and shared reliability/session/timing/fault state machine, without exposing Winsock types in the public ABI (#42);
+- independent Windows installed-package process validation covering DATA, EOP/EEP, time codes, peer loss, fresh-session restart and `SPW_LINK_RUN` recovery;
+- hosted binary validation for `armhf` and `riscv64` in addition to `amd64` and `arm64`, with target-userspace package installation, installed C/C++ consumers, tool execution and runtime-image smoke evidence (#88);
+- four-platform OCI runtime image validation for `linux/amd64`, `linux/arm64`, `linux/arm/v7` and `linux/riscv64`;
+- HardRT POSIX integration using installed packages and task-level public SpWKit behavior, while keeping HardRT outside the `libspwkit` dependency graph (#89);
+- Cortex-M7 `arm-none-eabi`/Thumb/soft-float/no-heap HardRT integration evidence with complete firmware link, ELF/map validation and hosted/C++ runtime leakage checks.
 
-### Release policy
+### Changed
 
-- hosted precompiled artifacts are published only for architectures that are installed and executed in a target userspace during CI;
-- bare-metal artifacts are kept separate from `.deb`/OCI distribution and must identify their target triple, CPU/ABI and toolchain assumptions;
-- HardRT is an external integration fixture rather than part of the SpWKit runtime dependency graph;
-- physical SpaceWire HIL remains outside automated claims until suitable hardware is available.
+- installed package metadata now reports the hosted UDP runtime scope as `POSIX` or `Winsock` while keeping runtime availability as a separate build-dependent boolean;
+- the same UDP backend contract, fragmentation/reassembly, deterministic-fault and virtual-link timing tests now execute on MSVC/Windows rather than maintaining a reduced Windows-only behavior path;
+- Linux CUSE presentation remains optional and outside `libspwkit`, so ordinary SpWKit consumers do not gain a libfuse dependency;
+- hosted release architecture claims remain evidence-backed: non-native Linux targets execute under QEMU/binfmt rather than being accepted from metadata-only cross compilation;
+- bare-metal/RTOS artifacts remain separate from `.deb`/OCI distribution and must identify their target triple, CPU/ABI and toolchain assumptions.
+
+### Verification
+
+- the Windows UDP workflow compiles under MSVC, passes the shared UDP contract matrix, installs the package and executes independent-process peer-loss/restart recovery;
+- generic Windows CI builds and tests the complete hosted suite and standalone installed C and C++ consumers with the Winsock-enabled package;
+- CUSE build/package validation runs under GCC and Clang and live CI exercises the real `/dev/cuse` character-device contract;
+- `amd64`, `arm64`, `armhf` and `riscv64` DEBs are built, installed and executed in their target Ubuntu 22.04 userspaces, with SHA-256 sidecars produced only after validation;
+- the combined four-platform OCI image is built and verified before publication;
+- HardRT POSIX behavior executes under GCC and Clang, while the Cortex-M7 profile is cross-built and fully linked with architecture/map/symbol checks;
+- release publication requires the exact-tag CI fan-out, including the dedicated Windows UDP gate, before binary packages and GHCR images are published;
+- physical SpaceWire HIL remains outside automated claims until matching hardware is available.
+
+### Deferred beyond v0.5
+
+- CCSDSPack 2.x packet-transport integration (#90) remains open until CCSDSPack 2.x is a public validated/tagged release; a moving development branch is not a SpWKit release dependency;
+- physical FPGA/HIL backend and electrical SpaceWire interoperability evidence;
+- generic SpaceWire routing/topology management and router simulation.
 
 ## v0.4.0 — 2026-08-19
 
@@ -118,7 +138,7 @@ Distributed virtual SpaceWire over the existing portable application API.
 ### Added
 
 - VSPW-TP v1 distributed transport with the released 40-byte network-order header and 64-bit sender session identity;
-- POSIX IPv4 UDP backend selected through the normal `spw_port_*` API;
+- POSIX IPv4 UDP backend selected through the normal portable API;
 - bounded fragmentation and arbitrary-order reassembly for logical packets up to the backend's 1 MiB limit;
 - reliable DATA and TIME_CODE delivery using session-bound logical-message ACKs, bounded retransmission and duplicate suppression;
 - KEEPALIVE/session peer discovery, timeout detection and restart recovery;
