@@ -12,7 +12,7 @@ set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 set(CPACK_STRIP_FILES ON)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    # v0.4 binary packages are intentionally one self-contained development +
+    # Hosted binary packages are intentionally one self-contained development +
     # runtime/tooling package. The runtime is C11 and the optional C++ layer is
     # header-only, so package compatibility is keyed by architecture/userspace,
     # not by the compiler version used to build it.
@@ -22,7 +22,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
     set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/ExoSpaceLabs/spwkit")
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.35)")
+    set(_spwkit_debian_depends "libc6 (>= 2.35)")
+    if(SPWKIT_BUILD_CUSE)
+        string(APPEND _spwkit_debian_depends ", libfuse3-3")
+    endif()
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "${_spwkit_debian_depends}")
     set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
     set(CPACK_DEBIAN_PACKAGE_RELEASE "1")
 

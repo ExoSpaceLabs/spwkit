@@ -11,7 +11,9 @@ RUN apt-get update \
         ca-certificates \
         cmake \
         dpkg-dev \
+        libfuse3-dev \
         ninja-build \
+        pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -30,6 +32,7 @@ RUN cmake -S . -B build-package -G Ninja \
         -DSPWKIT_BUILD_DEVICE=ON \
         -DSPWKIT_BUILD_VSPWD=ON \
         -DSPWKIT_BUILD_TOOLS=ON \
+        -DSPWKIT_BUILD_CUSE=ON \
         -DSPWKIT_ENABLE_HEAP=ON \
         -DSPWKIT_ENABLE_CPP=ON \
         -DCMAKE_C_FLAGS="-Wall -Wextra -Werror" \
@@ -53,7 +56,8 @@ RUN apt-get update \
     && find /usr/lib -name 'libspwkit.so.0' -print -quit | grep -q . \
     && vspwd --help >/dev/null 2>&1 \
     && spwctl --help >/dev/null 2>&1 \
-    && spwmon --help >/dev/null 2>&1
+    && spwmon --help >/dev/null 2>&1 \
+    && spwcuse --api-check >/dev/null 2>&1
 
 # Compile and execute real consumers against the package after installing it in
 # the clean target userspace above. This prevents an architecture from being

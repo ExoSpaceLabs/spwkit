@@ -2,6 +2,17 @@
 #ifndef SPWKIT_VSPW_CUSE_RECORD_H
 #define SPWKIT_VSPW_CUSE_RECORD_H
 
+/*
+ * libfuse3 requires a 64-bit off_t ABI, including on 32-bit Linux. The
+ * production presenter defines FUSE_USE_VERSION before including this private
+ * header, so establish the feature-test macro before this header includes any
+ * libc headers. Codec-only users do not define FUSE_USE_VERSION and are left
+ * untouched.
+ */
+#if defined(FUSE_USE_VERSION) && !defined(_FILE_OFFSET_BITS)
+#define _FILE_OFFSET_BITS 64
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -10,11 +21,11 @@ extern "C" {
 #endif
 
 /*
- * Draft packet-record ABI for a future /dev/vspwX CUSE presentation.
+ * Packet-record ABI used by the Linux /dev/vspwX CUSE presentation.
  *
- * This header is intentionally private in v0.4. The format exists so the
- * feasibility work can test packet-preserving character-device semantics
- * before SpWKit commits to a public native-device ABI.
+ * This header remains private: the fixed-width format is documented for raw
+ * device consumers, while libfuse and native CUSE types stay outside the
+ * portable public SpWKit headers and ABI.
  */
 #define VSPW_CUSE_RECORD_MAGIC UINT32_C(0x53505752) /* "SPWR" */
 #define VSPW_CUSE_RECORD_VERSION 1u
