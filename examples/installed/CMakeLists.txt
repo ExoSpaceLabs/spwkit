@@ -7,8 +7,15 @@ find_package(SpWKit 0.5 CONFIG REQUIRED)
 if(NOT DEFINED SpWKit_UDP_RUNTIME_SUPPORTED)
     message(FATAL_ERROR "Installed SpWKit package does not declare UDP runtime availability")
 endif()
-if(NOT SpWKit_UDP_RUNTIME_SCOPE STREQUAL "POSIX")
-    message(FATAL_ERROR "Unexpected SpWKit UDP runtime scope: ${SpWKit_UDP_RUNTIME_SCOPE}")
+if(WIN32)
+    set(_spwkit_expected_udp_runtime_scope "Winsock")
+else()
+    set(_spwkit_expected_udp_runtime_scope "POSIX")
+endif()
+if(NOT SpWKit_UDP_RUNTIME_SCOPE STREQUAL _spwkit_expected_udp_runtime_scope)
+    message(FATAL_ERROR
+        "Unexpected SpWKit UDP runtime scope: ${SpWKit_UDP_RUNTIME_SCOPE}; "
+        "expected ${_spwkit_expected_udp_runtime_scope}")
 endif()
 
 # This is deliberately a C-only project. spwkit::spwkit must compile and link
