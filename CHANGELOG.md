@@ -138,7 +138,7 @@ Distributed virtual SpaceWire over the existing portable application API.
 ### Added
 
 - VSPW-TP v1 distributed transport with the released 40-byte network-order header and 64-bit sender session identity;
-- POSIX IPv4 UDP backend selected through the normal portable API;
+- POSIX IPv4 UDP backend selected through the normal `spw_port_*` API;
 - bounded fragmentation and arbitrary-order reassembly for logical packets up to the backend's 1 MiB limit;
 - reliable DATA and TIME_CODE delivery using session-bound logical-message ACKs, bounded retransmission and duplicate suppression;
 - KEEPALIVE/session peer discovery, timeout detection and restart recovery;
