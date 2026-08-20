@@ -99,7 +99,7 @@ jobs:
       - name: Run full-duplex restart recovery as independent processes
         shell: pwsh
         run: |
-          $base = 52000 + (($env:GITHUB_RUN_NUMBER -as [int]) % 100) * 2
+          $base = 39000 + (($env:GITHUB_RUN_NUMBER -as [int]) % 100) * 2
           ./tests/windows_udp/run_restart.ps1 `
             -Peer "$PWD/build-windows-peer/Release/spwkit_windows_udp_peer.exe" `
             -BasePort $base
