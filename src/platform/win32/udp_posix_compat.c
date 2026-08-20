@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <mstcpip.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +41,12 @@ static void set_errno_from_wsa(int error) {
         break;
     case WSAEADDRINUSE:
         errno = EADDRINUSE;
+        break;
+    case WSAECONNRESET:
+        errno = ECONNRESET;
+        break;
+    case WSAECONNREFUSED:
+        errno = ECONNREFUSED;
         break;
     case WSAEBADF:
     case WSAENOTSOCK:
@@ -96,6 +103,28 @@ static bool ensure_winsock(void) {
     return true;
 }
 
+static bool configure_datagram_semantics(SOCKET socket_value, int type) {
+    BOOL report_udp_connreset = FALSE;
+    DWORD bytes_returned = 0u;
+    if (type != SOCK_DGRAM) {
+        return true;
+    }
+
+    /*
+     * Windows normally turns an ICMP port-unreachable response into a later
+     * WSAECONNRESET from recvfrom(). POSIX UDP does not surface that condition
+     * this way, and VSPW-TP already owns peer-liveness/restart detection. Disable
+     * the Winsock behavior so a peer that has not bound yet is simply absent.
+     */
+    if (WSAIoctl(socket_value, SIO_UDP_CONNRESET,
+                 &report_udp_connreset, (DWORD)sizeof(report_udp_connreset),
+                 NULL, 0u, &bytes_returned, NULL, NULL) == SOCKET_ERROR) {
+        set_errno_from_wsa(WSAGetLastError());
+        return false;
+    }
+    return true;
+}
+
 static int store_socket(SOCKET socket_value) {
     int fd = -1;
     AcquireSRWLockExclusive(&g_socket_lock);
@@ -143,6 +172,10 @@ int spw_win32_socket(int domain, int type, int protocol) {
         set_errno_from_wsa(WSAGetLastError());
         return -1;
     }
+    if (!configure_datagram_semantics(native_socket, type)) {
+        (void)closesocket(native_socket);
+        return -1;
+    }
     fd = store_socket(native_socket);
     if (fd < 0) {
         (void)closesocket(native_socket);
@@ -174,6 +207,14 @@ int spw_win32_setsockopt(int fd,
     if (native_socket == INVALID_SOCKET) {
         return -1;
     }
+
+    /* UDP sockets do not have TIME_WAIT. POSIX SO_REUSEADDR is therefore not
+     * needed for SpWKit's restart path, while Windows' similarly named option
+     * permits address sharing with materially different ownership semantics. */
+    if (level == SOL_SOCKET && option_name == SO_REUSEADDR) {
+        return 0;
+    }
+
     result = setsockopt(native_socket, level, option_name,
                         (const char*)option_value, option_size);
     if (result == SOCKET_ERROR) {
