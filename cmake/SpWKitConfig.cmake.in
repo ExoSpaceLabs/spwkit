@@ -11,7 +11,13 @@ if(@SPWKIT_HOST_THREADS_REQUIRED@)
 endif()
 
 set(SpWKit_UDP_RUNTIME_SUPPORTED @SPWKIT_UDP_RUNTIME_SUPPORTED@)
-set(SpWKit_UDP_RUNTIME_SCOPE "@SPWKIT_UDP_RUNTIME_SCOPE@")
+if("@CMAKE_SYSTEM_NAME@" STREQUAL "Windows")
+    set(SpWKit_UDP_RUNTIME_SCOPE "Winsock")
+else()
+    # Preserve the pre-v0.5 package contract: the scope identifies the hosted
+    # socket family even when the optional UDP runtime was disabled at build time.
+    set(SpWKit_UDP_RUNTIME_SCOPE "POSIX")
+endif()
 set(SpWKit_DEVICE_RUNTIME_SUPPORTED @SPWKIT_DEVICE_RUNTIME_SUPPORTED@)
 set(SpWKit_DEVICE_RUNTIME_SCOPE "Linux")
 set(SpWKit_SIMULATOR_RUNTIME_SUPPORTED @SPWKIT_BUILD_SIMULATOR@)
