@@ -63,7 +63,7 @@ spw_port_t* open_endpoint(std::uint16_t local_port,
 class UdpContractFixture final : public spwkit::test::DistributedBackendContractFixture {
 public:
     UdpContractFixture()
-        : base_port_(static_cast<std::uint16_t>(50000u +
+        : base_port_(static_cast<std::uint16_t>(41000u +
               (static_cast<unsigned>(::getpid()) % 500u) * 2u)) {
         open_pair();
     }
