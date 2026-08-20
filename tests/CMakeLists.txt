@@ -9,6 +9,13 @@ else()
     add_compile_options(-UNDEBUG)
 endif()
 
+# Windows exercises the same UDP fixtures through the private compatibility
+# headers used by the runtime. Nothing from this directory is installed or
+# enters the public SpWKit include surface.
+if(WIN32 AND SPWKIT_UDP_RUNTIME_SUPPORTED)
+    include_directories(BEFORE ${PROJECT_SOURCE_DIR}/src/platform/win32/compat)
+endif()
+
 # -----------------------------------------------------------------------------
 # Pure-C public/runtime tests. These targets must stay buildable when CXX is not
 # enabled, and form the behavioral core of the C-only CI profile.
@@ -128,7 +135,7 @@ if(SPWKIT_BUILD_CPP_TESTS)
         target_compile_features(spwkit_simulator_contract_test PRIVATE cxx_std_17)
     endif()
 
-    if(SPWKIT_BUILD_UDP AND UNIX AND SPWKIT_ENABLE_HEAP)
+    if(SPWKIT_UDP_RUNTIME_SUPPORTED AND SPWKIT_ENABLE_HEAP)
         add_executable(spwkit_udp_backend_test udp_backend.cpp)
         target_link_libraries(spwkit_udp_backend_test PRIVATE spwkit::spwkit)
         target_compile_features(spwkit_udp_backend_test PRIVATE cxx_std_17)
@@ -209,7 +216,7 @@ if(SPWKIT_BUILD_CPP_TESTS)
         set_tests_properties(backend_contract_simulator PROPERTIES LABELS "simulator;integration;contract;cpp")
     endif()
 
-    if(SPWKIT_BUILD_UDP AND UNIX AND SPWKIT_ENABLE_HEAP)
+    if(SPWKIT_UDP_RUNTIME_SUPPORTED AND SPWKIT_ENABLE_HEAP)
         add_test(NAME udp_distributed_backend COMMAND spwkit_udp_backend_test)
         set_tests_properties(udp_distributed_backend PROPERTIES LABELS "transport;integration;d2d;cpp")
         add_test(NAME udp_out_of_order_reassembly COMMAND spwkit_udp_reordering_test)

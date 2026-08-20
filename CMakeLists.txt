@@ -25,10 +25,20 @@ option(SPWKIT_BUILD_CUSE "Build/install the Linux CUSE /dev/vspwX presenter" OFF
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 option(SPWKIT_ENABLE_CPP "Enable/install the optional C++17 convenience wrapper" OFF)
 
-if(SPWKIT_BUILD_UDP AND UNIX)
+if(SPWKIT_BUILD_UDP AND (UNIX OR WIN32))
     set(SPWKIT_UDP_RUNTIME_SUPPORTED ON)
 else()
     set(SPWKIT_UDP_RUNTIME_SUPPORTED OFF)
+endif()
+
+if(SPWKIT_UDP_RUNTIME_SUPPORTED)
+    if(WIN32)
+        set(SPWKIT_UDP_RUNTIME_SCOPE "Winsock")
+    else()
+        set(SPWKIT_UDP_RUNTIME_SCOPE "POSIX")
+    endif()
+else()
+    set(SPWKIT_UDP_RUNTIME_SCOPE "unsupported")
 endif()
 
 if(SPWKIT_BUILD_DEVICE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -37,10 +47,10 @@ else()
     set(SPWKIT_DEVICE_RUNTIME_SUPPORTED OFF)
 endif()
 
-if(SPWKIT_BUILD_UDP AND NOT UNIX)
+if(SPWKIT_BUILD_UDP AND NOT (UNIX OR WIN32))
     message(STATUS
-        "SpWKit UDP runtime is currently POSIX-only; public UDP API will be installed, "
-        "but selecting SPW_BACKEND_UDP on this platform returns SPW_ERR_UNSUPPORTED")
+        "SpWKit UDP runtime is not implemented for this host platform; public UDP API will be installed, "
+        "but selecting SPW_BACKEND_UDP returns SPW_ERR_UNSUPPORTED")
 endif()
 
 if(SPWKIT_BUILD_DEVICE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -116,6 +126,11 @@ if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     list(APPEND SPWKIT_SOURCES
         src/backends/ethernet/udp_backend.c
     )
+    if(WIN32)
+        list(APPEND SPWKIT_SOURCES
+            src/platform/win32/udp_posix_compat.c
+        )
+    endif()
 endif()
 
 if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
@@ -139,6 +154,15 @@ target_include_directories(spwkit
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+if(SPWKIT_UDP_RUNTIME_SUPPORTED AND WIN32)
+    # The POSIX-shaped adapter is private implementation detail. It exists only
+    # so the mature VSPW-TP state machine can be shared without exposing SOCKET
+    # or any Winsock header through the public ABI.
+    target_include_directories(spwkit BEFORE PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/win32/compat)
+    target_link_libraries(spwkit PRIVATE ws2_32)
+endif()
 
 set(SPWKIT_HOST_THREADS_REQUIRED OFF)
 if(SPWKIT_BUILD_SIMULATOR)
