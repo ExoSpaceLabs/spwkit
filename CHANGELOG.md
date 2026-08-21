@@ -2,7 +2,7 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
-## v0.5.0 — 2026-08-20
+## v0.5.0 — 2026-08-21
 
 Hosted-platform parity and embedded/RTOS integration release. v0.5 builds on the v0.4 software-simulation/service boundary while keeping the public C API authoritative and keeping host-, RTOS- and presentation-specific implementation details private.
 
@@ -175,5 +175,4 @@ Portable core and process-local virtual SpaceWire baseline:
 - process-local equal-peer simulator;
 - caller-owned/no-heap port construction;
 - optional zero-copy ownership API;
-- reusable backend contract tests;
-- CMake install/export and standalone `find_package(SpWKit)` consumption.
+- reusable backend contract tests.
