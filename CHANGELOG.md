@@ -8,6 +8,7 @@ Post-v0.5 interoperability and integration development line. The released `v0.5.
 
 ### Added
 
+- portable `SPW_BACKEND_DRIVER` callback boundary for caller/vendor-owned SpaceWire hardware drivers, preserving the normal `spw_port_*` lifecycle and copied packet/time-code/readiness/statistics semantics without exposing native handles (#110);
 - optional CCSDSPack `v2.0.0` installed-package interoperability evidence using PUS-C TC/TM packets transported byte-for-byte through independent VSPW-TP/UDP and Linux DEVICE/VSPD peers (#90);
 - typed receiver-side CCSDSPack parsing and structured validation after transport byte-identity checks, while keeping SpaceWire EOP metadata separate from CCSDS packet contents.
 

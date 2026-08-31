@@ -10,5 +10,6 @@
 #include "spwkit/simulator.h"
 #include "spwkit/udp.h"
 #include "spwkit/device.h"
+#include "spwkit/driver.h"
 
 #endif /* SPWKIT_SPWKIT_H */

@@ -2,10 +2,12 @@
 
 #include <spwkit/buffer.h>
 #include <spwkit/device.h>
+#include <spwkit/driver.h>
 #include <spwkit/port.h>
 #include <spwkit/simulator.h>
 #include <spwkit/udp.h>
 
+#include "backends/driver/driver_backend.h"
 #include "backends/loopback/loopback_backend.h"
 #ifdef SPWKIT_HAS_DEVICE
 #include "backends/device/device_backend.h"
@@ -111,6 +113,38 @@ static spw_result_t validate_device_config(const spw_port_config_t* config) {
         ++endpoint_length;
     }
     if (endpoint_length == 0u || endpoint_length >= SPW_DEVICE_ENDPOINT_CAPACITY) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    return SPW_OK;
+}
+
+static spw_result_t validate_driver_config(const spw_port_config_t* config) {
+    const spw_driver_config_t* driver;
+    const spw_driver_ops_t* ops;
+    if (config->backend_config == NULL ||
+        config->backend_config_size < sizeof(spw_driver_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    driver = (const spw_driver_config_t*)config->backend_config;
+    if (driver->struct_size < sizeof(spw_driver_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (driver->version != SPW_DRIVER_CONFIG_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (driver->reserved != 0u || driver->ops == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    ops = driver->ops;
+    if (ops->struct_size < sizeof(spw_driver_ops_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (ops->version != SPW_DRIVER_OPS_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (ops->start == NULL || ops->stop == NULL || ops->reset == NULL ||
+        ops->get_link_state == NULL || ops->get_capabilities == NULL ||
+        ops->send == NULL || ops->receive == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     return SPW_OK;
@@ -247,6 +281,17 @@ static spw_result_t select_factory(
 #else
         return SPW_ERR_UNSUPPORTED;
 #endif
+
+    case SPW_BACKEND_DRIVER: {
+        const spw_driver_config_t* driver;
+        result = validate_driver_config(config);
+        if (result != SPW_OK) {
+            return result;
+        }
+        driver = (const spw_driver_config_t*)config->backend_config;
+        *out_factory = spw_driver_backend_factory(driver->ops->wait != NULL);
+        return SPW_OK;
+    }
 
     default:
         return SPW_ERR_UNSUPPORTED;

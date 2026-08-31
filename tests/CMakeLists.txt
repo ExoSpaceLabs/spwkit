@@ -246,3 +246,10 @@ if(SPWKIT_BUILD_EXAMPLES)
         endif()
     endif()
 endif()
+
+# Portable hardware-driver adapter contract.
+add_executable(spwkit_driver_backend driver_backend.c)
+target_link_libraries(spwkit_driver_backend PRIVATE spwkit::spwkit)
+target_compile_features(spwkit_driver_backend PRIVATE c_std_11)
+set_target_properties(spwkit_driver_backend PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS OFF)
+add_test(NAME driver_backend COMMAND spwkit_driver_backend)
