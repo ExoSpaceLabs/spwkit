@@ -4,6 +4,9 @@ services:
     build:
       context: ../..
       dockerfile: integrations/ccsdspack_v2/docker/Dockerfile
+      args:
+        CCSDSPACK_REF: ${CCSDSPACK_REF:-develop}
+        CCSDSPACK_SHA: ${CCSDSPACK_SHA:-4e198ae4c7f730737d78c1ea2f71ec3ce42ca7eb}
     command: ["udp", "A", "48100", "48101"]
     environment:
       SPWKIT_LOCAL_ADDRESS: 172.29.0.10
