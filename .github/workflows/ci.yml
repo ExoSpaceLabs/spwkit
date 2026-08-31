@@ -327,6 +327,7 @@ jobs:
       - name: Install and smoke tools
         run: |
           cmake --install build-hosted --prefix "$PWD/install-hosted"
+          export LD_LIBRARY_PATH="$PWD/install-hosted/lib:${LD_LIBRARY_PATH:-}"
           test -x "$PWD/install-hosted/bin/vspwd"
           test -x "$PWD/install-hosted/bin/spwctl"
           test -x "$PWD/install-hosted/bin/spwmon"
