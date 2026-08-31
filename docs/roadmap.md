@@ -1,8 +1,8 @@
 # Roadmap
 
-SpWKit has completed the v0.1 portable-core, v0.2 distributed virtual SpaceWire, and v0.3 C-first runtime releases. The v0.4 feature set is complete and in release audit for the Linux virtual-device/service boundary.
+SpWKit has completed five public development releases. The current `develop` branch targets v0.6.0 and is focused on the software boundary required before a real FPGA/HDL SpaceWire implementation can be integrated honestly.
 
-## v0.1.0 — Portable core and local virtual link — released
+## v0.1.0 - Portable core and local virtual link - released
 
 Delivered:
 
@@ -13,144 +13,113 @@ Delivered:
 - copied packet transfer and optional zero-copy ownership API;
 - caller-owned no-heap port construction;
 - reusable backend contract suite;
-- packet-capacity/no-truncation and link-recovery semantics;
-- CMake install/export and standalone `find_package(SpWKit)` verification;
-- C/C++ examples;
-- Linux GCC/Clang, macOS Clang, Windows MSVC, ASan/UBSan, no-heap and simulator CI.
+- CMake install/export and standalone consumers;
+- Linux GCC/Clang, macOS Clang, Windows MSVC, sanitizers and no-heap CI.
 
-`v0.1.0` is tagged at the completed portable-core boundary.
-
-## v0.2.0 — Distributed virtual SpaceWire — released
+## v0.2.0 - Distributed virtual SpaceWire - released
 
 Delivered:
 
-- VSPW-TP v1 with the fixed 40-byte session-aware wire header;
-- POSIX IPv4 UDP backend through `spw_port_*`;
-- bounded arbitrary-order fragmentation/reassembly;
+- VSPW-TP v1 session-aware wire framing;
+- POSIX UDP backend through `spw_port_*`;
+- bounded fragmentation/reassembly;
 - EOP/EEP and time-code preservation;
-- logical-message ACK/retry and duplicate suppression;
-- session/KEEPALIVE peer liveness and restart recovery;
-- 1 MiB backend packet/reassembly/reliable-TX bound;
-- deterministic virtual SpaceWire rate/latency;
-- deterministic transport fault injection and explicit SpaceWire EEP injection;
-- shared UDP backend contract and peer-loss/restart contract;
-- independent-process and Linux network-namespace D2D integration;
-- VSPW-TP Wireshark/tshark tooling;
-- explicit POSIX UDP platform policy and installed package metadata.
+- ACK/retry, duplicate suppression and restart recovery;
+- virtual timing and deterministic fault injection;
+- independent-process and network-namespace D2D integration;
+- VSPW-TP Wireshark/tshark tooling.
 
-`v0.2.0` is tagged at the audited distributed-runtime boundary. Native Winsock UDP remains tracked separately in #42.
-
-## v0.3.0 — C11 runtime and optional C++ wrapper — released
-
-Objective: make the implementation match the public portability contract before adding Linux-device, RTOS and hardware-specific layers.
+## v0.3.0 - C11 runtime and optional C++ wrapper - released
 
 Delivered:
 
-- C11 backend vtable/context substrate replacing internal C++ inheritance;
-- C11 port dispatch, workspace ownership and opaque buffer representation;
-- C11 loopback backend;
-- C11 process-local simulator with private POSIX/Windows hosted synchronization;
-- C11 simulator zero-copy ownership path;
-- C11 VSPW-TP codec preserving the released v1 wire format;
-- C11 bounded fragment reassembly;
-- C11 virtual timing and deterministic fault engines;
-- C11 POSIX UDP distributed backend preserving v0.2 sessions/retry/liveness semantics;
-- complete simulator + UDP runtime build with `CXX=/bin/false` and no C++ ABI/runtime symbols;
-- pure-C behavioral tests/examples separated from optional C++ fixtures;
-- C-only installed package consumer using `project(... LANGUAGES C)`;
-- optional header-only C++17 convenience layer exported as `spwkit::cpp`;
-- authoritative C runtime target exported as `spwkit::spwkit`;
-- wrapper build switch `SPWKIT_ENABLE_CPP`, independent from runtime/backend selection;
-- standard `BUILD_SHARED_LIBS` static/shared selection;
-- Linux C-only static and shared installed-package validation;
-- documented C versus C++ integration contract and embedded/hosted build profiles.
+- authoritative C11 backend vtable/context runtime;
+- C11 port dispatch and opaque-buffer representation;
+- C implementations of loopback, simulator, VSPW-TP and UDP paths;
+- pure-C/no-C++ runtime builds and installed consumers;
+- optional header-only C++17 convenience layer;
+- standard static/shared selection;
+- explicit no-heap/freestanding profile.
 
-The C API remains authoritative. The C++ wrapper has no backend implementation and preserves `spw_result_t` error handling.
-
-`v0.3.0` is tagged at the audited C-first runtime boundary.
-
-## v0.4.0 — Linux virtual device and userspace service — release audit
-
-Tracked by #54. Functional implementation is complete; #81 is the final release-hardening/audit gate before tagging.
+## v0.4.0 - Linux virtual device and userspace service - released
 
 Delivered:
 
-- private VSPD v1.3 with fixed-width network-order framing and bounded 1 MiB logical packets;
-- pure-C `vspwd` two-port userspace service over Linux `AF_UNIX`/`SOCK_SEQPACKET`;
-- public Linux `SPW_BACKEND_DEVICE` through the normal `spw_port_*` API;
-- full packet/EOP/EEP/zero-length/time-code/link/statistics/restart behavior;
-- backend-neutral level-triggered `spw_port_wait()` receive readiness;
-- shared backend-contract coverage for the device path;
-- non-owning `spwctl` management and passive `spwmon` observation;
-- standalone installed-package C and optional C++ device consumers with mixed-language peer tests;
-- CUSE/libfuse3 feasibility and a private packet-record prototype, with production presenter deferred to #78;
-- topology-owned `vspwd` VSPW-TP/UDP bridge with remote loss/restart recovery;
-- dedicated pure-C GCC/Clang device/service/tools/bridge CI, sanitizers and installed-consumer gates.
+- VSPD network-order private protocol;
+- pure-C `vspwd` virtual-device service;
+- public Linux `SPW_BACKEND_DEVICE`;
+- packet/time-code/link/statistics/restart behavior;
+- backend-neutral receive readiness;
+- `spwctl` management and `spwmon` observation;
+- installed C/C++ device consumers;
+- VSPW-TP bridge and remote restart recovery;
+- Debian/GHCR release artifacts for `amd64` and `arm64`.
 
-Explicitly deferred beyond v0.4: production CUSE presenter (#78), native Winsock UDP (#42), physical FPGA/HIL, and generic router/topology simulation.
+## v0.5.0 - Hosted parity and embedded integration - released
 
-## v0.5.0 — Embedded and HardRT
+Delivered:
 
-- bare-metal platform adapter;
-- polling mode;
-- interrupt-driven mode;
-- user-provided packet buffers;
-- Ethernet virtual backend for embedded targets;
-- HardRT synchronization and task/event adapter;
-- Linux <-> HardRT virtual-link example.
+- production Linux CUSE `/dev/vspwX` presentation while keeping libfuse outside `libspwkit`;
+- native Windows/Winsock implementation of the existing VSPW-TP UDP backend;
+- shared Windows transport contract and independent-process peer restart validation;
+- hosted DEB expansion to `amd64`, `arm64`, `armhf`, and `riscv64`;
+- one four-platform GHCR runtime image;
+- HardRT POSIX integration under GCC/Clang;
+- Cortex-M7 `arm-none-eabi`/Thumb/soft-float/no-heap compile/link evidence;
+- consolidated CI, tagged Release and manual HIL lifecycle workflows.
 
-## v0.6.0 — Physical FPGA reference backend
+## v0.6.0 - Portable hardware-driver integration - current
 
-Reference target: AMD SoC evaluation platform.
+Tracked by #108.
 
-- AXI4-Lite control/status contract;
-- AXI4-Stream packet contract;
-- AXI DMA integration;
-- Linux physical-device backend;
-- bare-metal physical backend;
-- `/dev/spw0` reference interface;
-- hardware loopback and two-endpoint tests.
+The purpose of v0.6 is to complete everything that can be defined and validated in software before a real FPGA SpaceWire implementation is required.
 
-The repository does not require the SpaceWire RTL implementation itself to be open source. The software contract should support independent open, commercial, or vendor hardware implementations.
+Planned/delivered work:
 
-## v0.7.0 — Link behavioural simulation
+- pinned CCSDSPack `v2.0.0` PUS-C interoperability through installed SpWKit packages;
+- current-documentation reconciliation after the v0.5 release;
+- public portable driver backend/configuration contract behind the normal `spw_port_*` API;
+- lifecycle, copied packet, EOP/EEP, time-code, readiness, capabilities and statistics delegation to platform/vendor drivers;
+- DMA-capable TX/RX buffers mapped onto the existing SpWKit zero-copy ownership API;
+- deterministic in-memory reference driver run through the reusable backend contract in CI;
+- no-heap and RTOS/bare-metal-friendly driver integration evidence;
+- explicit future FPGA boundary covering register map, DMA descriptors, interrupts, coherency, clock/reset domains and HIL requirements.
 
-- ECSS-oriented link state model;
-- finite receive credit;
-- flow-control effects;
-- disconnect/error recovery;
-- queue contention;
-- configurable character/link timing model;
-- character/link error injection.
+v0.6 deliberately does **not** implement a real SpaceWire HDL/IP core and does not claim electrical interoperability. See `docs/v0.6-scope.md`.
 
-## v0.8.0 — RTOS adapters
+## After v0.6 - FPGA/HDL implementation boundary
 
-- FreeRTOS adapter;
-- RTEMS adapter;
-- Zephyr investigation;
-- shared embedded contract fixtures;
-- embedded Ethernet virtual-link examples.
+The next hardware phase will need its own specification before implementation. Expected design topics include:
 
-## v0.9.0 — Router simulation
+- SpaceWire link/IP core scope and ECSS behavior;
+- AXI4-Lite or equivalent control/status register map;
+- packet/DMA descriptor format and ownership;
+- address width, alignment and scatter/gather policy;
+- interrupt/event model;
+- cache maintenance and coherent/non-coherent DMA behavior;
+- clock/reset-domain ownership;
+- time-code path and link/error counters;
+- Linux and bare-metal driver bindings;
+- physical loopback, two-endpoint and electrical/HIL validation.
 
-- multi-port router model;
-- logical addressing;
-- path addressing;
-- routing tables;
-- port isolation and fault injection;
-- multi-node topology tests.
+The software driver contract should allow open, commercial, or vendor HDL implementations rather than coupling SpWKit to one RTL core.
 
-## v0.10.0 — Upper protocols
+## Later software directions
 
-- protocol-ID integration hooks;
-- RMAP module;
-- CCSDS packet-transfer helpers;
-- interoperability examples with external CCSDS/PUS stacks.
+The exact release numbering should be assigned when each scope becomes active rather than preserving obsolete calendar guesses. Candidate directions are:
 
-## v1.0.0 — Stable public contract
+- deeper ECSS-oriented link behavioral simulation, finite credits and contention;
+- broader RTOS adapters such as FreeRTOS, RTEMS and Zephyr;
+- multi-port router/topology simulation with path/logical addressing;
+- RMAP and other upper-protocol integration;
+- stable v1.0 compatibility policy once the software and hardware backend contracts have enough real implementation evidence.
 
-- stable public C ABI;
-- documented backend capability model;
-- Linux, simulator and embedded reference backends;
+## v1.0 target
+
+A v1.0 declaration should require evidence, not merely accumulated features:
+
+- stable documented public C ABI and compatibility policy;
+- backend capability and ownership contracts frozen enough for independent implementations;
+- simulator, hosted and embedded/hardware-backed reference paths;
 - release-level conformance/contract evidence;
-- compatibility policy for future backends and protocol modules.
+- a documented policy for future backends and protocol modules.
