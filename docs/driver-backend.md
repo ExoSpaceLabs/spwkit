@@ -29,13 +29,25 @@ Readiness remains level-triggered and non-consuming. A driver with no
 `wait` callback does not expose `SPW_CAP_READINESS`, so polling drivers are
 valid without pretending to have an interrupt/event facility.
 
-## DMA boundary
+## DMA and zero-copy ownership
 
-v1 copied I/O intentionally does not expose DMA descriptors, physical
-addresses, AXI types or cache operations. DMA-capable buffer ownership is
-layered onto the existing opaque `spw_buffer_t` API in #111. That later
-mapping will preserve application-facing ownership while keeping hardware
-descriptors private to the vendor driver.
+Driver ABI v2 maps vendor/DMA buffers onto the existing opaque `spw_buffer_t`
+ownership API without exposing physical addresses or hardware descriptors. A
+driver supplies all six DMA ownership callbacks as one atomic capability and
+configures bounded TX/RX wrapper-slot counts in `spw_driver_config_t`. Those
+wrapper slots live inside the normal SpWKit port workspace, so caller-owned
+`spw_port_open_in_place()` remains heap-free.
+
+`spw_driver_buffer_t` carries only a CPU-accessible byte view, packet metadata
+and an opaque 64-bit token used to correlate ownership transitions. The token
+is not a physical address. The optional `sync_buffer` callback is invoked
+`TO_DEVICE` before TX submission and `FROM_DEVICE` before an acquired RX buffer
+is exposed to the application. A NULL hook means coherent memory or that the
+vendor ownership callbacks already perform cache maintenance.
+
+Application code continues to use `spw_port_acquire_tx_buffer()`, submit,
+reclaim, release and RX acquire/release exactly as it does for any other
+zero-copy-capable backend. Reset invalidates outstanding wrapper handles.
 
 ## FPGA stop line
 

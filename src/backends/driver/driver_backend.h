@@ -6,6 +6,8 @@
 
 #include "core/backend_c.h"
 
-const spw_backend_factory_t* spw_driver_backend_factory(bool enable_wait);
+const spw_backend_factory_t* spw_driver_backend_factory(
+    bool enable_wait,
+    bool enable_zero_copy);
 
 #endif /* SPWKIT_INTERNAL_DRIVER_BACKEND_H */

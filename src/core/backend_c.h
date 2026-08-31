@@ -78,6 +78,10 @@ typedef struct spw_backend_factory {
                               const spw_port_config_t* config);
     void (*destroy)(void* context);
     const spw_backend_ops_t* ops;
+    /* Optional configuration-dependent context size. */
+    spw_result_t (*context_size_for_config)(
+        const spw_port_config_t* config,
+        size_t* out_context_size);
 } spw_backend_factory_t;
 
 #ifdef __cplusplus
