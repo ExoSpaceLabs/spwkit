@@ -13,7 +13,6 @@ if(SPWKIT_BUILD_CPP_TESTS)
         spwkit_backend_contract_suite
         spwkit_reference_driver)
     target_compile_features(spwkit_driver_contract_test PRIVATE cxx_std_17)
-    spwkit_apply_no_throw_policy(spwkit_driver_contract_test)
 
     add_test(NAME backend_contract_driver COMMAND spwkit_driver_contract_test)
     set_tests_properties(backend_contract_driver PROPERTIES
