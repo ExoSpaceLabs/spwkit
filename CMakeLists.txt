@@ -107,6 +107,7 @@ endfunction()
 
 set(SPWKIT_SOURCES
     src/core/port.c
+    src/backends/driver/driver_backend.c
     src/backends/loopback/loopback_backend.c
     src/backends/device/vspw_device_protocol.c
     src/backends/ethernet/vspw_tp.c
