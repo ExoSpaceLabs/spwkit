@@ -263,6 +263,20 @@ bool parse_port(const char* text, std::uint16_t& value) {
     return true;
 }
 
+const char* environment_address(const char* variable) {
+    const char* value = std::getenv(variable);
+    return value != nullptr && value[0] != '\0' ? value : "127.0.0.1";
+}
+
+bool copy_address(char* destination, std::size_t capacity, const char* source) {
+    const std::size_t length = std::strlen(source);
+    if (length >= capacity) {
+        return false;
+    }
+    std::memcpy(destination, source, length + 1U);
+    return true;
+}
+
 int run_udp(char id, const char* local_text, const char* remote_text) {
     std::uint16_t local_port = 0U;
     std::uint16_t remote_port = 0U;
@@ -272,16 +286,16 @@ int run_udp(char id, const char* local_text, const char* remote_text) {
         return EXIT_FAILURE;
     }
 
+    const char* local_address = environment_address("SPWKIT_LOCAL_ADDRESS");
+    const char* remote_address = environment_address("SPWKIT_REMOTE_ADDRESS");
+
     spw_udp_config_t udp =
         SPW_UDP_CONFIG_INITIALIZER(local_port, remote_port, link_id);
-    std::snprintf(udp.local_address,
-                  sizeof(udp.local_address),
-                  "%s",
-                  "127.0.0.1");
-    std::snprintf(udp.remote_address,
-                  sizeof(udp.remote_address),
-                  "%s",
-                  "127.0.0.1");
+    if (!copy_address(udp.local_address, sizeof(udp.local_address), local_address) ||
+        !copy_address(udp.remote_address, sizeof(udp.remote_address), remote_address)) {
+        std::fprintf(stderr, "UDP address exceeds SpWKit configuration capacity\n");
+        return EXIT_FAILURE;
+    }
     udp.ack_timeout_ms = 50U;
     udp.max_retries = 5U;
     udp.keepalive_interval_ms = 100U;
@@ -295,7 +309,11 @@ int run_udp(char id, const char* local_text, const char* remote_text) {
     if (spwkit::Port::open(config, port) != SPW_OK ||
         port.start() != SPW_OK ||
         !wait_for_run(port)) {
-        std::fprintf(stderr, "failed to open/start UDP SpWKit port\n");
+        std::fprintf(stderr, "failed to open/start UDP SpWKit port local=%s:%u remote=%s:%u\n",
+                     local_address,
+                     static_cast<unsigned>(local_port),
+                     remote_address,
+                     static_cast<unsigned>(remote_port));
         return EXIT_FAILURE;
     }
 
@@ -331,7 +349,10 @@ void usage(const char* program) {
     std::fprintf(stderr,
                  "usage:\n"
                  "  %s udp A|B LOCAL_PORT REMOTE_PORT\n"
-                 "  %s device A|B VSPD_SOCKET\n",
+                 "  %s device A|B VSPD_SOCKET\n"
+                 "\n"
+                 "UDP addresses default to 127.0.0.1 and may be overridden with\n"
+                 "SPWKIT_LOCAL_ADDRESS and SPWKIT_REMOTE_ADDRESS.\n",
                  program,
                  program);
 }

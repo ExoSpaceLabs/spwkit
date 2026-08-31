@@ -87,3 +87,10 @@ run_combo c cpp "C/C++" 3
 run_combo cpp c "C++/C" 4
 
 echo "COMPOSE_D2D_MATRIX_PASS"
+
+# The deployment-shaped CCSDS example belongs to the same network-isolation
+# gate: two containers must exchange and validate actual PUS-C packets over the
+# VSPW-TP/UDP Ethernet carrier. The example installs its CCSDSPack dependency
+# independently and verifies the configured ref/SHA pair before either peer is
+# built. The gate fails unless both peers emit their exact PASS records.
+bash "$repo_root/integrations/ccsdspack_v2/run_compose.sh"
