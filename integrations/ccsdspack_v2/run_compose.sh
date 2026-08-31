@@ -23,8 +23,10 @@ export SPWKIT_CCSDS_IMAGE="$image"
 docker compose -p "$project" -f "$compose_file" build peer-a
 docker compose -p "$project" -f "$compose_file" up -d --no-build
 
-a_id="$(docker compose -p "$project" -f "$compose_file" ps -q peer-a)"
-b_id="$(docker compose -p "$project" -f "$compose_file" ps -q peer-b)"
+# These peers are intentionally short-lived. Include completed containers when
+# resolving IDs so a successful sub-second exchange cannot race the harness.
+a_id="$(docker compose -p "$project" -f "$compose_file" ps --all -q peer-a)"
+b_id="$(docker compose -p "$project" -f "$compose_file" ps --all -q peer-b)"
 if [[ -z "$a_id" || -z "$b_id" ]]; then
     docker compose -p "$project" -f "$compose_file" logs --no-color >&2 || true
     exit 1
