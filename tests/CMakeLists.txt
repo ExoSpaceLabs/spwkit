@@ -259,3 +259,5 @@ target_link_libraries(spwkit_driver_dma PRIVATE spwkit::spwkit)
 target_compile_features(spwkit_driver_dma PRIVATE c_std_11)
 set_target_properties(spwkit_driver_dma PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS OFF)
 add_test(NAME driver_dma COMMAND spwkit_driver_dma)
+
+add_subdirectory(reference_driver)
