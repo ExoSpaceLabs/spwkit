@@ -26,6 +26,10 @@ RUN git clone --depth 1 --branch "${CCSDSPACK_TAG}" \
 RUN cmake -S ccsdspack -B ccsdspack-build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCCSDSPACK_BUILD_MCU=OFF \
+        -DENABLE_TESTER=OFF \
+        -DENABLE_ENCODER=OFF \
+        -DENABLE_DECODER=OFF \
+        -DENABLE_VALIDATOR=OFF \
         -DCMAKE_INSTALL_PREFIX=/opt/ccsdspack \
     && cmake --build ccsdspack-build --parallel \
     && cmake --install ccsdspack-build
