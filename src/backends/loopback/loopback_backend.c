@@ -292,7 +292,8 @@ static const spw_backend_factory_t LOOPBACK_FACTORY = {
     alignof(spw_loopback_backend_t),
     loopback_construct,
     loopback_destroy,
-    &LOOPBACK_OPS
+    &LOOPBACK_OPS,
+    NULL
 };
 
 const spw_backend_factory_t* spw_loopback_backend_factory(void) {

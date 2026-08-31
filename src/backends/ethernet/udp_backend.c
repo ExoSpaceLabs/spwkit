@@ -1500,7 +1500,8 @@ static const spw_backend_factory_t UDP_FACTORY = {
     alignof(spw_udp_backend_t),
     udp_construct,
     udp_destroy,
-    &UDP_OPS
+    &UDP_OPS,
+    NULL
 };
 
 const spw_backend_factory_t* spw_udp_backend_factory(void) {
