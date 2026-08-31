@@ -1,407 +1,323 @@
-name: Release audit
+name: Release
 
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "include/spwkit/**"
-      - "README.md"
-      - "CHANGELOG.md"
-      - "docs/**"
-      - "integrations/**"
-      - "packaging/**"
-      - ".dockerignore"
-      - "LICENSE"
-      - "NOTICE"
-      - ".github/workflows/embedded.yml"
-      - ".github/workflows/packages.yml"
-      - ".github/workflows/windows-udp.yml"
-      - ".github/workflows/ccsdspack.yml"
-      - ".github/workflows/release.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "include/spwkit/**"
-      - "README.md"
-      - "CHANGELOG.md"
-      - "docs/**"
-      - "integrations/**"
-      - "packaging/**"
-      - ".dockerignore"
-      - "LICENSE"
-      - "NOTICE"
-      - ".github/workflows/embedded.yml"
-      - ".github/workflows/packages.yml"
-      - ".github/workflows/windows-udp.yml"
-      - ".github/workflows/ccsdspack.yml"
-      - ".github/workflows/release.yml"
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+env:
+  SPWKIT_RELEASE_DEB_ARCHES: "amd64 arm64 armhf riscv64"
+  SPWKIT_RELEASE_PLATFORMS: "linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64"
+
 concurrency:
-  group: release-audit-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  metadata:
-    name: Release metadata and version boundary
+  validate:
+    name: Validate release boundary
     runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - name: Resolve release tag
+        id: requested
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact release tag
+        uses: actions/checkout@v6
         with:
+          ref: ${{ steps.requested.outputs.tag }}
           fetch-depth: 0
 
-      - name: Verify package, API and documentation version alignment
+      - name: Validate version, API and changelog
+        id: release
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.requested.outputs.tag }}
         run: |
           set -euo pipefail
 
-          cmake_version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
+          version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
           api_major="$(sed -nE 's/^#define SPWKIT_API_VERSION_MAJOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_minor="$(sed -nE 's/^#define SPWKIT_API_VERSION_MINOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_patch="$(sed -nE 's/^#define SPWKIT_API_VERSION_PATCH ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_version="${api_major}.${api_minor}.${api_patch}"
-          package_minor="${api_major}.${api_minor}"
+          minor="${api_major}.${api_minor}"
 
-          test -n "$cmake_version"
-          test "$api_version" = "$cmake_version"
-          for consumer in \
-            examples/installed/CMakeLists.txt \
-            examples/installed_cpp/CMakeLists.txt \
-            examples/distributed/CMakeLists.txt \
-            examples/distributed_cpp/CMakeLists.txt \
-            examples/installed_device/CMakeLists.txt \
-            examples/installed_device_cpp/CMakeLists.txt \
-            integrations/hardrt_posix/CMakeLists.txt \
-            integrations/ccsdspack_v2/CMakeLists.txt; do
-            grep -q "find_package(SpWKit ${package_minor} CONFIG REQUIRED)" "$consumer"
+          test -n "$version"
+          test "$RELEASE_TAG" = "v$version"
+          test "$api_version" = "$version"
+          grep -Eq "^## v${version} — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
+          ! grep -q "^## v${version} — unreleased$" CHANGELOG.md
+
+          consumers=(
+            examples/installed/CMakeLists.txt
+            examples/installed_cpp/CMakeLists.txt
+            examples/distributed/CMakeLists.txt
+            examples/distributed_cpp/CMakeLists.txt
+            examples/installed_device/CMakeLists.txt
+            examples/installed_device_cpp/CMakeLists.txt
+            integrations/hardrt_posix/CMakeLists.txt
+            integrations/ccsdspack_v2/CMakeLists.txt
+          )
+          for consumer in "${consumers[@]}"; do
+            grep -q "find_package(SpWKit ${minor} CONFIG REQUIRED)" "$consumer"
           done
-          test -f LICENSE
-          test -f NOTICE
-          test -f packaging/Dockerfile
 
-          unreleased_pattern="^## v${cmake_version} — unreleased$"
-          released_pattern="^## v${cmake_version} — [0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          git fetch origin main --tags
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main
 
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            test "$GITHUB_REF_NAME" = "v${cmake_version}"
-            grep -Eq "$released_pattern" CHANGELOG.md
-            ! grep -Eq "$unreleased_pattern" CHANGELOG.md
-            git fetch origin main
-            test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
-          else
-            if ! grep -Eq "$unreleased_pattern|$released_pattern" CHANGELOG.md; then
-              echo "Current version needs either an unreleased or finalized dated changelog heading" >&2
-              exit 1
-            fi
-          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Record release boundary
-        shell: bash
-        run: |
-          cmake_version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
-          {
-            echo '### SpWKit release boundary'
-            echo
-            echo "- Project/API version: ${cmake_version}"
-            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-              echo "- Release tag: ${GITHUB_REF_NAME}"
-            else
-              echo '- Release state: development / release-candidate boundary'
-            fi
-            echo '- Hosted binary release targets are defined and execution-gated by Binary packages CI.'
-            echo '- Embedded/RTOS evidence is defined by Embedded portability CI.'
-            echo '- Physical HIL remains manual until hardware exists.'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  integrated-sanitizers:
-    name: Pure-C device/service/bridge ASan + UBSan
+  deb:
+    name: DEB / ${{ matrix.arch }}
+    needs: validate
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+          - arch: armhf
+            platform: linux/arm/v7
+          - arch: riscv64
+            platform: linux/riscv64
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
 
-      - name: Configure complete device/service bridge sanitizer profile
-        env:
-          CC: clang
-          CXX: /bin/false
+      - name: Enable non-native architectures
+        run: docker run --privileged --rm tonistiigi/binfmt --install all
+
+      - name: Create buildx builder
         run: |
-          cmake -S . -B build-release-san \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DSPWKIT_BUILD_TESTS=ON \
-            -DSPWKIT_BUILD_CPP_TESTS=OFF \
-            -DSPWKIT_BUILD_EXAMPLES=OFF \
-            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
-            -DSPWKIT_BUILD_SIMULATOR=OFF \
-            -DSPWKIT_BUILD_UDP=ON \
-            -DSPWKIT_BUILD_DEVICE=ON \
-            -DSPWKIT_BUILD_VSPWD=ON \
-            -DSPWKIT_BUILD_TOOLS=ON \
-            -DSPWKIT_ENABLE_HEAP=ON \
-            -DSPWKIT_ENABLE_CPP=OFF \
-            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
-          if grep -q '^CMAKE_CXX_COMPILER:' build-release-san/CMakeCache.txt; then
-            echo "Integrated sanitizer profile unexpectedly enabled CXX" >&2
-            exit 1
-          fi
+          docker buildx create --name "spwkit-deb-${{ matrix.arch }}" --driver docker-container --use
+          docker buildx inspect --bootstrap
 
-      - name: Build and run complete device/service integration under sanitizers
+      - name: Validate target userspace
+        run: >-
+          docker buildx build
+          --platform ${{ matrix.platform }}
+          --file packaging/Dockerfile
+          --target consumer-validate
+          --progress plain
+          .
+
+      - name: Export and verify DEB
         env:
-          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:halt_on_error=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          PROJECT_VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          cmake --build build-release-san --parallel
-          ctest --test-dir build-release-san -L device --output-on-failure --no-tests=error
-          ctest --test-dir build-release-san -R '^vspd_protocol_codec$' --output-on-failure --no-tests=error
+          set -euo pipefail
+          mkdir -p "dist/${{ matrix.arch }}"
+          docker buildx build \
+            --platform "${{ matrix.platform }}" \
+            --file packaging/Dockerfile \
+            --target package-export \
+            --output "type=local,dest=dist/${{ matrix.arch }}" \
+            --progress plain \
+            .
 
-  shared-device-package:
-    name: Shared-library installed Linux device path
+          package="$(find "dist/${{ matrix.arch }}" -maxdepth 1 -name 'spwkit_*.deb' -print -quit)"
+          test -n "$package"
+          test "$(dpkg-deb -f "$package" Architecture)" = "${{ matrix.arch }}"
+          test "$(dpkg-deb -f "$package" Version)" = "$PROJECT_VERSION-1"
+          package_dir="$(dirname "$package")"
+          package_name="$(basename "$package")"
+          (cd "$package_dir" && sha256sum "$package_name" > "$package_name.sha256")
+
+      - name: Validate runtime image for target
+        env:
+          PROJECT_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          docker buildx build \
+            --platform "${{ matrix.platform }}" \
+            --file packaging/Dockerfile \
+            --target runtime \
+            --build-arg "VERSION=$PROJECT_VERSION" \
+            --load \
+            --tag "spwkit-runtime-test:${{ matrix.arch }}" \
+            .
+          docker run --rm --platform "${{ matrix.platform }}" "spwkit-runtime-test:${{ matrix.arch }}" --help
+          docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/bin/spwctl "spwkit-runtime-test:${{ matrix.arch }}" --help
+          docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/bin/spwmon "spwkit-runtime-test:${{ matrix.arch }}" --help
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-deb-${{ matrix.arch }}
+          path: |
+            dist/${{ matrix.arch }}/*.deb
+            dist/${{ matrix.arch }}/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  github-release:
+    name: Publish GitHub Release
+    needs: [validate, deb]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
 
-      - name: Configure shared pure-C device package
+      - name: Download DEB artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spwkit-deb-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify release assets
         env:
-          CC: gcc
-          CXX: /bin/false
-        run: |
-          cmake -S . -B build-shared-device \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DSPWKIT_BUILD_TESTS=OFF \
-            -DSPWKIT_BUILD_CPP_TESTS=OFF \
-            -DSPWKIT_BUILD_EXAMPLES=OFF \
-            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
-            -DSPWKIT_BUILD_SIMULATOR=OFF \
-            -DSPWKIT_BUILD_UDP=OFF \
-            -DSPWKIT_BUILD_DEVICE=ON \
-            -DSPWKIT_BUILD_VSPWD=ON \
-            -DSPWKIT_BUILD_TOOLS=OFF \
-            -DSPWKIT_ENABLE_HEAP=ON \
-            -DSPWKIT_ENABLE_CPP=OFF \
-            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
-          if grep -q '^CMAKE_CXX_COMPILER:' build-shared-device/CMakeCache.txt; then
-            echo "Shared device package unexpectedly enabled CXX" >&2
-            exit 1
-          fi
-
-      - name: Build and install shared package
-        run: |
-          cmake --build build-shared-device --parallel
-          cmake --install build-shared-device --prefix "$PWD/install-shared-device"
-          test -f "$PWD/install-shared-device/lib/libspwkit.so"
-          test -x "$PWD/install-shared-device/bin/vspwd"
-          test -f "$PWD/install-shared-device/share/doc/spwkit/LICENSE"
-          test -f "$PWD/install-shared-device/share/doc/spwkit/NOTICE"
-
-      - name: Configure standalone installed C device consumer
-        env:
-          CC: gcc
-          CXX: /bin/false
-        run: |
-          cmake -S examples/installed_device -B build-shared-device-consumer \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$PWD/install-shared-device" \
-            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
-          if grep -q '^CMAKE_CXX_COMPILER:' build-shared-device-consumer/CMakeCache.txt; then
-            echo "Shared installed C device consumer unexpectedly enabled CXX" >&2
-            exit 1
-          fi
-          cmake --build build-shared-device-consumer --parallel
-
-      - name: Run installed shared-library device peer pair
+          PROJECT_VERSION: ${{ needs.validate.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          tmpdir="$(mktemp -d)"
-          socket="$tmpdir/vspwd.sock"
-          daemon_pid=""
-          peer0_pid=""
-          libpath="$PWD/install-shared-device/lib"
-          cleanup() {
-            set +e
-            [[ -n "$peer0_pid" ]] && kill "$peer0_pid" 2>/dev/null || true
-            [[ -n "$peer0_pid" ]] && wait "$peer0_pid" 2>/dev/null || true
-            [[ -n "$daemon_pid" ]] && kill -TERM "$daemon_pid" 2>/dev/null || true
-            [[ -n "$daemon_pid" ]] && wait "$daemon_pid" 2>/dev/null || true
-            rm -rf "$tmpdir"
-          }
-          trap cleanup EXIT
+          read -ra arches <<< "$SPWKIT_RELEASE_DEB_ARCHES"
+          expected="${#arches[@]}"
+          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb' | wc -l)" -eq "$expected"
+          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb.sha256' | wc -l)" -eq "$expected"
 
-          env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
-            "$PWD/install-shared-device/bin/vspwd" --socket "$socket" >"$tmpdir/vspwd.log" 2>&1 & daemon_pid=$!
-          for _ in $(seq 1 100); do [[ -S "$socket" ]] && break; sleep 0.02; done
-          [[ -S "$socket" ]] || { cat "$tmpdir/vspwd.log"; exit 1; }
+          for arch in "${arches[@]}"; do
+            package="$(find dist -maxdepth 1 -name "*_${arch}.deb" -print -quit)"
+            test -n "$package"
+            test "$(dpkg-deb -f "$package" Architecture)" = "$arch"
+            test "$(dpkg-deb -f "$package" Version)" = "$PROJECT_VERSION-1"
+          done
+          (cd dist && sha256sum -c *.sha256)
 
-          timeout 10s env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
-            "$PWD/build-shared-device-consumer/spwkit_installed_device_c" "$socket" 0 >"$tmpdir/p0.log" 2>&1 & peer0_pid=$!
-          sleep 0.05
-          timeout 10s env LD_LIBRARY_PATH="$libpath:${LD_LIBRARY_PATH:-}" \
-            "$PWD/build-shared-device-consumer/spwkit_installed_device_c" "$socket" 1 >"$tmpdir/p1.log" 2>&1 || {
-              cat "$tmpdir/vspwd.log" "$tmpdir/p0.log" "$tmpdir/p1.log"
-              exit 1
-            }
-          wait "$peer0_pid" || {
-            cat "$tmpdir/vspwd.log" "$tmpdir/p0.log" "$tmpdir/p1.log"
-            exit 1
-          }
-          peer0_pid=""
-
-  release-matrix:
-    name: Fan-out full release CI matrix
-    if: ${{ github.ref_type == 'tag' }}
-    needs: [metadata, integrated-sanitizers, shared-device-package]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      actions: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - name: Dispatch and require every automated release gate
+      - name: Build release notes
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         shell: bash
         run: |
           python3 - <<'PY'
-          import datetime as dt
-          import json
           import os
-          import sys
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
+          from pathlib import Path
 
-          repo = os.environ['GITHUB_REPOSITORY']
-          sha = os.environ['GITHUB_SHA']
-          ref = os.environ['GITHUB_REF_NAME']
-          token = os.environ['GH_TOKEN']
-          version = ref.removeprefix('v')
-          workflows = [
-              ('ci.yml', 'CI'),
-              ('c-core.yml', 'C-only runtime'),
-              ('simulator.yml', 'Simulator'),
-              ('d2d.yml', 'Device-to-device'),
-              ('ccsdspack.yml', 'CCSDSPack 2.x integration'),
-              ('windows-udp.yml', 'Windows UDP'),
-              ('embedded.yml', 'Embedded portability'),
-              ('device.yml', 'Virtual device'),
-              ('tools.yml', 'Tools'),
-              ('installed-device-examples.yml', 'Installed device examples'),
-              ('tooling.yml', 'Tooling'),
-              ('packages.yml', 'Binary packages'),
-          ]
+          tag = os.environ["RELEASE_TAG"]
+          version = tag.removeprefix("v")
+          text = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          prefix = f"## v{version} — "
+          heading = next(line for line in text.splitlines() if line.startswith(prefix))
+          marker = heading + "\n"
+          start = text.index(marker) + len(marker)
+          end = text.find("\n## v", start)
+          if end < 0:
+              end = len(text)
+          body = text[start:end].strip()
 
-          headers = {
-              'Authorization': f'Bearer {token}',
-              'Accept': 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
-              'User-Agent': 'spwkit-release-audit',
-          }
-
-          def api(url, method='GET', payload=None):
-              data = None if payload is None else json.dumps(payload).encode('utf-8')
-              request = urllib.request.Request(url, data=data, headers=headers, method=method)
-              try:
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      body = response.read()
-                      return None if not body else json.loads(body)
-              except urllib.error.HTTPError as exc:
-                  body = exc.read().decode('utf-8', errors='replace')
-                  raise RuntimeError(f'{method} {url} -> HTTP {exc.code}: {body}') from exc
-
-          started = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=5)
-          print(f'Dispatching v{version} release matrix for {ref} at {sha}')
-          for filename, name in workflows:
-              url = f'https://api.github.com/repos/{repo}/actions/workflows/{filename}/dispatches'
-              api(url, method='POST', payload={'ref': ref})
-              print(f'  dispatched {name}')
-
-          deadline = time.monotonic() + 30 * 60
-          latest = {}
-          while time.monotonic() < deadline:
-              query = urllib.parse.urlencode({
-                  'head_sha': sha,
-                  'event': 'workflow_dispatch',
-                  'per_page': 100,
-              })
-              runs = api(f'https://api.github.com/repos/{repo}/actions/runs?{query}')['workflow_runs']
-              latest.clear()
-              for run in runs:
-                  created = dt.datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
-                  if created < started:
-                      continue
-                  for filename, name in workflows:
-                      path = run.get('path', '').split('@', 1)[0]
-                      if path == f'.github/workflows/{filename}':
-                          current = latest.get(name)
-                          if current is None or run['created_at'] > current['created_at']:
-                              latest[name] = run
-
-              failed = []
-              pending = []
-              for _, name in workflows:
-                  run = latest.get(name)
-                  if run is None:
-                      pending.append(f'{name}: awaiting run creation')
-                  elif run.get('status') != 'completed':
-                      pending.append(f"{name}: {run.get('status')}")
-                  elif run.get('conclusion') != 'success':
-                      failed.append(f"{name}: {run.get('conclusion')} ({run.get('html_url')})")
-
-              if failed:
-                  print('Release matrix failed:', file=sys.stderr)
-                  for item in failed:
-                      print(f'  - {item}', file=sys.stderr)
-                  sys.exit(1)
-              if not pending:
-                  break
-
-              print('Waiting for release matrix: ' + '; '.join(pending))
-              time.sleep(15)
-          else:
-              print('Timed out waiting for release matrix:', file=sys.stderr)
-              for item in pending:
-                  print(f'  - {item}', file=sys.stderr)
-              sys.exit(1)
-
-          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
-          lines = [
-              '### Full automated release matrix',
-              '',
-              f'All automated v{version} gates passed for `{sha}`:',
-              '',
-          ]
-          for _, name in workflows:
-              run = latest[name]
-              lines.append(f"- {name}: success ({run.get('html_url')})")
-          lines.extend([
-              '',
-              'Physical HIL is intentionally excluded until matching hardware evidence exists.',
-          ])
-          if summary_path:
-              with open(summary_path, 'a', encoding='utf-8') as summary:
-                  summary.write('\n'.join(lines) + '\n')
-
-          print(f'All automated v{version} release gates passed for', sha)
-          print('Physical HIL is intentionally excluded until matching hardware evidence exists.')
+          repo = os.environ["GITHUB_REPOSITORY"].lower()
+          image = f"ghcr.io/{repo}:{tag}"
+          minor = ".".join(version.split(".")[:2])
+          notes = (
+              body
+              + "\n\n### Binary distribution\n\n"
+              + "- Debian packages and SHA-256 files: amd64, arm64, armhf, riscv64.\n"
+              + f"- GHCR runtime image: `{image}`.\n"
+              + f"- Moving image aliases: `{minor}` and `latest`.\n"
+              + "- GHCR publication is independent from GitHub Release publication; an image failure does not suppress verified DEB assets.\n"
+          )
+          Path("release-notes.md").write_text(notes, encoding="utf-8")
           PY
 
-  publish-release:
-    name: Publish binary release
-    if: ${{ github.ref_type == 'tag' }}
-    needs: [release-matrix]
+      - name: Create immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists; refusing to overwrite immutable assets." >&2
+            exit 1
+          fi
+          mapfile -t assets < <(find dist -maxdepth 1 -type f \( -name '*.deb' -o -name '*.sha256' \) -print | sort)
+          test "${#assets[@]}" -eq 8
+          gh release create "$RELEASE_TAG" \
+            "${assets[@]}" \
+            --verify-tag \
+            --title "SpWKit $RELEASE_TAG" \
+            --notes-file release-notes.md
+
+  ghcr:
+    name: Publish multi-arch GHCR image
+    needs: validate
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write
+      contents: read
       packages: write
-    uses: ./.github/workflows/packages.yml
-    with:
-      publish: true
-      release_tag: ${{ github.ref_name }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Enable non-native architectures
+        run: docker run --privileged --rm tonistiigi/binfmt --install all
+
+      - name: Create buildx builder
+        run: |
+          docker buildx create --name spwkit-release --driver docker-container --use
+          docker buildx inspect --bootstrap
+
+      - name: Login to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and publish multi-arch image
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          PROJECT_VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          minor="${PROJECT_VERSION%.*}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+
+          docker buildx build \
+            --platform "$SPWKIT_RELEASE_PLATFORMS" \
+            --file packaging/Dockerfile \
+            --target runtime \
+            --build-arg "VERSION=$PROJECT_VERSION" \
+            --tag "$image:$RELEASE_TAG" \
+            --tag "$image:$minor" \
+            --tag "$image:latest" \
+            --push \
+            --progress plain \
+            .
+
+          docker buildx imagetools inspect "$image:$RELEASE_TAG"

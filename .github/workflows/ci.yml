@@ -2,31 +2,52 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches:
+      - "**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  repository-hygiene:
+  hygiene:
     name: Repository hygiene
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Reject stale runtime/package markers
+      - name: Validate versioned consumers and stale markers
         shell: bash
         run: |
+          set -euo pipefail
+
+          version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
+          test -n "$version"
+          minor="${version%.*}"
+
+          consumers=(
+            examples/installed/CMakeLists.txt
+            examples/installed_cpp/CMakeLists.txt
+            examples/distributed/CMakeLists.txt
+            examples/distributed_cpp/CMakeLists.txt
+            examples/installed_device/CMakeLists.txt
+            examples/installed_device_cpp/CMakeLists.txt
+            integrations/hardrt_posix/CMakeLists.txt
+            integrations/ccsdspack_v2/CMakeLists.txt
+          )
+          for consumer in "${consumers[@]}"; do
+            grep -q "find_package(SpWKit ${minor} CONFIG REQUIRED)" "$consumer" || {
+              echo "$consumer must request current SpWKit minor ${minor}" >&2
+              exit 1
+            }
+          done
+
           scopes=(CMakeLists.txt cmake docs examples integrations tests .github/workflows README.md)
-          current_version_scopes=(examples integrations tests/d2d/README.md)
           legacy_target="$(printf '%s%s' 'SpWKit:' ':')"
           legacy_linker="$(printf '%s%s' 'LINKER_LANGUAGE' ' CXX')"
           legacy_port="$(printf '%s%s' 'src/core/port.' 'cpp')"
@@ -39,14 +60,7 @@ jobs:
             echo "C consumers must not force a C++ linker." >&2
             exit 1
           fi
-          for stale_version in 0.1 0.2 0.3 0.4; do
-            legacy_package="$(printf '%s%s' 'find_package(SpWKit ' "$stale_version")"
-            if git grep -nF "$legacy_package" -- "${current_version_scopes[@]}"; then
-              echo "Current v0.5 executable examples/integrations must request SpWKit 0.5." >&2
-              exit 1
-            fi
-          done
-          if git grep -nF "$legacy_port" -- .github/workflows docs; then
+          if git grep -nF "$legacy_port" -- .github docs; then
             echo "A stale pre-C11 runtime source path remains." >&2
             exit 1
           fi
@@ -59,8 +73,8 @@ jobs:
             exit 1
           fi
 
-  build-test:
-    name: ${{ matrix.name }}
+  host:
+    name: Host / ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,9 +95,7 @@ jobs:
             os: macos-latest
             cc: ""
             cxx: ""
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -101,7 +113,11 @@ jobs:
           -DSPWKIT_BUILD_EXAMPLES=ON
           -DSPWKIT_BUILD_CPP_EXAMPLES=ON
           -DSPWKIT_BUILD_SIMULATOR=OFF
+          -DSPWKIT_BUILD_UDP=ON
+          -DSPWKIT_BUILD_DEVICE=OFF
+          -DSPWKIT_BUILD_VSPWD=OFF
           -DSPWKIT_BUILD_TOOLS=OFF
+          -DSPWKIT_BUILD_CUSE=OFF
           -DSPWKIT_ENABLE_HEAP=ON
           -DSPWKIT_ENABLE_CPP=ON
 
@@ -111,7 +127,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: Install package
+      - name: Install
         shell: bash
         run: |
           cmake --install build --config Release --prefix "$PWD/install"
@@ -119,90 +135,750 @@ jobs:
           test -f "$PWD/install/share/doc/spwkit/NOTICE"
           test -f "$PWD/install/include/spwkit/udp.h"
 
-      - name: Configure installed C-only consumer
+      - name: Build installed C consumer
         shell: bash
-        run: >-
-          cmake -S examples/installed -B build-installed-consumer
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH="$PWD/install"
+        run: |
+          cmake -S examples/installed -B build-installed-c \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install"
+          cmake --build build-installed-c --config Release --parallel
+          ctest --test-dir build-installed-c -C Release --output-on-failure --no-tests=error
 
-      - name: Build installed C-only consumer
-        run: cmake --build build-installed-consumer --config Release --parallel
-
-      - name: Test installed C-only consumer
-        run: ctest --test-dir build-installed-consumer -C Release --output-on-failure --no-tests=error
-
-      - name: Configure installed C++ wrapper consumer
+      - name: Build installed C++ consumer
         shell: bash
-        run: >-
-          cmake -S examples/installed_cpp -B build-installed-cpp-consumer
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH="$PWD/install"
+        run: |
+          cmake -S examples/installed_cpp -B build-installed-cpp \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install"
+          cmake --build build-installed-cpp --config Release --parallel
+          ctest --test-dir build-installed-cpp -C Release --output-on-failure --no-tests=error
 
-      - name: Build installed C++ wrapper consumer
-        run: cmake --build build-installed-cpp-consumer --config Release --parallel
+  portable-c:
+    name: Pure C / static, shared, no-heap
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
 
-      - name: Test installed C++ wrapper consumer
-        run: ctest --test-dir build-installed-cpp-consumer -C Release --output-on-failure --no-tests=error
+      - name: Static C-only runtime and installed consumer
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-c \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=ON \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install-c"
+          ! grep -q '^CMAKE_CXX_COMPILER:' build-c/CMakeCache.txt
+          cmake --build build-c --parallel
+          ctest --test-dir build-c -L c --output-on-failure --no-tests=error
+          cmake --install build-c
+
+          archive="$(find install-c -type f -name 'libspwkit.a' -print -quit)"
+          test -n "$archive"
+          ! nm -u "$archive" | grep -Eq '(__cxa|_Z|libstdc\+\+|cxxabi)'
+          test ! -f install-c/include/spwkit/spwkit.hpp
+
+          cmake -S examples/installed -B consumer-c \
+            -DCMAKE_PREFIX_PATH="$PWD/install-c"
+          ! grep -q '^CMAKE_CXX_COMPILER:' consumer-c/CMakeCache.txt
+          cmake --build consumer-c --parallel
+          ctest --test-dir consumer-c --output-on-failure --no-tests=error
+
+      - name: Shared installed C runtime
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install-shared"
+          ! grep -q '^CMAKE_CXX_COMPILER:' build-shared/CMakeCache.txt
+          cmake --build build-shared --parallel
+          cmake --install build-shared
+          test -f install-shared/lib/libspwkit.so
+
+      - name: No-heap C core
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-noheap \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF
+          ! grep -q '^CMAKE_CXX_COMPILER:' build-noheap/CMakeCache.txt
+          cmake --build build-noheap --parallel
+          ctest --test-dir build-noheap -L noheap --output-on-failure --no-tests=error
 
   sanitizers:
     name: Linux ASan + UBSan
     runs-on: ubuntu-24.04
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Configure
-        run: >-
-          cmake -S . -B build-sanitize
-          -DCMAKE_BUILD_TYPE=Debug
-          -DSPWKIT_BUILD_TESTS=ON
-          -DSPWKIT_BUILD_CPP_TESTS=ON
-          -DSPWKIT_BUILD_EXAMPLES=ON
-          -DSPWKIT_BUILD_CPP_EXAMPLES=ON
-          -DSPWKIT_ENABLE_HEAP=ON
-          -DSPWKIT_ENABLE_CPP=ON
-          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Configure integrated hosted profile
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build-san \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=ON \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=ON \
+            -DSPWKIT_BUILD_CUSE=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=ON \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build-san --parallel
 
-      - name: Build
-        run: cmake --build build-sanitize --parallel
-
-      - name: Test
+      - name: Run sanitizer suite
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build-sanitize --output-on-failure
+        run: ctest --test-dir build-san --output-on-failure
 
-  no-heap-cpp:
-    name: Linux no-heap C++ fixture
+  hosted-linux:
+    name: Hosted Linux / ${{ matrix.compiler }}
     runs-on: ubuntu-24.04
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: GCC
+            cc: gcc
+            cxx: g++
+          - compiler: Clang
+            cc: clang
+            cxx: clang++
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Configure no-heap C++ development profile
+      - name: Configure complete hosted profile
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          cmake -S . -B build-hosted \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=ON \
+            -DSPWKIT_BUILD_EXAMPLES=ON \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=ON \
+            -DSPWKIT_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=ON \
+            -DSPWKIT_BUILD_CUSE=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=ON \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror" \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra -Werror"
+          cmake --build build-hosted --parallel
+          ctest --test-dir build-hosted --output-on-failure --no-tests=error
+
+      - name: Install and smoke tools
+        run: |
+          cmake --install build-hosted --prefix "$PWD/install-hosted"
+          export LD_LIBRARY_PATH="$PWD/install-hosted/lib:${LD_LIBRARY_PATH:-}"
+          test -x "$PWD/install-hosted/bin/vspwd"
+          test -x "$PWD/install-hosted/bin/spwctl"
+          test -x "$PWD/install-hosted/bin/spwmon"
+          "$PWD/install-hosted/bin/vspwd" --help
+          "$PWD/install-hosted/bin/spwctl" --help
+          "$PWD/install-hosted/bin/spwmon" --help
+          grep -q 'SpWKit_DEVICE_RUNTIME_SUPPORTED ON' "$PWD/install-hosted/lib/cmake/SpWKit/SpWKitConfig.cmake"
+
+      - name: Build installed device consumers
+        run: |
+          cmake -S examples/installed_device -B installed-device-c \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-hosted"
+          cmake --build installed-device-c --parallel
+
+          cmake -S examples/installed_device_cpp -B installed-device-cpp \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-hosted"
+          cmake --build installed-device-cpp --parallel
+
+  d2d:
+    name: Distributed process / namespace / Compose
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure and build
         run: >-
-          cmake -S . -B build-noheap
-          -DCMAKE_BUILD_TYPE=Debug
+          cmake -S . -B build-d2d
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install-d2d
+          -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_CPP_TESTS=ON
+          -DSPWKIT_BUILD_EXAMPLES=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+          -DSPWKIT_BUILD_SIMULATOR=ON
+          -DSPWKIT_BUILD_UDP=ON
+          -DSPWKIT_ENABLE_HEAP=ON
+          -DSPWKIT_ENABLE_CPP=ON
+
+      - name: Build and test distributed transport
+        run: |
+          cmake --build build-d2d --parallel
+          ctest --test-dir build-d2d --output-on-failure -L d2d
+          cmake --install build-d2d
+
+      - name: Build installed C/C++ peers
+        run: |
+          CC=gcc CXX=/bin/false cmake -S examples/distributed -B distributed-c \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-d2d"
+          ! grep -q '^CMAKE_CXX_COMPILER:' distributed-c/CMakeCache.txt
+          cmake --build distributed-c --parallel
+
+          cmake -S examples/distributed_cpp -B distributed-cpp \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-d2d" \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra -Werror"
+          cmake --build distributed-cpp --parallel
+
+      - name: Run process and cross-language contracts
+        run: |
+          bash tests/d2d/run_multi_process.sh "$PWD/distributed-c/spwkit_udp_peer"
+          bash tests/d2d/run_cross_language.sh \
+            "$PWD/distributed-c/spwkit_udp_peer" \
+            "$PWD/distributed-cpp/spwkit_udp_peer_cpp"
+
+      - name: Run namespace and Compose contracts
+        run: |
+          if ! command -v ip >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y iproute2
+          fi
+          sudo -n true
+          bash tests/d2d/run_netns.sh "$PWD/distributed-c/spwkit_udp_peer"
+          docker compose version
+          bash tests/d2d/run_compose.sh
+
+  cuse-build:
+    name: CUSE build / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: GCC
+            cc: gcc
+          - compiler: Clang
+            cc: clang
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install libfuse3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse3-dev pkg-config
+          pkg-config --modversion fuse3
+
+      - name: Configure and build pure-C presenter
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-cuse \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          ! grep -q '^CMAKE_CXX_COMPILER:' build-cuse/CMakeCache.txt
+          cmake --build build-cuse --parallel
+          build-cuse/spwcuse --api-check
+
+          "$CC" -std=c11 -Wall -Wextra -Werror -pedantic \
+            -Isrc tests/cuse_record_protocol.c src/cuse/vspw_cuse_record.c \
+            -o cuse-record-test
+          ./cuse-record-test
+
+      - name: Validate install boundary
+        run: |
+          cmake --install build-cuse --prefix "$PWD/install-cuse"
+          test -x "$PWD/install-cuse/bin/spwcuse"
+          library="$(find "$PWD/install-cuse" -type f -name 'libspwkit.so.0*' -print -quit)"
+          test -n "$library"
+          ! ldd "$library" | grep -qi fuse
+
+  cuse-live:
+    name: Live /dev/cuse contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install CUSE runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fuse3 libfuse3-dev pkg-config kmod
+          sudo modprobe cuse
+          test -c /dev/cuse
+
+      - name: Configure and build
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-cuse-live \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=ON \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          cmake --build build-cuse-live --parallel
+
+      - name: Exercise character-device semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          socket="$tmpdir/vspwd.sock"
+          device="vspw-ci-${GITHUB_RUN_ID}"
+          device_path="/dev/$device"
+          daemon_pid=""
+          presenter_pid=""
+          peer_pid=""
+          cleanup() {
+            set +e
+            [[ -n "$peer_pid" ]] && kill "$peer_pid" 2>/dev/null || true
+            [[ -n "$peer_pid" ]] && wait "$peer_pid" 2>/dev/null || true
+            [[ -n "$presenter_pid" ]] && sudo kill -TERM "$presenter_pid" 2>/dev/null || true
+            [[ -n "$presenter_pid" ]] && wait "$presenter_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && kill -TERM "$daemon_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && wait "$daemon_pid" 2>/dev/null || true
+            rm -rf "$tmpdir"
+          }
+          trap cleanup EXIT
+
+          build-cuse-live/vspwd --socket "$socket" >"$tmpdir/vspwd.log" 2>&1 &
+          daemon_pid=$!
+          for _ in $(seq 1 100); do [[ -S "$socket" ]] && break; sleep 0.02; done
+          [[ -S "$socket" ]]
+
+          sudo -E build-cuse-live/spwcuse \
+            --socket "$socket" --port 0 --device "$device" \
+            >"$tmpdir/spwcuse.log" 2>&1 &
+          presenter_pid=$!
+          for _ in $(seq 1 150); do [[ -c "$device_path" ]] && break; sleep 0.02; done
+          [[ -c "$device_path" ]]
+
+          timeout 10s build-cuse-live/spwkit_cuse_vspd_peer "$socket" >"$tmpdir/peer.log" 2>&1 &
+          peer_pid=$!
+          sleep 0.05
+          sudo timeout 10s build-cuse-live/spwkit_cuse_raw_client "$device_path"
+          wait "$peer_pid"
+          peer_pid=""
+
+          sudo kill -TERM "$presenter_pid"
+          wait "$presenter_pid" || true
+          presenter_pid=""
+          for _ in $(seq 1 100); do [[ ! -e "$device_path" ]] && break; sleep 0.02; done
+          [[ ! -e "$device_path" ]]
+
+  windows-udp:
+    name: Native Winsock VSPW-TP
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure and build
+        shell: pwsh
+        run: >-
+          cmake -S . -B build-winsock
+          -DCMAKE_BUILD_TYPE=Release
           -DSPWKIT_BUILD_TESTS=ON
           -DSPWKIT_BUILD_CPP_TESTS=ON
           -DSPWKIT_BUILD_EXAMPLES=OFF
           -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
           -DSPWKIT_BUILD_SIMULATOR=OFF
+          -DSPWKIT_BUILD_UDP=ON
+          -DSPWKIT_BUILD_DEVICE=OFF
+          -DSPWKIT_BUILD_VSPWD=OFF
           -DSPWKIT_BUILD_TOOLS=OFF
-          -DSPWKIT_ENABLE_HEAP=OFF
+          -DSPWKIT_BUILD_CUSE=OFF
+          -DSPWKIT_ENABLE_HEAP=ON
           -DSPWKIT_ENABLE_CPP=OFF
 
-      - name: Build no-heap profile
-        run: cmake --build build-noheap --parallel
+      - name: Run shared UDP contract
+        shell: pwsh
+        run: |
+          cmake --build build-winsock --config Release --parallel
+          ctest --test-dir build-winsock -C Release --output-on-failure `
+            -R "udp_distributed_backend|udp_out_of_order_reassembly|udp_virtual_link_timing|udp_deterministic_faults|backend_contract_udp"
 
-      - name: Run allocation-free contract
-        run: >-
-          ctest --test-dir build-noheap
-          -L noheap
-          --output-on-failure
-          --no-tests=error
+      - name: Validate installed package and process restart
+        shell: pwsh
+        run: |
+          cmake --install build-winsock --config Release --prefix "$PWD/install-winsock"
+          $config = Get-Content -Raw "$PWD/install-winsock/lib/cmake/SpWKit/SpWKitConfig.cmake"
+          if ($config -notmatch 'set\(SpWKit_UDP_RUNTIME_SUPPORTED ON\)') { throw "UDP runtime not advertised" }
+          if ($config -notmatch 'set\(SpWKit_UDP_RUNTIME_SCOPE "Winsock"\)') { throw "Winsock scope not advertised" }
+
+          cmake -S tests/windows_udp -B build-windows-peer `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$PWD/install-winsock"
+          cmake --build build-windows-peer --config Release --parallel
+
+          $base = 39000 + (($env:GITHUB_RUN_NUMBER -as [int]) % 100) * 2
+          ./tests/windows_udp/run_restart.ps1 `
+            -Peer "$PWD/build-windows-peer/Release/spwkit_windows_udp_peer.exe" `
+            -BasePort $base
+
+  freestanding:
+    name: Freestanding C / no-heap
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build freestanding archive
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-freestanding \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-ffreestanding -fno-builtin -Wall -Wextra -Werror"
+          ! grep -q '^CMAKE_CXX_COMPILER:' build-freestanding/CMakeCache.txt
+          cmake --build build-freestanding --parallel
+
+          archive="build-freestanding/libspwkit.a"
+          test -f "$archive"
+          ! nm -u "$archive" | grep -Eq '(pthread_|socket|sendto|recvfrom|poll|WSA|__cxa|_Z)'
+
+  hardrt-posix:
+    name: HardRT POSIX / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: GCC
+            cc: gcc
+            cxx: g++
+          - compiler: Clang
+            cc: clang
+            cxx: clang++
+    steps:
+      - name: Checkout SpWKit
+        uses: actions/checkout@v6
+
+      - name: Checkout pinned HardRT
+        uses: actions/checkout@v6
+        with:
+          repository: ExoSpaceLabs/hardrt
+          ref: 1b861393cd7967ce5d0b3ac6f45928828a2d63aa
+          path: external/hardrt
+
+      - name: Build and install SpWKit no-heap
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: /bin/false
+        run: |
+          cmake -S . -B build-spwkit \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          cmake --build build-spwkit --parallel
+          cmake --install build-spwkit --prefix "$PWD/install-spwkit"
+
+      - name: Build and install HardRT
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          cmake -S external/hardrt -B build-hardrt \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHARDRT_PORT=posix \
+            -DHARDRT_ENABLE_CPP=OFF \
+            -DHARDRT_BUILD_EXAMPLES=OFF \
+            -DHARDRT_BUILD_TESTS=OFF
+          cmake --build build-hardrt --parallel
+          cmake --install build-hardrt --prefix "$PWD/install-hardrt"
+
+      - name: Run installed-package integration
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          cmake -S integrations/hardrt_posix -B build-integration \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-spwkit;$PWD/install-hardrt" \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+          cmake --build build-integration --parallel
+          timeout 15s "$PWD/build-integration/spwkit_hardrt_posix"
+
+  hardrt-cortex-m7:
+    name: HardRT Cortex-M7
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Checkout pinned HardRT
+        uses: actions/checkout@v6
+        with:
+          repository: ExoSpaceLabs/hardrt
+          ref: 1b861393cd7967ce5d0b3ac6f45928828a2d63aa
+          path: external/hardrt
+
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Cross-build SpWKit and HardRT
+        run: |
+          cmake -S . -B build-cortex-spwkit \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -ffreestanding -fno-builtin"
+          cmake --build build-cortex-spwkit --parallel
+          cmake --install build-cortex-spwkit --prefix "$PWD/install-spwkit"
+
+          cmake -S external/hardrt -B build-cortex-hardrt \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHARDRT_PORT=cortex_m \
+            -DHARDRT_ENABLE_CPP=OFF \
+            -DHARDRT_BUILD_EXAMPLES=OFF \
+            -DHARDRT_BUILD_TESTS=OFF
+          cmake --build build-cortex-hardrt --parallel
+          cmake --install build-cortex-hardrt --prefix "$PWD/install-hardrt"
+
+      - name: Link and inspect standalone firmware
+        run: |
+          cmake -S integrations/hardrt_cortex_m -B build-cortex-integration \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-spwkit;$PWD/install-hardrt"
+          cmake --build build-cortex-integration --parallel
+
+          elf="$PWD/build-cortex-integration/spwkit_hardrt_cortex_m7.elf"
+          map="$PWD/build-cortex-integration/spwkit_hardrt_cortex_m7.map"
+          test -f "$elf"
+          test -s "$map"
+          ! arm-none-eabi-nm -u "$elf" | grep -q .
+          ! arm-none-eabi-nm "$elf" | grep -Eq '(pthread_|socket|sendto|recvfrom|poll|WSA|__cxa|_Z)'
+          arm-none-eabi-size "$elf"
+
+      - name: Upload firmware evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-hardrt-cortex-m7-evidence
+          path: |
+            build-cortex-integration/spwkit_hardrt_cortex_m7.elf
+            build-cortex-integration/spwkit_hardrt_cortex_m7.map
+          if-no-files-found: error
+          retention-days: 30
+
+  ccsdspack:
+    name: CCSDSPack v2 transport
+    runs-on: ubuntu-24.04
+    env:
+      CCSDSPACK_TAG: v2.0.0
+      CCSDSPACK_SHA: c2f318c330c564429bcc565a8acbff22728b2851
+    steps:
+      - name: Checkout SpWKit
+        uses: actions/checkout@v6
+
+      - name: Checkout immutable CCSDSPack
+        uses: actions/checkout@v6
+        with:
+          repository: ExoSpaceLabs/CCSDSPack
+          ref: ${{ env.CCSDSPACK_TAG }}
+          path: .deps/CCSDSPack
+          fetch-depth: 1
+
+      - name: Build dependencies and installed integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/CCSDSPack rev-parse HEAD)" = "$CCSDSPACK_SHA"
+
+          cmake -S .deps/CCSDSPack -B build-ccsdspack \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCCSDSPACK_BUILD_MCU=OFF
+          cmake --build build-ccsdspack --parallel
+          cmake --install build-ccsdspack --prefix "$PWD/install-ccsdspack"
+
+          cmake -S . -B build-spwkit \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=ON \
+            -DSPWKIT_BUILD_VSPWD=ON \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=ON
+          cmake --build build-spwkit --parallel
+          cmake --install build-spwkit --prefix "$PWD/install-spwkit"
+
+          cmake -S integrations/ccsdspack_v2 -B build-integration \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/install-spwkit;$PWD/install-ccsdspack"
+          cmake --build build-integration --parallel
+
+      - name: Transport PUS-C over UDP and DEVICE
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$PWD/install-spwkit/lib:$PWD/install-ccsdspack/lib:${LD_LIBRARY_PATH:-}"
+          peer="$PWD/build-integration/spwkit_ccsdspack_v2_peer"
+          tmpdir="$(mktemp -d)"
+          socket="$tmpdir/vspwd.sock"
+          daemon_pid=""
+          a_pid=""
+          cleanup() {
+            set +e
+            [[ -n "$a_pid" ]] && kill "$a_pid" 2>/dev/null || true
+            [[ -n "$a_pid" ]] && wait "$a_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && kill -TERM "$daemon_pid" 2>/dev/null || true
+            [[ -n "$daemon_pid" ]] && wait "$daemon_pid" 2>/dev/null || true
+            rm -rf "$tmpdir"
+          }
+          trap cleanup EXIT
+
+          timeout 20s "$peer" udp A 24190 24191 >"$tmpdir/a-udp.log" 2>&1 & a_pid=$!
+          sleep 0.10
+          timeout 20s "$peer" udp B 24191 24190 >"$tmpdir/b-udp.log" 2>&1
+          wait "$a_pid"
+          a_pid=""
+          grep -q 'PASS backend=udp id=A tx=PUS:revC:TC rx=PUS:revC:TM' "$tmpdir/a-udp.log"
+          grep -q 'PASS backend=udp id=B tx=PUS:revC:TM rx=PUS:revC:TC' "$tmpdir/b-udp.log"
+
+          "$PWD/install-spwkit/bin/vspwd" --socket "$socket" >"$tmpdir/vspwd.log" 2>&1 & daemon_pid=$!
+          for _ in $(seq 1 100); do [[ -S "$socket" ]] && break; sleep 0.02; done
+          [[ -S "$socket" ]]
+
+          timeout 20s "$peer" device A "$socket" >"$tmpdir/a-dev.log" 2>&1 & a_pid=$!
+          sleep 0.10
+          timeout 20s "$peer" device B "$socket" >"$tmpdir/b-dev.log" 2>&1
+          wait "$a_pid"
+          a_pid=""
+          grep -q 'PASS backend=device id=A tx=PUS:revC:TC rx=PUS:revC:TM' "$tmpdir/a-dev.log"
+          grep -q 'PASS backend=device id=B tx=PUS:revC:TM rx=PUS:revC:TC' "$tmpdir/b-dev.log"
+
+  tooling:
+    name: Wireshark dissector
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install tshark
+        run: |
+          if ! command -v tshark >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+          fi
+
+      - name: Validate VSPW-TP Lua dissector
+        run: python3 tools/wireshark/validate_dissector.py
