@@ -203,7 +203,8 @@ static const spw_driver_ops_t FAKE_OPS = {
     fake_send, fake_receive,
     fake_send_time_code, fake_receive_time_code,
     fake_get_statistics, fake_clear_statistics,
-    fake_wait
+    fake_wait,
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL
 };
 
 static const spw_driver_ops_t FAKE_OPS_NO_WAIT = {
@@ -213,7 +214,8 @@ static const spw_driver_ops_t FAKE_OPS_NO_WAIT = {
     fake_send, fake_receive,
     fake_send_time_code, fake_receive_time_code,
     fake_get_statistics, fake_clear_statistics,
-    NULL
+    NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL
 };
 
 typedef union workspace_storage {
