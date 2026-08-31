@@ -2,6 +2,20 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
+## v0.6.0 — unreleased
+
+Post-v0.5 interoperability and integration development line. The released `v0.5.0` boundary remains immutable.
+
+### Added
+
+- optional CCSDSPack `v2.0.0` installed-package interoperability evidence using PUS-C TC/TM packets transported byte-for-byte through independent VSPW-TP/UDP and Linux DEVICE/VSPD peers (#90);
+- typed receiver-side CCSDSPack parsing and structured validation after transport byte-identity checks, while keeping SpaceWire EOP metadata separate from CCSDS packet contents.
+
+### Changed
+
+- future exact-tag release audits now require the pinned CCSDSPack `v2.0.0` interoperability workflow in addition to the existing transport, platform, packaging and embedded gates;
+- CCSDSPack remains an optional external integration dependency and is not linked into or included by `libspwkit`.
+
 ## v0.5.0 — 2026-08-21
 
 Hosted-platform parity and embedded/RTOS integration release. v0.5 builds on the v0.4 software-simulation/service boundary while keeping the public C API authoritative and keeping host-, RTOS- and presentation-specific implementation details private.
@@ -175,4 +189,5 @@ Portable core and process-local virtual SpaceWire baseline:
 - process-local equal-peer simulator;
 - caller-owned/no-heap port construction;
 - optional zero-copy ownership API;
-- reusable backend contract tests.
+- reusable backend contract tests;
+- CMake install/export and standalone `find_package(SpWKit)` consumption.

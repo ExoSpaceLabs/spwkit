@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(spwkit_ccsdspack_v2_integration LANGUAGES CXX)
 
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.6 CONFIG REQUIRED)
 find_package(CCSDSPack 2.0 CONFIG REQUIRED)
 
 if(NOT TARGET spwkit::cpp)
