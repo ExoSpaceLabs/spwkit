@@ -83,7 +83,9 @@ jobs:
             integrations/ccsdspack_v2/CMakeLists.txt
           )
           for consumer in "${consumers[@]}"; do
-            grep -q "find_package(SpWKit ${minor} CONFIG REQUIRED)" "$consumer"
+            if [[ -f "$consumer" ]]; then
+              grep -q "find_package(SpWKit ${minor} CONFIG REQUIRED)" "$consumer"
+            fi
           done
 
           git fetch origin main --tags
