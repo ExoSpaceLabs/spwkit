@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="img/SpWKit_logo.png" alt="SpWKit logo" width="600">
+</p>
+
 # SpWKit
 
 **SpaceWire Development & Integration Toolkit**
