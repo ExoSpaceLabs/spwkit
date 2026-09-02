@@ -2,11 +2,9 @@
   <img src="img/SpWKit_logo.png" alt="SpWKit logo" width="600">
 </p>
 
-# SpWKit
-
 **SpaceWire Development & Integration Toolkit**
 
-SpWKit provides one portable software-facing SpaceWire API across simulation, distributed virtual links, embedded systems, Linux drivers and future hardware-backed implementations.
+SpWKit is a portable C11 SpaceWire software stack providing a single application-facing API across simulation, distributed virtual links, Linux virtual devices, embedded/RTOS systems, and future hardware-backed implementations.
 
 ```text
 Application
@@ -117,7 +115,6 @@ Physical FPGA/HIL verification, the production CUSE presenter, native Winsock VS
 See [Binary release artifacts](docs/binary-packages.md) for DEB contents, supported architectures, GHCR tags and publication rules.
 
 ## Virtual SpaceWire
-
 ### Process-local simulator
 
 Two simulator ports with the same `link_id` and opposite A/B endpoint identifiers form equal SpaceWire peers:
