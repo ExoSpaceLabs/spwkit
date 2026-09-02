@@ -42,9 +42,15 @@ jobs:
           [[ "$version" =~ ^0\.5\.[1-9][0-9]*$ ]]
           test -f "docs/releases/$RELEASE_TAG.md"
           git fetch origin release/0.5 --tags
-          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
-          git merge-base --is-ancestor v0.5.0 HEAD
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/release/0.5)"
+          tag_commit="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          branch_commit="$(git rev-parse origin/release/0.5)"
+          test "$(git rev-parse HEAD)" = "$tag_commit"
+          git merge-base --is-ancestor v0.5.0 "$tag_commit"
+          git merge-base --is-ancestor "$tag_commit" "$branch_commit"
+          if ! git diff --quiet "$tag_commit".."$branch_commit" -- . ':(exclude).github/workflows/**'; then
+            echo "release/0.5 moved beyond the tag with non-workflow changes; refusing to publish stale source" >&2
+            exit 1
+          fi
 
   hosted:
     name: Hosted / ${{ matrix.name }}
@@ -142,7 +148,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.release_tag }}
-      - name: Configure C-only profile
+      - name: Configure C-only hosted profile
         env:
           CC: gcc
           CXX: /bin/false
@@ -156,12 +162,32 @@ jobs:
           -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
           -DSPWKIT_BUILD_SIMULATOR=ON
           -DSPWKIT_BUILD_UDP=ON
-          -DSPWKIT_ENABLE_HEAP=OFF
+          -DSPWKIT_ENABLE_HEAP=ON
           -DSPWKIT_ENABLE_CPP=OFF
-      - name: Build and test C-only profile
+      - name: Build and test C-only hosted profile
         run: |
           cmake --build build-c --parallel
           ctest --test-dir build-c --output-on-failure --no-tests=error
+      - name: Configure no-heap C-only profile
+        env:
+          CC: gcc
+          CXX: /bin/false
+        run: >-
+          cmake -S . -B build-noheap-c
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_SHARED_LIBS=OFF
+          -DSPWKIT_BUILD_TESTS=ON
+          -DSPWKIT_BUILD_CPP_TESTS=OFF
+          -DSPWKIT_BUILD_EXAMPLES=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+          -DSPWKIT_BUILD_SIMULATOR=OFF
+          -DSPWKIT_BUILD_UDP=OFF
+          -DSPWKIT_ENABLE_HEAP=OFF
+          -DSPWKIT_ENABLE_CPP=OFF
+      - name: Build and run allocation-free C contract
+        run: |
+          cmake --build build-noheap-c --parallel
+          ctest --test-dir build-noheap-c -L noheap --output-on-failure --no-tests=error
 
   sanitizers:
     name: Linux ASan + UBSan

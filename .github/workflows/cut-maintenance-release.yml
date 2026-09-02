@@ -68,11 +68,16 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin release/0.5 --tags
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/release/0.5)"
+          branch_commit="$(git rev-parse origin/release/0.5)"
+          test "$(git rev-parse HEAD)" = "$branch_commit"
           if git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
             existing="$(git rev-list -n1 "$RELEASE_TAG")"
-            test "$existing" = "$GITHUB_SHA"
-            echo "Tag $RELEASE_TAG already points at this exact maintenance boundary."
+            git merge-base --is-ancestor "$existing" "$branch_commit"
+            if ! git diff --quiet "$existing".."$branch_commit" -- . ':(exclude).github/workflows/**'; then
+              echo "$RELEASE_TAG exists at $existing but release/0.5 contains non-workflow changes after the tag" >&2
+              exit 1
+            fi
+            echo "Reusing immutable tag $RELEASE_TAG at $existing after workflow-only maintenance fixes."
           else
             gh api --method POST \
               "repos/${GITHUB_REPOSITORY}/git/refs" \
