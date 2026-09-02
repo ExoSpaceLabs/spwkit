@@ -1,125 +1,129 @@
 # Roadmap
 
-SpWKit has completed five public development releases. The current `develop` branch targets v0.6.0 and is focused on the software boundary required before a real FPGA/HDL SpaceWire implementation can be integrated honestly.
+The roadmap is organized around evidence boundaries rather than aspirational backend names. Stable tags remain immutable; `develop` is the integration branch for the next release.
 
-## v0.1.0 - Portable core and local virtual link - released
+## Released milestones
 
-Delivered:
+### v0.1
 
-- public C ABI and opaque port handles;
-- packet, EOP/EEP, time-code, link-state, error and capability types;
-- deterministic loopback backend;
-- process-local two-peer simulator;
-- copied packet transfer and optional zero-copy ownership API;
-- caller-owned no-heap port construction;
-- reusable backend contract suite;
-- CMake install/export and standalone consumers;
-- Linux GCC/Clang, macOS Clang, Windows MSVC, sanitizers and no-heap CI.
+Established the portable SpaceWire-facing C API, deterministic loopback/process-local simulation, bounded resource behavior, EOP/EEP, time codes, caller-owned construction and zero-copy ownership semantics.
 
-## v0.2.0 - Distributed virtual SpaceWire - released
+### v0.2
 
-Delivered:
+Added distributed VSPW-TP/UDP, fragmentation/reassembly, session/liveness, retry/deduplication, virtual timing, deterministic transport/SpaceWire fault injection and capture tooling.
 
-- VSPW-TP v1 session-aware wire framing;
-- POSIX UDP backend through `spw_port_*`;
-- bounded fragmentation/reassembly;
-- EOP/EEP and time-code preservation;
-- ACK/retry, duplicate suppression and restart recovery;
-- virtual timing and deterministic fault injection;
-- independent-process and network-namespace D2D integration;
-- VSPW-TP Wireshark/tshark tooling.
+### v0.3
 
-## v0.3.0 - C11 runtime and optional C++ wrapper - released
+Expanded package/consumer and portability evidence while keeping the application API transport-neutral.
 
-Delivered:
+### v0.4
 
-- authoritative C11 backend vtable/context runtime;
-- C11 port dispatch and opaque-buffer representation;
-- C implementations of loopback, simulator, VSPW-TP and UDP paths;
-- pure-C/no-C++ runtime builds and installed consumers;
-- optional header-only C++17 convenience layer;
-- standard static/shared selection;
-- explicit no-heap/freestanding profile.
+Delivered the Linux virtual-device/service boundary:
 
-## v0.4.0 - Linux virtual device and userspace service - released
-
-Delivered:
-
-- VSPD network-order private protocol;
-- pure-C `vspwd` virtual-device service;
-- public Linux `SPW_BACKEND_DEVICE`;
-- packet/time-code/link/statistics/restart behavior;
-- backend-neutral receive readiness;
-- `spwctl` management and `spwmon` observation;
+- `SPW_BACKEND_DEVICE`;
+- VSPD;
+- `vspwd`;
+- `spwctl`;
+- `spwmon`;
 - installed C/C++ device consumers;
-- VSPW-TP bridge and remote restart recovery;
-- Debian/GHCR release artifacts for `amd64` and `arm64`.
+- VSPW-TP bridge integration.
 
-## v0.5.0 - Hosted parity and embedded integration - released
+### v0.5.0
 
-Delivered:
+Completed hosted-platform parity and embedded/RTOS integration evidence:
 
-- production Linux CUSE `/dev/vspwX` presentation while keeping libfuse outside `libspwkit`;
-- native Windows/Winsock implementation of the existing VSPW-TP UDP backend;
-- shared Windows transport contract and independent-process peer restart validation;
-- hosted DEB expansion to `amd64`, `arm64`, `armhf`, and `riscv64`;
-- one four-platform GHCR runtime image;
-- HardRT POSIX integration under GCC/Clang;
-- Cortex-M7 `arm-none-eabi`/Thumb/soft-float/no-heap compile/link evidence;
-- consolidated CI, tagged Release and manual HIL lifecycle workflows.
+- native Windows/Winsock VSPW-TP/UDP;
+- production CUSE `/dev/vspwX` presentation;
+- HardRT `0.4.0` POSIX execution integration;
+- Cortex-M7/HardRT compile-link integration;
+- multi-architecture Debian publication (`amd64`, `arm64`, `armhf`, `riscv64`);
+- multi-platform GHCR publication.
 
-## v0.6.0 - Portable hardware-driver integration - current
+The `v0.5.0` tag and release assets are immutable.
 
-Tracked by #108.
+## v0.6.0 development
 
-The purpose of v0.6 is to complete everything that can be defined and validated in software before a real FPGA SpaceWire implementation is required.
+The v0.6 objective is a portable software boundary that lets the same application API move from virtual SpaceWire to real platform/vendor drivers without publishing proprietary hardware implementation details.
 
-Planned/delivered work:
+```mermaid
+flowchart LR
+    VIRT[Stable virtual backends] --> DRIVER[Portable driver contract]
+    DRIVER --> DMA[DMA/zero-copy mapping]
+    DMA --> REF[Reference-driver evidence]
+    REF --> STM[STM32H755 runtime validation]
+    REF --> FPGA[Public FPGA/driver boundary]
+    VIRT --> CCSDS[CCSDSPack integration]
+    STM --> AUDIT[Final v0.6 audit]
+    FPGA --> AUDIT
+    CCSDS --> AUDIT
+    AUDIT --> REL[v0.6.0]
+```
 
-- pinned CCSDSPack `v2.0.0` PUS-C interoperability through installed SpWKit packages;
-- current-documentation reconciliation after the v0.5 release;
-- public portable driver backend/configuration contract behind the normal `spw_port_*` API;
-- lifecycle, copied packet, EOP/EEP, time-code, readiness, capabilities and statistics delegation to platform/vendor drivers;
-- DMA-capable TX/RX buffers mapped onto the existing SpWKit zero-copy ownership API;
-- deterministic in-memory reference driver run through the reusable backend contract in CI;
-- no-heap and RTOS/bare-metal-friendly driver integration evidence;
-- explicit future FPGA boundary covering register map, DMA descriptors, interrupts, coherency, clock/reset domains and HIL requirements.
+### Completed on `develop`
 
-v0.6 deliberately does **not** implement a real SpaceWire HDL/IP core and does not claim electrical interoperability. See `docs/v0.6-scope.md`.
+- public `SPW_BACKEND_DRIVER` configuration/callback contract;
+- driver ABI v2 DMA/zero-copy ownership mapping;
+- bounded wrapper slots and no-heap compatibility;
+- deterministic host reference driver;
+- driver/DMA contract and cache-hook tests;
+- installed-package CCSDSPack PUS-C interoperability;
+- Linux DEVICE/VSPD CCSDS transport fixture;
+- two-node Docker Compose CCSDSPack-over-VSPW-TP/UDP exchange;
+- documentation/backend-status reconciliation.
 
-## After v0.6 - FPGA/HDL implementation boundary
+### Provisional CCSDSPack baseline
 
-The next hardware phase will need its own specification before implementation. Expected design topics include:
+CCSDSPack is currently consumed from `CCSDSPack/develop` at a deterministic validated snapshot. This is an API/design reference while CCSDSPack is being finalized, **not** the final SpWKit release dependency claim.
 
-- SpaceWire link/IP core scope and ECSS behavior;
-- AXI4-Lite or equivalent control/status register map;
-- packet/DMA descriptor format and ownership;
-- address width, alignment and scatter/gather policy;
-- interrupt/event model;
-- cache maintenance and coherent/non-coherent DMA behavior;
-- clock/reset-domain ownership;
-- time-code path and link/error counters;
-- Linux and bare-metal driver bindings;
-- physical loopback, two-endpoint and electrical/HIL validation.
+Before v0.6.0 release:
 
-The software driver contract should allow open, commercial, or vendor HDL implementations rather than coupling SpWKit to one RTL core.
+- select the user-approved immutable CCSDSPack 2.x release tag/commit;
+- replace the provisional branch/snapshot reference;
+- rerun installed-package and Compose interoperability evidence.
 
-## Later software directions
+CCSDSPack remains an integration dependency only; it is not a runtime dependency of `libspwkit`.
 
-The exact release numbering should be assigned when each scope becomes active rather than preserving obsolete calendar guesses. Candidate directions are:
+### STM32H755 validation (#119)
 
-- deeper ECSS-oriented link behavioral simulation, finite credits and contention;
-- broader RTOS adapters such as FreeRTOS, RTEMS and Zephyr;
-- multi-port router/topology simulation with path/logical addressing;
-- RMAP and other upper-protocol integration;
-- stable v1.0 compatibility policy once the software and hardware backend contracts have enough real implementation evidence.
+The planned board validation will prove the public driver/DMA ownership boundary on actual Cortex-M7 silicon, including real DMA execution and explicit cache/coherency handling.
 
-## v1.0 target
+It is not yet counted as complete, and its exact board/test architecture must be agreed before implementation/runtime claims are made.
 
-A v1.0 declaration should require evidence, not merely accumulated features:
+It is also not SpaceWire electrical HIL.
 
-- stable documented public C ABI and compatibility policy;
-- backend capability and ownership contracts frozen enough for independent implementations;
-- simulator, hosted and embedded/hardware-backed reference paths;
-- release-level conformance/contract evidence;
-- a documented policy for future backends and protocol modules.
+### Public FPGA/driver boundary (#113)
+
+The public documentation must state the generic software obligations a future FPGA/vendor driver needs to satisfy while keeping proprietary implementation details out of this repository.
+
+The public stop line excludes:
+
+- RTL architecture;
+- register/address maps;
+- DMA descriptor formats;
+- internal bus/clock/reset/interrupt design;
+- proprietary IP-core choices.
+
+### Final v0.6 release gate
+
+Before tagging v0.6.0:
+
+- finish #119 evidence according to its agreed scope;
+- finish #113 public boundary documentation;
+- accept and pin the final CCSDSPack baseline;
+- reconcile tracker/issues and stale feature branches;
+- run the consolidated CI/release-critical matrix;
+- merge `develop` to `main`;
+- create one immutable `v0.6.0` tag and publish from that tag.
+
+## Later work
+
+Post-v0.6 directions may include:
+
+- a real FPGA/vendor SpaceWire driver implementation;
+- physical SpaceWire HIL/electrical interoperability evidence;
+- richer daemon topology/router modeling;
+- additional RTOS/platform adapters;
+- upper-layer protocols such as RMAP kept modular above the link API;
+- broader compliance traceability.
+
+No later milestone is considered delivered merely because an interface placeholder or documentation concept exists.

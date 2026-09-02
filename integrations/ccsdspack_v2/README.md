@@ -2,44 +2,31 @@
 
 This integration proves the intended layering between CCSDSPack and SpWKit using only each project's installed public package API.
 
-Provisional dependency baseline:
+## Provisional dependency baseline
 
 - repository: `ExoSpaceLabs/CCSDSPack`
 - branch: `develop`
 - validated snapshot: `4e198ae4c7f730737d78c1ea2f71ec3ce42ca7eb`
 - release acceptance: pending the user-approved CCSDSPack 2.x release tag
 
-The `develop` branch is the current API/design reference only. The exact snapshot above keeps CI deterministic while CCSDSPack is being finalized. Once the release baseline is approved, replace this provisional branch/snapshot pair with the immutable release tag and rerun the integration evidence.
+The `develop` branch is the current API/design reference only. The exact snapshot keeps CI deterministic while CCSDSPack is being finalized. Once the release baseline is approved, this provisional branch/snapshot pair must be replaced by the immutable release tag/commit and the integration evidence rerun.
 
 CCSDSPack is an integration dependency only. `libspwkit` does not include CCSDSPack headers, link to CCSDSPack, parse CCSDS/PUS packets, or depend on the CCSDSPack runtime.
 
 ## Layering
 
-```text
-CCSDSPack v2 PUS-C TC/TM construction
-              |
-              v
-       serialized bytes
-              |
-              v
-        SpWKit packet API
-              |
-      +-------+--------+
-      |                |
- VSPW-TP/UDP      DEVICE / VSPD
-      |                |
-      +-------+--------+
-              |
-              v
-        SpWKit packet API
-              |
-              v
-      received byte vector
-              |
-      byte-for-byte check
-              |
-              v
-CCSDSPack v2 typed parse + Validator
+```mermaid
+flowchart TB
+    BUILD[CCSDSPack PUS-C TC/TM construction] --> SER[Serialized CCSDS/PUS bytes]
+    SER --> SPW_TX[SpWKit packet API]
+    SPW_TX --> PATH{Transport path}
+    PATH --> UDP[VSPW-TP / UDP]
+    PATH --> DEV[DEVICE / VSPD]
+    UDP --> SPW_RX[Receiving SpWKit packet API]
+    DEV --> SPW_RX
+    SPW_RX --> BYTES[Received byte vector]
+    BYTES --> CHECK[Byte-for-byte check]
+    CHECK --> PARSE[CCSDSPack typed parse + Validator]
 ```
 
 The SpaceWire EOP terminator remains transport metadata. It is not part of the serialized CCSDS packet bytes and is checked separately.
@@ -67,27 +54,23 @@ The application-level packet contract executes over:
 
 ## Two-node CCSDS over Ethernet
 
-The Compose example combines the CCSDSPack packet layer and SpWKit distributed simulator into one end-to-end demonstration:
+```mermaid
+sequenceDiagram
+    participant A as peer-a container
+    participant SA as SpWKit A
+    participant SB as SpWKit B
+    participant B as peer-b container
 
-```text
-peer-a container                         peer-b container
-172.29.0.10                              172.29.0.11
-
-PUS-C TC                                 PUS-C TC validation
-CCSDSPack serialize                      CCSDSPack deserialize
-      |                                         ^
-      v                                         |
-SpWKit packet API                         SpWKit packet API
-      |                                         ^
-      v                                         |
-VSPW-TP / UDP -------- Ethernet -------- VSPW-TP / UDP
-      ^                                         |
-      |                                         v
-SpWKit packet API                         SpWKit packet API
-      ^                                         |
-      |                                         v
-PUS-C TM validation                      PUS-C TM
-CCSDSPack deserialize                    CCSDSPack serialize
+    A->>A: Build + serialize PUS-C TC
+    A->>SA: TC bytes + EOP
+    SA->>SB: VSPW-TP / UDP over Docker Ethernet
+    SB->>B: Exact TC bytes + EOP
+    B->>B: Byte-check, parse and validate TC
+    B->>B: Build + serialize PUS-C TM
+    B->>SB: TM bytes + EOP
+    SB->>SA: VSPW-TP / UDP over Docker Ethernet
+    SA->>A: Exact TM bytes + EOP
+    A->>A: Byte-check, parse and validate TM
 ```
 
 Run it from the repository root:
@@ -114,14 +97,25 @@ Successful completion prints:
 CCSDS_ETHERNET_COMPOSE_PASS
 ```
 
-The peer still defaults to `127.0.0.1` for ordinary host-process tests. `SPWKIT_LOCAL_ADDRESS` and `SPWKIT_REMOTE_ADDRESS` override those addresses for separate hosts or containers.
+The peer defaults to `127.0.0.1` for ordinary host-process tests. `SPWKIT_LOCAL_ADDRESS` and `SPWKIT_REMOTE_ADDRESS` override those addresses for separate hosts/containers.
 
-`CCSDSPACK_REF` and `CCSDSPACK_SHA` may be supplied to the Compose build when deliberately refreshing the provisional snapshot or switching to the final approved release. Both must be changed together so CI cannot silently consume a moving dependency.
+`CCSDSPACK_REF` and `CCSDSPACK_SHA` may be supplied when deliberately refreshing the provisional snapshot or switching to the final approved release. Both must be changed together so CI cannot silently consume a moving dependency.
+
+## Evidence boundary
+
+```mermaid
+flowchart LR
+    PKT[CCSDS/PUS packet correctness] --> INT[Installed-package integration]
+    INT --> NET[Two-container Ethernet isolation]
+    NET -. not evidence for .-> PHY[Physical SpaceWire / FPGA / PHY]
+```
 
 This topology is software network-isolation evidence. It does not claim physical SpaceWire, FPGA, PHY or electrical interoperability.
 
 ## CI ownership
 
-The consolidated `.github/workflows/ci.yml` owns the integration evidence. The host CCSDSPack job and the distributed Compose gate provide complementary evidence: installed-package packet transport plus an isolated two-container Ethernet exchange. The Compose image independently installs both projects and verifies the exact provisional CCSDSPack snapshot before building the peer from installed public targets.
+The consolidated `.github/workflows/ci.yml` owns the integration evidence. The host CCSDSPack job and distributed Compose gate provide complementary evidence: installed-package packet transport plus isolated two-container Ethernet exchange.
 
-This separation prevents a source-tree-only dependency from accidentally satisfying the integration while keeping CCSDSPack outside `libspwkit` itself. Final v0.6 acceptance still requires rerunning this evidence against the user-approved immutable CCSDSPack release reference.
+The Compose image independently installs both projects and verifies the exact provisional CCSDSPack snapshot before building the peer from installed public targets. This prevents a source-tree-only dependency from accidentally satisfying the integration while keeping CCSDSPack outside `libspwkit` itself.
+
+Final v0.6 acceptance still requires rerunning this evidence against the user-approved immutable CCSDSPack release reference.

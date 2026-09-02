@@ -1,56 +1,90 @@
-# Portable hardware driver backend
+# Portable hardware-driver backend
 
-`SPW_BACKEND_DRIVER` is the v0.6 software boundary between the public
-SpWKit port API and a platform/vendor SpaceWire driver.
+`SPW_BACKEND_DRIVER` is the v0.6 software boundary between the ordinary SpWKit application API and a platform/vendor hardware driver.
 
-The application continues to use `spw_port_start()`, packet I/O, EOP/EEP,
-time codes, readiness, statistics and the normal timeout/result model. The
-backend delegates those operations through `spw_driver_ops_t` to a caller-
-owned driver context.
+The application still uses `spw_port_*` and `spw_buffer_*`; native controller details stay below the driver callback table.
 
-## Ownership
+```mermaid
+flowchart TB
+    APP[Application] --> API[spw_port_* / spw_buffer_*]
+    API --> DB[SPW_BACKEND_DRIVER]
+    DB --> OPS[spw_driver_ops_t + caller context]
+    OPS --> REF[Deterministic host reference driver]
+    OPS --> MCU[MCU / RTOS driver]
+    OPS --> VENDOR[Vendor SDK adapter]
+    OPS --> FPGA[Future FPGA / DMA driver]
+```
 
-SpWKit does not create or destroy the vendor driver object. The
-`spw_driver_ops_t` table and `driver_context` referenced by
-`spw_driver_config_t` must remain valid until `spw_port_close()` returns.
-This allows the context to represent a Linux kernel/user driver object, a
-bare-metal register block, an RTOS device object, or a future FPGA/DMA
-adapter without exposing any such native type in the SpWKit ABI.
+## Public configuration
 
-## Required callbacks
+`<spwkit/driver.h>` defines the versioned driver configuration and callback contract. The callback table and driver context remain caller-owned for the lifetime of the SpWKit port.
 
-A v1 driver provides lifecycle (`start`, `stop`, `reset`), link state,
-capability discovery and copied packet `send`/`receive`. Time-code,
-statistics and readiness callbacks are optional; if the corresponding
-capability is advertised, both sides of that optional contract must be
-implemented.
+The application-facing `spw_port_t` remains opaque. Driver callback/context pointers are backend-specific configuration, not generic packet/link types.
 
-Readiness remains level-triggered and non-consuming. A driver with no
-`wait` callback does not expose `SPW_CAP_READINESS`, so polling drivers are
-valid without pretending to have an interrupt/event facility.
+## Core callbacks
 
-## DMA and zero-copy ownership
+A driver maps controller behavior into the common operations, including lifecycle, observable link state, capabilities, copied DATA and optional time-code/statistics/readiness operations.
 
-Driver ABI v2 maps vendor/DMA buffers onto the existing opaque `spw_buffer_t`
-ownership API without exposing physical addresses or hardware descriptors. A
-driver supplies all six DMA ownership callbacks as one atomic capability and
-configures bounded TX/RX wrapper-slot counts in `spw_driver_config_t`. Those
-wrapper slots live inside the normal SpWKit port workspace, so caller-owned
-`spw_port_open_in_place()` remains heap-free.
+SpWKit validates required callbacks against the capabilities the driver advertises. A driver cannot claim a public optional capability and omit the callbacks needed to implement it.
 
-`spw_driver_buffer_t` carries only a CPU-accessible byte view, packet metadata
-and an opaque 64-bit token used to correlate ownership transitions. The token
-is not a physical address. The optional `sync_buffer` callback is invoked
-`TO_DEVICE` before TX submission and `FROM_DEVICE` before an acquired RX buffer
-is exposed to the application. A NULL hook means coherent memory or that the
-vendor ownership callbacks already perform cache maintenance.
+## DMA / zero-copy mapping
 
-Application code continues to use `spw_port_acquire_tx_buffer()`, submit,
-reclaim, release and RX acquire/release exactly as it does for any other
-zero-copy-capable backend. Reset invalidates outstanding wrapper handles.
+Driver ABI v2 can provide an all-or-nothing DMA ownership callback set.
 
-## FPGA stop line
+```mermaid
+flowchart LR
+    ACQ[Public acquire TX] --> D_ACQ[driver acquire TX token]
+    D_ACQ --> APP[CPU-visible view]
+    APP --> SUB[Public submit]
+    SUB --> D_SUB[driver submit]
+    D_SUB --> DMA[DMA/controller owns]
+    DMA --> D_REC[driver reclaim completion]
+    D_REC --> REC[Public reclaim]
+```
 
-This backend is not an HDL definition. Register maps, DMA descriptor
-layout, interrupt routing, clock/reset domains and actual SpaceWire RTL are
-explicitly deferred to the future FPGA interface specification (#113).
+The driver returns an opaque token plus CPU-visible pointer/capacity/alignment. SpWKit wraps that information in bounded opaque `spw_buffer_t` slots held inside the port workspace.
+
+Native physical addresses, descriptor layouts and vendor handles never become public application fields.
+
+### Cache synchronization
+
+Optional driver cache callbacks can prepare a buffer for device access or CPU readback. Their implementation is platform-specific and may be a no-op on coherent systems.
+
+The public contract intentionally says **when ownership changes**, not which cache-maintenance instruction or MPU/cache policy a platform must use.
+
+## Error/result mapping
+
+The driver maps native completion/errors into `spw_result_t`. Hardware-specific diagnostic detail may remain in the driver/vendor layer, but common application control flow must remain possible through portable result values and statistics.
+
+## Reference-driver evidence
+
+`tests/reference_driver` provides a deterministic host-side driver implementation that exercises the public driver backend and callback contract without claiming physical hardware.
+
+The main v0.6 CI also covers:
+
+- copied driver lifecycle/I/O;
+- capability validation;
+- zero-copy/DMA ownership transitions;
+- cache-hook ordering;
+- stale/foreign handle rejection;
+- bounded wrapper resources;
+- no-heap/freestanding compatibility.
+
+## STM32H755 evidence boundary
+
+The STM32H755 task is intended to validate the public driver/DMA boundary on real Cortex-M7 silicon, including actual memory-to-memory DMA and explicit cache/coherency handling. It is **not** yet counted as runtime evidence until the board/test architecture is agreed and executed.
+
+The STM32 test is not a SpaceWire PHY test. It proves driver ownership/cache behavior relevant to a future controller integration.
+
+## FPGA/public stop line
+
+This public repository documents only the software obligations of a future hardware driver. It does not publish or guess:
+
+- proprietary RTL architecture;
+- register/address maps;
+- DMA descriptor layouts;
+- internal bus topology;
+- clock/reset/interrupt structure;
+- specific IP-core selection.
+
+A future FPGA/SpaceWire implementation can satisfy the same public driver contract while keeping its hardware design independent.

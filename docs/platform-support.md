@@ -1,111 +1,82 @@
-# Hosted platform support policy
+# Platform support
 
-SpWKit separates public API/source portability from runtime backend availability. A platform may compile the portable C API while a specific backend is disabled or unavailable in that build.
+Platform support is split into **source/API visibility**, **runtime implementation**, and **verification evidence**. A public backend ID/configuration may be installed on a platform even when selecting that backend returns `SPW_ERR_UNSUPPORTED`.
 
-## Current hosted support matrix
+## Stable v0.5 hosted matrix
 
-| Host | C11 core / loopback | Local simulator | VSPW-TP / UDP | Linux DEVICE / `vspwd` | CUSE presenter | Validation |
-|---|---|---|---|---|---|---|
-| Linux | supported | supported | **supported** | **supported** | **supported** | GCC/Clang host CI, pure-C static/shared consumers, simulator, D2D, VSPD/device/tools, CUSE |
-| macOS | supported | supported | **supported** | not implemented | not implemented | Clang host CI and UDP contract |
-| Windows | supported | supported | **supported** | not implemented | not implemented | MSVC host CI, native Winsock shared UDP contract, installed independent-process restart/recovery |
-| other CMake UNIX hosts | best effort | best effort | build-path dependent | not release-validated | not release-validated | no support claim without dedicated evidence |
+| Capability | Linux | macOS | Windows |
+|---|---:|---:|---:|
+| C11 runtime / loopback | yes | yes | yes |
+| process-local simulator | yes | yes | yes |
+| VSPW-TP / UDP | POSIX | POSIX | native Winsock |
+| Linux DEVICE / VSPD | yes | no | no |
+| `vspwd` / tools | yes | no | no |
+| CUSE `/dev/vspwX` | yes | no | no |
+| optional C++17 wrapper | yes | yes | yes |
 
-Linux is the primary distributed and virtual-device host. macOS is a supported POSIX UDP host. Windows uses a private Winsock compatibility layer while retaining the same public `SPW_BACKEND_UDP` configuration and VSPW-TP wire behavior.
+The public UDP configuration/wire contract is identical across POSIX and Windows. Winsock types remain private.
 
-## Windows UDP / Winsock
+## Stable v0.5 architecture packages
 
-`SPW_BACKEND_UDP` is implemented natively on Windows without exposing `SOCKET`, `WSADATA`, `WSAPOLLFD`, WSA error values, or native address structures in the public ABI.
+Release `v0.5.0` publishes Debian packages for:
 
-The private Windows layer owns:
-
-- Winsock startup/cleanup;
-- native socket lifetime and invalid-handle representation;
-- bind/send/receive operations;
-- readiness and bounded waits;
-- timeout/error translation;
-- normalization of Windows-specific UDP ICMP/`WSAECONNRESET` behavior.
-
-The VSPW-TP codec, fragmentation/reassembly, ACK/retry, session/liveness, virtual timing, and deterministic fault behavior remain shared with POSIX builds.
-
-Dedicated Windows CI executes the shared UDP contract plus installed independent-process peer-loss/restart recovery.
-
-## Build-time UDP option
-
-`SPWKIT_BUILD_UDP` is `ON` by default.
-
-When enabled on a supported hosted platform, the package reports the UDP runtime as available. When disabled, the public UDP types remain source-visible but selecting the backend returns `SPW_ERR_UNSUPPORTED`.
-
-Generated package metadata includes:
-
-```cmake
-SpWKit_UDP_RUNTIME_SUPPORTED
-SpWKit_UDP_RUNTIME_SCOPE
-SpWKit_SIMULATOR_RUNTIME_SUPPORTED
-SpWKit_DEVICE_RUNTIME_SUPPORTED
-SpWKit_DEVICE_RUNTIME_SCOPE
-SpWKit_CPP_WRAPPER_AVAILABLE
+```text
+amd64
+arm64
+armhf
+riscv64
 ```
 
-`SpWKit_UDP_RUNTIME_SCOPE` is `POSIX` on POSIX builds and `Winsock` on Windows builds.
+The matching GHCR image supports:
 
-Applications should still handle `SPW_ERR_UNSUPPORTED` because a runtime can be omitted intentionally by build configuration.
+```text
+linux/amd64
+linux/arm64
+linux/arm/v7
+linux/riscv64
+```
 
-## Linux virtual-device support
+Cross/QEMU package execution is architecture evidence, not physical target/HIL evidence.
 
-Linux provides the public `SPW_BACKEND_DEVICE` runtime and pure-C `vspwd` userspace service beneath the normal `spw_port_*` API.
+## Embedded / RTOS evidence
 
-The device path preserves:
+HardRT release `0.4.0` is the current validated external RTOS integration baseline.
 
-- packet boundaries;
-- EOP/EEP and zero-length packets;
-- time codes;
-- link lifecycle/state;
-- statistics;
-- non-consuming receive readiness;
-- peer loss and fresh-process restart recovery.
+- HardRT POSIX integration executes two task-owned SpWKit ports against installed packages.
+- Cortex-M7/ARMv7E-M integration cross-builds and links no-heap SpWKit with the HardRT Cortex-M port.
+- The Cortex-M7 job is compile/link/ABI evidence, not STM32H755 runtime or SpaceWire PHY evidence.
 
-`spwctl` performs non-owning management and `spwmon` passive observation. `vspwd` can also bridge one virtual port through the existing VSPW-TP/UDP backend.
+## v0.6 portable driver backend
 
-## CUSE `/dev/vspwX`
+`develop` includes `SPW_BACKEND_DRIVER`, driver ABI v2 DMA/zero-copy ownership mapping and a deterministic host reference driver.
 
-The production CUSE presenter is implemented and validated on Linux. It exposes VSPD packet records as character devices while preserving packet boundaries, EOP/EEP, zero-length DATA, time codes, blocking/non-blocking semantics, poll/readiness behavior, and bounded queues.
+```mermaid
+flowchart LR
+    API[Portable public API] --> REF[Host reference driver<br/>validated]
+    API --> MCU[MCU/RTOS driver<br/>implementation-specific]
+    API --> FPGA[Future FPGA/vendor driver]
+```
 
-CUSE/libfuse3 remains a separate executable boundary. Ordinary `libspwkit` consumers do not acquire a FUSE dependency and no FUSE types are present in the public C API.
+The driver contract itself is portable. Runtime support depends entirely on the driver implementation supplied by the consuming platform.
 
-## Embedded / RTOS scope
+STM32H755 DMA/cache runtime validation remains pending #119. Future physical FPGA/SpaceWire support remains outside current runtime claims.
 
-SpWKit supports caller-owned no-heap port construction and a freestanding C core. HardRT integration currently provides:
+## Build profiles
 
-- installed-package POSIX runtime evidence under GCC and Clang;
-- Cortex-M7 `arm-none-eabi` Thumb/soft-float/no-heap compile/link evidence;
-- standalone firmware ELF/map/symbol validation.
+Common build profiles include:
 
-This is software/ABI evidence, not physical SpaceWire HIL.
+- full hosted C runtime;
+- optional C++17 wrapper/tests/examples;
+- C-only static/shared runtime with `CXX=/bin/false`;
+- no-heap/freestanding core;
+- Linux virtual-device/service/tools/CUSE profile;
+- driver/reference-driver profile;
+- Cortex-M7/HardRT cross profile.
 
-## v0.6 driver boundary
+## Unsupported behavior
 
-v0.6 introduces a portable hardware-driver backend so a vendor, RTOS, MMIO, or DMA implementation can sit behind the same `spw_port_*` API.
+Portable applications should not infer backend availability solely from the host OS or from a header enum. Query package metadata where appropriate, inspect capabilities after open, and handle `SPW_ERR_UNSUPPORTED` for optional/disabled paths.
 
-The driver contract must remain free of POSIX/Winsock/native descriptor types. DMA-capable buffers are intended to map onto the existing SpWKit zero-copy ownership API rather than create a second application packet interface.
+## HIL boundary
 
-A deterministic host reference driver will provide executable CI evidence before real hardware exists.
-
-## Public ABI boundary
-
-The following remain private implementation details:
-
-- POSIX file descriptors and `pollfd`;
-- `sockaddr*` and `errno`;
-- Unix-domain-socket structures;
-- CUSE/FUSE handles;
-- Winsock handles and WSA values;
-- future MMIO register structures;
-- future DMA descriptors and physical/bus addresses;
-- interrupt-controller and RTOS-native objects.
-
-Public configuration contains portable descriptive values and callback contracts only.
-
-## Release interpretation
-
-Automated hosted tests prove software behavior on the declared host/toolchain/runtime combinations. Cross-architecture QEMU package execution proves target userspace behavior, not physical processor or electrical SpaceWire interoperability. Physical FPGA/HIL claims remain manual and separate until suitable hardware exists.
+Physical SpaceWire hardware, Data-Strobe/LVDS interoperability and board/controller-specific timing require dedicated HIL/electrical evidence. Hosted simulation, Docker, CUSE, QEMU or STM32 memory-to-memory DMA do not substitute for that evidence.

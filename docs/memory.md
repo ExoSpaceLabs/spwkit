@@ -1,143 +1,107 @@
 # Memory model and no-heap operation
 
-SpWKit separates the portable port contract from the mechanism used to store the port/backend objects.
+SpWKit separates the public port/packet contract from the mechanism used to store the opaque port and backend implementation.
 
-The mandatory portable path does **not** require dynamic allocation.
+The portable path does **not** require dynamic allocation.
 
 ## Caller-owned workspace
 
-A port can be constructed entirely inside storage supplied by the application:
+```mermaid
+flowchart LR
+    CFG[Port configuration] --> REQ[spw_port_workspace_requirements]
+    REQ --> SIZE[required size + alignment]
+    SIZE --> MEM[caller-owned memory]
+    MEM --> OPEN[spw_port_open_in_place]
+    OPEN --> PORT[opaque spw_port_t + backend context]
+```
 
 ```c
 spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_LOOPBACK);
-
 spw_port_workspace_requirements_t req;
 spw_port_workspace_requirements(&config, &req);
 
-/* Example only: real embedded code may use a static pool/linker section. */
+/* Example only. Real code must satisfy req.size and req.alignment. */
 static unsigned char workspace[64 * 1024];
 
-spw_port_t *port = NULL;
+spw_port_t* port = NULL;
 spw_port_open_in_place(&config, workspace, sizeof(workspace), &port);
 ```
 
-The actual caller storage must satisfy both values returned by the requirements query:
+Backend object size is deliberately not a public ABI constant. Different backends may require different storage and future versions can change private implementation size without exposing it as an application structure.
 
-- `size`: minimum number of bytes;
-- `alignment`: required base-address alignment.
-
-The application owns that storage for the complete lifetime of the port. `spw_port_close()` destroys the objects constructed in it but does not free or retain the workspace. The same memory can be reused immediately after close.
-
-## Why requirements are queried
-
-Backend object size is intentionally not part of the public ABI.
-
-A fixed public structure such as `spw_port_storage_t bytes[NNN]` would couple the ABI to the largest current backend and would either waste embedded memory or require an ABI break when a later backend became larger.
-
-Instead:
-
-```text
-configuration
-     |
-     v
-spw_port_workspace_requirements()
-     |
-     +--> required size
-     +--> required alignment
-     |
-caller-owned region
-     |
-     v
-spw_port_open_in_place()
-     |
-     +--> opaque spw_port_t
-     +--> selected backend object
-```
-
-The workspace may therefore come from:
-
-- static/global storage;
-- a board-specific fixed memory pool;
-- an RTOS memory region;
-- a linker-defined section;
-- stack storage when backend size and stack budget make that appropriate;
-- externally managed shared/coherent memory in a future platform adapter.
-
-SpWKit does not require any particular allocator for this path.
+Workspace may come from static/global storage, an RTOS pool, a linker-defined section, stack storage when appropriate, or another application-managed region. SpWKit does not require a particular allocator.
 
 ## Hosted convenience allocation
 
-`spw_port_open()` remains available as a convenience for hosted applications. With the default build it allocates a correctly sized/aligned workspace and then delegates construction to the same in-place implementation.
+`spw_port_open()` is a convenience wrapper around the same construction model when `SPWKIT_ENABLE_HEAP=ON`.
 
-```text
-spw_port_open()
-     |
- allocate workspace
-     |
-     v
-spw_port_open_in_place()
+```mermaid
+flowchart LR
+    OPEN[spw_port_open] --> ALLOC[allocate aligned workspace]
+    ALLOC --> INPLACE[spw_port_open_in_place]
 ```
 
-When configured with:
+With `SPWKIT_ENABLE_HEAP=OFF`, the hosted allocation path returns `SPW_ERR_UNSUPPORTED`; the caller-owned path remains available.
 
-```text
--DSPWKIT_ENABLE_HEAP=OFF
-```
-
-`spw_port_open()` remains present for ABI consistency but returns `SPW_ERR_UNSUPPORTED`. Portable code should use the in-place API when it must not depend on a heap.
+The optional C++ wrapper exposes the same distinction through `Port::workspace_requirements()`, `Port::open()` and `Port::open_in_place()`.
 
 ## Copied packet memory
 
-Copied packet I/O uses caller-owned payload memory:
+For copied I/O:
 
-- TX: `spw_packet_t.data` points to caller-owned bytes for the duration of `spw_port_send()`;
-- RX: the caller supplies writable `data` and `capacity` to `spw_port_receive()`;
-- no backend may silently truncate a packet;
-- insufficient RX capacity returns `SPW_ERR_BUFFER_TOO_SMALL`, reports the required packet length/terminator, and retains the complete packet for retry.
+- TX payload memory remains caller-owned for the duration of `spw_port_send()`;
+- RX memory is supplied by the caller to `spw_port_receive()`;
+- a backend never silently truncates a complete packet;
+- `SPW_ERR_BUFFER_TOO_SMALL` reports the required complete length/terminator and leaves the packet pending.
 
-The loopback and process-local simulator use bounded internal storage. Resource exhaustion is explicit rather than hidden behind unbounded allocation.
-
-The current POSIX UDP backend also uses bounded reassembly storage and advertises a 1 MiB logical packet limit. VSPW-TP fragments are internal transport objects and never become application-owned packet buffers.
+Local and distributed backends may maintain bounded internal queues/reassembly storage. Those implementation buffers are not application-owned `spw_packet_t` storage.
 
 ## Zero-copy ownership
 
-The portable zero-copy ownership API is implemented and capability-gated by `SPW_CAP_ZERO_COPY`.
+The zero-copy API is capability-gated by `SPW_CAP_ZERO_COPY` and models **ownership**, not a particular DMA representation.
 
-```text
-TX: acquire -> fill -> submit -> backend owns -> reclaim -> reuse/release
-RX: backend receives -> acquire -> inspect -> release
+```mermaid
+flowchart LR
+    ACQ[Acquire TX] --> APP[Application owns]
+    APP --> SUB[Submit]
+    SUB --> BE[Backend owns]
+    BE --> DONE[Completed]
+    DONE --> REC[Reclaim]
+    REC --> APP
+    APP --> REL[Release]
 ```
 
-The API intentionally models ownership rather than DMA representation. Public handles/views do not expose physical addresses, DMA descriptors, AXI objects, file descriptors or vendor handles.
-
-The v0.1 local simulator implements zero-copy ownership using fixed aligned host-memory buffers. It may copy internally while preserving application-visible ownership and completion semantics.
-
-A future DMA backend can map the same lifecycle onto coherent/pinned buffers and descriptor rings without changing application source.
-
-Scatter/gather is deferred beyond v0.1; a current zero-copy buffer represents one contiguous packet payload.
-
-## v0.1 no-heap guarantee
-
-The v0.1 allocation-free guarantee applies to the portable core plus the loopback/reference path when built with:
-
-```text
-SPWKIT_ENABLE_HEAP=OFF
-SPWKIT_BUILD_SIMULATOR=OFF
+```mermaid
+flowchart LR
+    BE[Backend receives] --> ACQ[Acquire RX]
+    ACQ --> APP[Application owns view]
+    APP --> REL[Release RX]
+    REL --> BE
 ```
 
-The process-local simulator and POSIX UDP backend are hosted verification/runtime backends. They may rely on hosted synchronization/network facilities and are not the bare-metal portability reference, even though backend objects are constructed through the same workspace mechanism where supported.
+Public buffer views do not expose physical addresses, DMA descriptors, file descriptors, AXI objects or vendor handles.
 
-Future bare-metal, HardRT, FreeRTOS, RTEMS, Linux-device and hardware adapters must document their own workspace/resource requirements without altering common ownership semantics.
+The process-local simulator implements the ownership contract using fixed aligned host memory. The v0.6 driver backend maps the same lifecycle onto driver-owned/DMA-capable buffers through `spw_driver_ops_t`, including optional cache synchronization callbacks. Physical hardware details stay below the driver boundary.
+
+## Driver workspace
+
+The v0.6 driver backend keeps bounded SpWKit wrapper slots inside the normal port workspace. This allows DMA ownership bookkeeping without introducing mandatory heap allocation. The vendor/MCU driver remains responsible for its own hardware memory and descriptor lifecycle.
+
+## Hosted versus embedded resources
+
+The simulator and UDP backends are hosted software/runtime paths and may use host synchronization or socket facilities internally. The Linux DEVICE backend similarly uses private Unix IPC. Those dependencies disappear from profiles where the corresponding backends are disabled.
+
+The freestanding/embedded portability baseline disables hosted backends and uses caller-owned construction. HardRT Cortex-M7 CI additionally demonstrates complete no-heap compile/link integration with hosted transports disabled.
 
 ## CI verification
 
-The `Linux no-heap core` GitHub Actions job:
+Current CI includes:
 
-1. configures with `SPWKIT_ENABLE_HEAP=OFF` and simulator disabled;
-2. compiles the C++ core with exceptions and RTTI disabled;
-3. runs the `noheap` CTest profile;
-4. replaces global C++ allocation functions in the test executable with counters;
-5. opens, starts, transfers packets/time-codes, queries statistics, closes, and reuses the same workspace;
-6. fails if any dynamic allocation occurs while those mandatory operations execute.
+- pure-C static/shared package consumers;
+- explicit no-heap `spw_port_open_in_place()` behavior;
+- C++ wrapper/no-heap compilation without exceptions/RTTI;
+- freestanding C archive checks;
+- Cortex-M7/HardRT compile-link evidence;
+- v0.6 driver and DMA ownership tests with bounded wrapper storage.
 
-This is a behavioral portability baseline, not a claim that every optional hosted or future hardware backend is allocation-free internally.
+These are software memory/portability claims. They do not prove cache coherency on a specific MCU or FPGA. STM32H755 DMA/cache behavior remains a separate runtime evidence item.

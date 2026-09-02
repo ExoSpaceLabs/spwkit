@@ -1,159 +1,117 @@
-# Linux CUSE `/dev/vspwX` presentation
+# Linux CUSE `/dev/vspwX` presenter
 
-SpWKit v0.5 adds an optional Linux CUSE presenter named `spwcuse`. It exposes one `vspwd` virtual SpaceWire port as a character device while keeping libfuse3 completely outside the portable `libspwkit` ABI and dependency surface.
+`spwcuse` is the optional Linux character-device presentation shipped in v0.5. It presents a `vspwd` virtual SpaceWire port as a real CUSE device while keeping libfuse/CUSE types outside `libspwkit`.
 
-```text
-application
-    |
-/dev/vspwX
-    |
-libfuse3 CUSE callbacks
-    |
-spwcuse broker
-    |
-public SPW_BACKEND_DEVICE
-    |
-VSPD / AF_UNIX SOCK_SEQPACKET
-    |
-vspwd
+```mermaid
+flowchart LR
+    APP[Application using read/write/poll] --> NODE[/dev/vspw0]
+    NODE --> CUSE[spwcuse]
+    CUSE --> DEV[SPW_BACKEND_DEVICE]
+    DEV --> VSPD[VSPD]
+    VSPD --> D[vspwd]
+    D --> PEER[paired virtual port / bridge]
 ```
 
-`spwcuse` is a presentation/service process. Ordinary applications that already use `spw_port_*` should continue doing so; CUSE is useful when software needs a Linux device node rather than a linked SpWKit API.
+`spwcuse` is a presenter, not a new SpaceWire runtime backend. It deliberately reuses the normal DEVICE/VSPD path so the daemon and public library do not gain a second data-plane implementation.
 
 ## Build
 
-CUSE support is opt-in:
-
 ```bash
-cmake -S . -B build \
+cmake -S . -B build-cuse \
   -DSPWKIT_BUILD_DEVICE=ON \
   -DSPWKIT_BUILD_VSPWD=ON \
   -DSPWKIT_BUILD_CUSE=ON
-cmake --build build
+cmake --build build-cuse --parallel
 ```
 
-The CUSE target requires Linux, pthreads and libfuse3 development files. `libspwkit` itself does **not** link libfuse3.
+`SPWKIT_BUILD_CUSE` is Linux-only and requires libfuse3. It does not make libfuse a dependency of `spwkit::spwkit`.
 
-A typical Ubuntu development host needs:
+## Run
 
-```bash
-sudo apt install libfuse3-dev pkg-config fuse3
-sudo modprobe cuse
-```
-
-The kernel must expose `/dev/cuse`. Container use additionally requires deliberately passing the CUSE device/capability through; the normal SpWKit runtime image does not gain host device access merely by containing `spwcuse`.
-
-## Start a presenter
-
-Run the daemon first:
+Start `vspwd`, then attach the presenter to an unowned daemon port:
 
 ```bash
-vspwd --socket /tmp/mission-vspwd.sock
-```
-
-Then present daemon port 0 as `/dev/vspw0`:
-
-```bash
-spwcuse \
+./build-cuse/vspwd --socket /tmp/mission-vspwd.sock &
+./build-cuse/spwcuse \
   --socket /tmp/mission-vspwd.sock \
   --port 0 \
   --device vspw0
 ```
 
-`--device /dev/vspw0` is also accepted; only the final device entry name is passed to CUSE.
+The resulting device is typically `/dev/vspw0` when the host CUSE configuration permits that name.
 
-The presenter attaches and starts its VSPD port before serving the character device. That attachment is exclusive. While `spwcuse` owns port 0, a normal `SPW_BACKEND_DEVICE` application cannot attach to daemon port 0. It can still attach to another free port such as port 1.
+A CUSE-presented port is subject to the same single-owner rule as a normal DEVICE/VSPD attachment. The presenter cannot steal a port already owned by another application.
 
-Only one application may open one `spwcuse` device node at a time. A second `open()` receives `EBUSY`. This prevents two unrelated processes from racing for packet records on one SpaceWire endpoint.
+## Record-oriented ABI
 
-## Record ABI v1
+SpaceWire is packet/event oriented, so `/dev/vspwX` is **not** a UART-style byte stream. Each successful read/write operation handles one complete SpWKit CUSE record.
 
-The device is **record-oriented**, not a UART-like byte stream. One successful `write()` contains exactly one complete record; one successful `read()` returns exactly one complete record.
-
-All multibyte fields are big-endian. The fixed header is 16 bytes:
-
-```text
-offset  size  field
-------  ----  --------------------------------------------
-0       4     magic = 0x53505752 ("SPWR")
-4       1     version = 1
-5       1     type
-6       1     flags
-7       1     reserved = 0
-8       4     payload_size
-12      4     reserved = 0
+```mermaid
+flowchart TB
+    REC[CUSE record] --> TYPE{Record type}
+    TYPE --> DATA[DATA<br/>payload + EOP/EEP]
+    TYPE --> TC[TIME_CODE]
 ```
 
-Record types:
+The record header uses fixed-width fields and does not expose native structure layout, pointers or daemon framing.
 
-```text
-1  DATA
-2  TIME_CODE
-```
+DATA records preserve:
 
-### DATA
+- complete packet boundaries;
+- payload bytes;
+- EOP versus EEP;
+- zero-length packets.
 
-`payload_size` may be `0..1048576` bytes. The payload is one complete SpaceWire packet.
-
-Flags:
-
-```text
-0x00  EOP
-0x01  EEP
-```
-
-Zero-length EOP and EEP packets are valid records. Packet boundaries are never inferred from multiple reads or writes.
-
-### TIME_CODE
-
-A time-code record always has `payload_size = 2`, flags `0`, and payload:
-
-```text
-byte 0  time_count      0..63
-byte 1  control_flags   low two bits only
-```
-
-Time codes are therefore sideband records rather than invented DATA bytes.
+Time codes use a distinct record type rather than being encoded as DATA bytes.
 
 ## Read semantics
 
-CUSE uses direct I/O. SpWKit deliberately does not split a record to satisfy a short user buffer.
+A read returns at most one complete record.
 
-- if a complete record is available and the supplied read buffer is large enough, the complete record is returned and consumed;
-- if the buffer is too small, `read()` fails with `EMSGSIZE` and the record remains pending;
-- `poll()`/`select()` remains readable after that short-read error;
-- an `O_NONBLOCK` read first performs one immediate backend readiness probe; it returns a complete already-ready record when VSPD has one, otherwise it returns `EAGAIN`;
-- a blocking read remains pending until a complete record arrives.
+If the user buffer is smaller than the next complete record, `read()` fails with `EMSGSIZE` and **does not consume** the record. The application can retry with a larger buffer.
 
-The immediate nonblocking probe matters because an empty presenter-local queue is not proof that the daemon-side socket has no pending packet. The broker still remains event/request-driven: it does not continuously poll VSPD while no read or poll waiter exists.
+A non-blocking read with no available record returns `EAGAIN`/`EWOULDBLOCK`.
 
-Read readiness is level-triggered and non-consuming.
+These rules mirror the public `spw_port_receive()` complete-packet/no-truncation contract rather than Unix stream semantics.
 
 ## Write semantics
 
-Each `write()` must contain exactly one valid record header plus the declared payload. Malformed records are rejected without transmitting partial SpaceWire content.
+A write must contain exactly one valid complete record. Invalid headers, impossible lengths, unknown record types or invalid terminator metadata are rejected.
 
-The presenter serializes CUSE requests through one broker ownership domain. CUSE callbacks never issue concurrent calls against one `spw_port_t`. DATA is sent with the declared EOP/EEP terminator and TIME_CODE records use the ordinary public time-code API.
+DATA writes are translated into one public SpaceWire packet operation through the DEVICE backend. TIME_CODE writes use the corresponding public time-code operation.
 
-The internal broker queues are bounded. Saturation returns `EAGAIN` for a nonblocking write or `ENOBUFS` for a blocking write rather than growing memory without limit.
+## `poll()` / readiness
 
-## Lifecycle and ioctls
+The presenter integrates CUSE poll notification with the public backend-neutral readiness API. Read readiness means a complete packet or time-code event can be returned without consuming it merely because `poll()` observed it.
 
-v0.5 initially keeps lifecycle ownership simple:
+## Isolation boundary
 
-- starting `spwcuse` attaches and starts the selected VSPD port;
-- terminating `spwcuse` closes that public port and releases the daemon attachment;
-- no START/STOP/RESET/statistics ioctl ABI is exposed yet.
+```mermaid
+flowchart TB
+    PUBLIC[libspwkit public ABI] -. no libfuse types .-> APP[Application API]
+    CUSE[spwcuse process] --> FUSE[libfuse3 / CUSE]
+    CUSE --> PUBLIC
+```
 
-This is deliberate. Any future ioctl interface must use a separately reviewed fixed-width Linux UAPI contract rather than leaking libfuse, native pointers, C enums or VSPD structs into applications.
+This separation allows CUSE to be omitted entirely from packages/targets that do not need device nodes.
 
 ## CI evidence
 
-The dedicated CUSE workflow has two boundaries:
+The v0.5+ CI matrix includes:
 
-1. GCC/Clang pure-C compile/API/package tests with `CXX=/bin/false`, including proof that `libspwkit` has no libfuse dependency.
-2. A live Linux CUSE test that explicitly loads the kernel `cuse` module, requires `/dev/cuse`, creates a real `/dev/vspw*` node, and exchanges DATA, EOP/EEP, zero-length DATA and a time code with an independent public `SPW_BACKEND_DEVICE` peer through `vspwd`.
+- pure-C CUSE presenter compilation;
+- install-boundary checks;
+- record codec tests;
+- live `/dev/cuse` execution when the hosted runner exposes CUSE;
+- DATA EOP/EEP and zero-length packets;
+- time codes;
+- `EMSGSIZE` non-consuming short reads;
+- non-blocking `EAGAIN` behavior;
+- `poll()` readiness;
+- exclusive endpoint ownership.
 
-The live test also verifies single-open ownership, empty nonblocking `EAGAIN`, direct nonblocking delivery of a record already pending in VSPD without a preceding `poll()`, `poll()` readiness, short-read `EMSGSIZE` without consumption, and a genuinely blocking read.
+The earlier [CUSE feasibility study](cuse-feasibility.md) is retained as a historical v0.4 design record; this document describes the production v0.5 implementation.
 
-This remains software-device evidence. It is not physical SpaceWire signalling or FPGA/HIL interoperability evidence.
+## Scope
+
+CUSE proves a Linux character-device presentation for virtual SpaceWire behavior. It does not create a Linux network interface, emulate Data-Strobe/LVDS signals, or prove physical SpaceWire interoperability.

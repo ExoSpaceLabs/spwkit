@@ -1,6 +1,6 @@
 # Definitions and terminology
 
-This document defines the terminology used by SpWKit. Where a term comes from ECSS, the ECSS meaning takes precedence over informal software terminology.
+This document defines terminology used by SpWKit. Where a term comes from ECSS, the ECSS meaning takes precedence over informal software terminology.
 
 Primary reference: **ECSS-E-ST-50-12C Rev.1 — SpaceWire — Links, nodes, routers and networks (15 May 2019)**.
 
@@ -8,186 +8,139 @@ Official standard page: <https://ecss.nl/standard/ecss-e-st-50-12c-rev-1-spacewi
 
 ## SpaceWire
 
-SpaceWire is a spacecraft onboard data-handling technology defining full-duplex, point-to-point serial communication links together with the logical mechanisms required to initialize links, control flow, transfer packets, and build networks from nodes and routing switches.
+SpaceWire is a spacecraft onboard data-handling technology defining full-duplex point-to-point serial links plus logical mechanisms for startup, flow control, packet transfer, time distribution and networks built from nodes/routers.
 
-The standard spans several protocol levels, including physical, signal, character, exchange, packet, and network behaviour.
-
-SpaceWire does **not** define the application contents of a packet. Upper-layer protocols define how payload data is interpreted.
+The standard spans physical, signal, character, exchange, packet and network behavior. SpWKit's default software abstraction intentionally sits above the electrical/Data-Strobe implementation level.
 
 ## SpaceWire link
 
-A SpaceWire link is a full-duplex point-to-point connection between two SpaceWire interfaces.
+A full-duplex point-to-point connection between two SpaceWire interfaces. The two directions are independent; SpWKit therefore avoids imposing server/client semantics on a link.
 
-Each direction is independent. The software abstraction should therefore avoid artificial server/client ownership of the link.
+## SpaceWire interface / port
 
-## SpaceWire interface
+A SpaceWire interface contains a transmitter and receiver associated with a link. SpWKit's `spw_port_t` is the portable application-facing abstraction for the software-visible behavior of such an endpoint.
 
-An interface contains a transmitter and receiver associated with a SpaceWire link.
+A SpWKit port may be implemented by:
 
-In SpWKit, a software `Port` is the closest portable abstraction to the application-visible behaviour of such an interface.
+- loopback/reference software;
+- the process-local simulator;
+- VSPW-TP/UDP;
+- the Linux DEVICE/VSPD stack;
+- a portable driver callback implementation;
+- future vendor/FPGA/physical hardware.
 
-## SpaceWire port
+## Node and network
 
-A SpaceWire port is the endpoint through which a node connects to a SpaceWire link.
+A node is an endpoint connected to a SpaceWire network. A direct link between two nodes is already a minimal SpaceWire network. A network may additionally contain routing switches.
 
-SpWKit uses the term **port** for the public software abstraction regardless of whether the implementation is:
+A Linux Ethernet bridge used to carry VSPW-TP is **not** a SpaceWire router and is never presented as such.
 
-- virtual;
-- a Linux device;
-- FPGA backed;
-- bare metal;
-- RTOS based;
-- provided by a vendor SDK.
+## Data character and control character
 
-## Node
+A data character carries one byte of packet data at the SpaceWire character level. Control characters support link operation and packet termination.
 
-A node is an endpoint connected to a SpaceWire network. A node may produce, consume, or process SpaceWire packets.
-
-A direct link between two nodes is already a SpaceWire network in ECSS terminology.
-
-## SpaceWire network
-
-A SpaceWire network comprises two or more nodes connected using one or more links and zero or more routing switches.
-
-SpWKit therefore treats a simple two-port virtual link as a valid minimal network topology rather than as a client/server arrangement.
-
-## Routing switch / router
-
-A SpaceWire router is a routing switch. It forwards packets from input ports to output ports according to destination addressing and routing behaviour.
-
-A Linux Ethernet bridge is not a SpaceWire router and must not be used as a semantic substitute in a conformance-oriented simulator.
-
-## Data character
-
-A data character carries one byte of packet data at the SpaceWire character level.
-
-Character-level encoding is normally implemented by the codec and is below the default SpWKit application abstraction.
-
-## Control character
-
-Control characters are used by the SpaceWire link protocol for link control and packet termination rather than application payload data.
-
-Relevant examples include flow-control and packet-termination behaviour.
+Character encoding, NULL/FCT behavior, parity and Data-Strobe timing are below the normal packet-level SpWKit software abstraction unless a future higher-fidelity model explicitly implements them.
 
 ## NULL
 
-NULL control codes are used to keep an initialized SpaceWire link active and participate in link startup behaviour.
-
-A packet-level simulator does not need to physically emit every NULL event unless character/link behavioural simulation is enabled.
+NULL control codes keep an initialized link active and participate in link startup. A packet-level software simulator does not need to serialize every NULL event unless character/link-exchange fidelity is explicitly enabled.
 
 ## FCT
 
-A Flow Control Token grants additional receive-buffer credit across the link.
+A Flow Control Token grants receive-buffer credit. Packet-level software may model bounded flow-control effects without representing every FCT as an application-visible event.
 
-Default packet simulation may model the effect of finite credit without serializing each FCT as a simulator transport message. Higher-fidelity behavioural simulation may expose credit transitions explicitly.
+## EOP / EEP
 
-## EOP
+**EOP** (End Of Packet) terminates a normally completed SpaceWire packet.
 
-**End Of Packet** terminates a normally completed SpaceWire packet.
+**EEP** (Error End of Packet) terminates a packet that ended in error.
 
-SpWKit preserves EOP as packet metadata and does not infer it from a simulator/UDP frame boundary.
-
-## EEP
-
-**Error End of Packet** terminates a packet that ended in error.
-
-EOP and EEP are semantically different and remain distinguishable across all supporting backends.
+SpWKit preserves EOP/EEP as packet metadata. They are not inferred from UDP datagram or Unix-socket record boundaries.
 
 ## Time code
 
-SpaceWire supports time-code distribution as a control function across a network.
-
-SpWKit treats time codes separately from normal packet payloads. Distributed VSPW-TP transport carries time-code events using a dedicated message type rather than embedding them in DATA payloads.
+SpaceWire time codes are control events for network time distribution. SpWKit exposes them separately from DATA payloads. VSPW-TP, VSPD and CUSE presentation therefore carry time codes as dedicated event/record types rather than inventing DATA bytes.
 
 ## Link state
 
-SpaceWire defines link initialization, operational, and error-recovery behaviour through an exchange-level state machine.
+SpWKit exposes a portable SpaceWire-oriented state vocabulary through `spw_link_state_t`. Each backend maps what it can meaningfully observe into those states; a software backend does not fabricate hardware-only transient phases solely to exercise every enum value.
 
-SpWKit exposes a portable set of ECSS-oriented state names and each backend maps its observable state into that vocabulary. A software backend is not required to invent transient hardware states it cannot meaningfully observe.
-
-## LinkStart
-
-`LinkStart` is a management parameter that causes an enabled SpaceWire port to attempt link startup.
-
-The public API exposes `spw_port_start()` as the portable management operation and documents backend-specific observable state transitions separately.
+`spw_port_start()` is the portable management operation corresponding to requesting link startup.
 
 ## RMAP
 
-**Remote Memory Access Protocol (RMAP)** is defined by ECSS-E-ST-50-52C and operates over SpaceWire. It supports remote read/write operations and can be used for node configuration and data transfer.
-
-RMAP is an upper-layer protocol and should remain modular rather than being hard-wired into the core link API.
+**Remote Memory Access Protocol (RMAP)** is defined by ECSS-E-ST-50-52C and operates above SpaceWire. It is an upper-layer protocol and should remain modular rather than being hard-wired into the core port API.
 
 Official reference: <https://ecss.nl/standard/ecss-e-st-50-52c-spacewire-remote-memory-access-protocol-5-february-2010/>
 
 ## CCSDS packet transfer over SpaceWire
 
-ECSS-E-ST-50-53C defines transfer of CCSDS packets over SpaceWire by encapsulating a CCSDS packet in a SpaceWire packet for network transfer and extracting it at the destination.
+ECSS-E-ST-50-53C defines transfer of CCSDS packets over SpaceWire. It is an upper-layer service, not part of the raw link abstraction.
 
-This is an upper-layer service and is not part of the raw link abstraction.
+SpWKit's CCSDSPack integration demonstrates the intended layering: CCSDSPack serializes/parses CCSDS/PUS bytes while SpWKit transports those bytes as a SpaceWire packet with EOP/EEP kept separately.
 
 Official reference: <https://ecss.nl/standard/ecss-e-st-50-53c-spacewire-ccsds-packet-transfer-protocol-5-february-2010/>
 
 ## Physical SpaceWire
 
-In SpWKit documentation, **physical SpaceWire** means an implementation that ultimately drives a real SpaceWire electrical interface, typically through FPGA, ASIC, or dedicated controller hardware.
+In this repository, **physical SpaceWire** means an implementation that ultimately drives a real SpaceWire electrical interface through dedicated controller, FPGA, ASIC or equivalent hardware.
+
+No current hosted simulator/device result is described as physical SpaceWire evidence.
 
 ## Virtual SpaceWire
 
-**Virtual SpaceWire** is SpWKit's software model of application-visible SpaceWire behaviour.
+**Virtual SpaceWire** is SpWKit's software model of application-visible SpaceWire behavior. Current virtual paths include:
 
-A virtual port preserves packet/link semantics while intentionally abstracting electrical implementation details.
+- the process-local simulator;
+- distributed VSPW-TP/UDP;
+- Linux `SPW_BACKEND_DEVICE` through `vspwd`;
+- optional CUSE presentation such as `/dev/vspw0` through `spwcuse`.
 
-Current implementations include the process-local simulator and the distributed VSPW-TP/UDP backend. Future Linux virtual-device naming is expected to use forms such as:
+`/dev/vspwX` is therefore a shipped v0.5 presentation, not future naming.
 
-```text
-/dev/vspw0
-```
+## `vspw`
 
-## vspw
-
-`vspw` is shorthand used for virtual SpaceWire components.
-
-Examples/planned names include:
+`vspw` is shorthand used for virtual SpaceWire components, for example:
 
 ```text
-vspwd       virtual SpaceWire daemon/service (planned)
-vspw0       virtual SpaceWire port 0/device name (planned)
+vspwd       virtual SpaceWire daemon/service
+/dev/vspw0  CUSE-presented virtual SpaceWire device
 ```
 
 ## VSPW-TP
 
-**VSPW-TP** is SpWKit's versioned **Virtual SpaceWire Transport Protocol** used internally by distributed virtual backends.
+**VSPW-TP** is SpWKit's versioned **Virtual SpaceWire Transport Protocol** for distributed virtual links. It is internal transport framing, not an application-facing SpaceWire upper-layer protocol.
 
-VSPW-TP is not a SpaceWire upper-layer protocol and is not application-facing. It frames simulator/backend events for transport over UDP while preserving the logical SpaceWire packet boundary, EOP/EEP terminator, time-code identity and virtual `link_id`.
-
-Current v1 framing uses a fixed network-order header and supports DATA, TIME_CODE and reserved control/liveness/acknowledgement message types. DATA may be fragmented for transport; fragments are reassembled before being exposed through `spw_port_receive()`.
+VSPW-TP v1 carries DATA, TIME_CODE, liveness/control and acknowledgement information over datagram transport while preserving logical packet boundaries, EOP/EEP, `link_id` and sender session identity. DATA may be fragmented/reassembled internally before one packet reaches `spw_port_receive()`.
 
 ## UDP backend
 
-`SPW_BACKEND_UDP` is the current distributed virtual backend on supported POSIX hosts.
+`SPW_BACKEND_UDP` is the hosted distributed virtual backend. Its runtime uses POSIX sockets on supported Unix-like hosts and native Winsock on Windows.
 
-UDP is only the carrier. Datagram loss, ordering, MTU, IP addressing and timing are transport concerns and must not silently redefine SpaceWire semantics.
+UDP is only the carrier. Datagram loss, ordering, MTU, IP addressing and timing must not silently redefine SpaceWire semantics.
 
-## spw
+## VSPD
 
-`spw` is used for generic or physical SpaceWire components when ambiguity is low.
+**VSPD** is the private local protocol between Linux `SPW_BACKEND_DEVICE` and `vspwd`. It is distinct from VSPW-TP and not an application API.
 
-Examples/planned names include:
+## `vspwd`
 
-```text
-spw0        physical/generic SpaceWire port
-spwctl      management utility
-spwmon      monitoring utility
-```
+`vspwd` is the Linux userspace virtual SpaceWire service. It owns a bounded virtual topology, accepts DEVICE/VSPD attachments, provides management/monitoring state, and can bridge a topology-owned port to VSPW-TP/UDP.
 
-## Backend
+## `spwcuse`
 
-A backend is the implementation-specific layer that translates the portable SpWKit API into a particular transport or hardware mechanism.
+`spwcuse` is the optional Linux v0.5 CUSE presenter. It attaches to a `vspwd` port through the ordinary DEVICE backend and presents packet-oriented records through `/dev/vspwX`. It is outside `libspwkit` and keeps libfuse types out of the public ABI.
 
-Implemented examples include loopback, the process-local simulator and VSPW-TP/UDP. Future examples include Linux character devices, AXI/DMA and vendor SDKs.
+## `spwctl` / `spwmon`
+
+`spwctl` is a non-owning management utility for `vspwd`. `spwmon` is a passive observer that subscribes to bounded daemon snapshots without attaching to or consuming a SpaceWire port.
+
+## Driver backend
+
+`SPW_BACKEND_DRIVER` is the v0.6 portable software boundary that delegates operations to a versioned `spw_driver_ops_t` callback table and caller-owned context. A driver may represent a host reference model, MCU/RTOS device, vendor SDK or future FPGA controller.
+
+Driver callbacks may know about DMA/cache/interrupt/native mechanisms. Those details do not become application SpaceWire types.
 
 ## Transport
 
-A transport is the mechanism used internally by a virtual backend to move simulation events or packet fragments between virtual ports.
-
-UDP, raw Ethernet, Unix sockets and shared memory are transports. They are **not** SpaceWire semantics and remain below the virtual-port contract.
+A transport is an internal mechanism used to carry backend/protocol events. UDP/IP, Unix sockets, shared memory and future network stacks are transports. They are not SpaceWire semantics.
