@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Existing release tag to publish
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -19,45 +13,29 @@ env:
   SPWKIT_RELEASE_PLATFORMS: "linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64"
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   validate:
-    name: Validate release boundary
+    name: Validate tagged main release
     runs-on: ubuntu-24.04
     outputs:
-      tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
-      - name: Resolve release tag
-        id: requested
-        shell: bash
-        env:
-          INPUT_TAG: ${{ inputs.release_tag }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            tag="$INPUT_TAG"
-          else
-            tag="$GITHUB_REF_NAME"
-          fi
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout exact release tag
+      - name: Checkout exact tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ steps.requested.outputs.tag }}
           fetch-depth: 0
 
-      - name: Validate version, API and changelog
+      - name: Require exact main release boundary
         id: release
         shell: bash
-        env:
-          RELEASE_TAG: ${{ steps.requested.outputs.tag }}
         run: |
           set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
           version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
           api_major="$(sed -nE 's/^#define SPWKIT_API_VERSION_MAJOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
@@ -67,7 +45,7 @@ jobs:
           minor="${api_major}.${api_minor}"
 
           test -n "$version"
-          test "$RELEASE_TAG" = "v$version"
+          test "$tag" = "v$version"
           test "$api_version" = "$version"
           grep -Eq "^## v${version} — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
           ! grep -q "^## v${version} — unreleased$" CHANGELOG.md
@@ -83,17 +61,16 @@ jobs:
             integrations/ccsdspack_v2/CMakeLists.txt
           )
           for consumer in "${consumers[@]}"; do
-            if [[ -f "$consumer" ]]; then
-              grep -q "find_package(SpWKit ${minor} CONFIG REQUIRED)" "$consumer"
-            fi
+            [[ -f "$consumer" ]] || continue
+            grep -q "find_package(SpWKit ${minor} CONFIG REQUIRED)" "$consumer"
           done
 
           git fetch origin main --tags
-          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
-          git merge-base --is-ancestor HEAD origin/main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$tag^{commit}")"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   deb:
     name: DEB / ${{ matrix.arch }}
@@ -112,20 +89,16 @@ jobs:
           - arch: riscv64
             platform: linux/riscv64
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.validate.outputs.tag }}
-
       - name: Enable non-native architectures
         run: docker run --privileged --rm tonistiigi/binfmt --install all
-
       - name: Create buildx builder
         run: |
           docker buildx create --name "spwkit-deb-${{ matrix.arch }}" --driver docker-container --use
           docker buildx inspect --bootstrap
-
-      - name: Validate target userspace
+      - name: Validate target package
         run: >-
           docker buildx build
           --platform ${{ matrix.platform }}
@@ -133,10 +106,10 @@ jobs:
           --target consumer-validate
           --progress plain
           .
-
-      - name: Export and verify DEB
+      - name: Export and verify package
         env:
           PROJECT_VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p "dist/${{ matrix.arch }}"
@@ -147,7 +120,6 @@ jobs:
             --output "type=local,dest=dist/${{ matrix.arch }}" \
             --progress plain \
             .
-
           package="$(find "dist/${{ matrix.arch }}" -maxdepth 1 -name 'spwkit_*.deb' -print -quit)"
           test -n "$package"
           test "$(dpkg-deb -f "$package" Architecture)" = "${{ matrix.arch }}"
@@ -155,8 +127,7 @@ jobs:
           package_dir="$(dirname "$package")"
           package_name="$(basename "$package")"
           (cd "$package_dir" && sha256sum "$package_name" > "$package_name.sha256")
-
-      - name: Validate runtime image for target
+      - name: Validate runtime image
         env:
           PROJECT_VERSION: ${{ needs.validate.outputs.version }}
         run: |
@@ -171,9 +142,7 @@ jobs:
           docker run --rm --platform "${{ matrix.platform }}" "spwkit-runtime-test:${{ matrix.arch }}" --help
           docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/bin/spwctl "spwkit-runtime-test:${{ matrix.arch }}" --help
           docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/bin/spwmon "spwkit-runtime-test:${{ matrix.arch }}" --help
-
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: spwkit-deb-${{ matrix.arch }}
           path: |
@@ -189,37 +158,22 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.validate.outputs.tag }}
-
-      - name: Download DEB artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: spwkit-deb-*
           path: dist
           merge-multiple: true
-
       - name: Verify release assets
-        env:
-          PROJECT_VERSION: ${{ needs.validate.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           read -ra arches <<< "$SPWKIT_RELEASE_DEB_ARCHES"
-          expected="${#arches[@]}"
-          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb' | wc -l)" -eq "$expected"
-          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb.sha256' | wc -l)" -eq "$expected"
-
-          for arch in "${arches[@]}"; do
-            package="$(find dist -maxdepth 1 -name "*_${arch}.deb" -print -quit)"
-            test -n "$package"
-            test "$(dpkg-deb -f "$package" Architecture)" = "$arch"
-            test "$(dpkg-deb -f "$package" Version)" = "$PROJECT_VERSION-1"
-          done
+          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb' | wc -l)" -eq "${#arches[@]}"
+          test "$(find dist -maxdepth 1 -name 'spwkit_*.deb.sha256' | wc -l)" -eq "${#arches[@]}"
           (cd dist && sha256sum -c *.sha256)
-
       - name: Build release notes
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
@@ -228,34 +182,21 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-
           tag = os.environ["RELEASE_TAG"]
           version = tag.removeprefix("v")
           text = Path("CHANGELOG.md").read_text(encoding="utf-8")
           prefix = f"## v{version} — "
           heading = next(line for line in text.splitlines() if line.startswith(prefix))
-          marker = heading + "\n"
-          start = text.index(marker) + len(marker)
+          start = text.index(heading + "\n") + len(heading) + 1
           end = text.find("\n## v", start)
           if end < 0:
               end = len(text)
           body = text[start:end].strip()
-
-          repo = os.environ["GITHUB_REPOSITORY"].lower()
-          image = f"ghcr.io/{repo}:{tag}"
-          minor = ".".join(version.split(".")[:2])
-          notes = (
-              body
-              + "\n\n### Binary distribution\n\n"
-              + "- Debian packages and SHA-256 files: amd64, arm64, armhf, riscv64.\n"
-              + f"- GHCR runtime image: `{image}`.\n"
-              + f"- Moving image aliases: `{minor}` and `latest`.\n"
-              + "- GHCR publication is independent from GitHub Release publication; an image failure does not suppress verified DEB assets.\n"
-          )
+          image = f"ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}:{tag}"
+          notes = body + "\n\n### Binary distribution\n\n" + "- Debian packages and SHA-256 files: amd64, arm64, armhf, riscv64.\n" + f"- GHCR runtime image: `{image}`.\n"
           Path("release-notes.md").write_text(notes, encoding="utf-8")
           PY
-
-      - name: Create immutable GitHub Release
+      - name: Publish immutable release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
@@ -263,16 +204,12 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "GitHub Release $RELEASE_TAG already exists; refusing to overwrite immutable assets." >&2
+            echo "Release $RELEASE_TAG already exists; refusing to overwrite it." >&2
             exit 1
           fi
           mapfile -t assets < <(find dist -maxdepth 1 -type f \( -name '*.deb' -o -name '*.sha256' \) -print | sort)
           test "${#assets[@]}" -eq 8
-          gh release create "$RELEASE_TAG" \
-            "${assets[@]}" \
-            --verify-tag \
-            --title "SpWKit $RELEASE_TAG" \
-            --notes-file release-notes.md
+          gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --title "SpWKit $RELEASE_TAG" --notes-file release-notes.md
 
   ghcr:
     name: Publish multi-arch GHCR image
@@ -282,25 +219,20 @@ jobs:
       contents: read
       packages: write
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.validate.outputs.tag }}
-
       - name: Enable non-native architectures
         run: docker run --privileged --rm tonistiigi/binfmt --install all
-
       - name: Create buildx builder
         run: |
           docker buildx create --name spwkit-release --driver docker-container --use
           docker buildx inspect --bootstrap
-
       - name: Login to GHCR
         env:
           GHCR_TOKEN: ${{ github.token }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-
-      - name: Build and publish multi-arch image
+      - name: Build and publish
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           PROJECT_VERSION: ${{ needs.validate.outputs.version }}
@@ -309,7 +241,6 @@ jobs:
           set -euo pipefail
           minor="${PROJECT_VERSION%.*}"
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
-
           docker buildx build \
             --platform "$SPWKIT_RELEASE_PLATFORMS" \
             --file packaging/Dockerfile \
@@ -321,5 +252,4 @@ jobs:
             --push \
             --progress plain \
             .
-
           docker buildx imagetools inspect "$image:$RELEASE_TAG"
