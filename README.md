@@ -156,7 +156,7 @@ flowchart TB
     DEV --> VSPD[VSPD / AF_UNIX SOCK_SEQPACKET]
     VSPD --> D[vspwd]
 
-    RAW[Application using /dev/vspwX] --> NODE[/dev/vspwX]
+    RAW[Application using /dev/vspwX] --> NODE["/dev/vspwX"]
     NODE --> CUSE[spwcuse]
     CUSE --> DEV2[SPW_BACKEND_DEVICE]
     DEV2 --> VSPD
