@@ -18,8 +18,8 @@ flowchart TB
     API --> DEV[Linux DEVICE / VSPD]
     DEV --> VSPWD[vspwd]
     VSPWD --> CUSE[spwcuse / /dev/vspwX]
-    API -. portable no-heap API .-> EMB[Embedded / RTOS integration]
-    API -. v0.6+ .-> HW[Portable hardware-driver boundary]
+    API -.->|portable no-heap API| EMB[Embedded / RTOS integration]
+    API -.->|v0.6+| HW[Portable hardware-driver boundary]
 ```
 
 The runtime is C11. The optional C++17 layer is header-only and forwards to the same C ABI; it is a convenience surface, not a second implementation.
