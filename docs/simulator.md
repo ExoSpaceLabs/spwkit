@@ -1,6 +1,6 @@
 # Local virtual SpaceWire simulator
 
-The v0.1 simulator is a process-local implementation of the same backend contract used by `libspwkit` for loopback, the distributed UDP backend, and future physical transports.
+The original v0.1 simulator is a process-local implementation of the same backend contract used by `libspwkit` for loopback, distributed UDP, Linux virtual devices, and future physical transports.
 
 Applications do not call simulator-specific transport functions. They select the simulator through `spw_port_config_t` and continue to use the normal `spw_port_*` API.
 
@@ -35,7 +35,7 @@ sim_b.endpoint = SPW_SIMULATOR_ENDPOINT_B;
 
 Each simulator configuration is passed through the ordinary `spw_port_config_t` backend configuration field. `spw_port_open()` copies the identity needed by the backend; the application does not have to retain the configuration objects after the call returns.
 
-A process may host multiple independent virtual links. v0.1 reserves a fixed registry of 16 local links. Opening the same endpoint twice on one link is rejected with `SPW_ERR_RESOURCE_EXHAUSTED`.
+A process may host multiple independent virtual links. The local simulator reserves a fixed registry of 16 local links. Opening the same endpoint twice on one link is rejected with `SPW_ERR_RESOURCE_EXHAUSTED`.
 
 ## Link lifecycle
 
@@ -73,7 +73,7 @@ A TX  --------------------------------->  B RX
 A RX  <---------------------------------  B TX
 ```
 
-The v0.1 local simulator preserves:
+The local simulator preserves:
 
 - complete packet boundaries;
 - payload bytes;
@@ -84,7 +84,7 @@ The v0.1 local simulator preserves:
 
 The current limits are:
 
-| Resource | v0.1 local simulator |
+| Resource | Local simulator |
 |---|---:|
 | maximum packet payload | 4096 bytes |
 | inbound packet queue | 8 packets per endpoint |
@@ -95,7 +95,7 @@ An immediate send to a full peer queue returns `SPW_ERR_RESOURCE_EXHAUSTED`. A f
 
 ## Time codes
 
-Time codes use the same peer direction as packets. A time code sent by A is received by B and vice versa. Ordinary v0.1 time-code validation remains limited to a six-bit count with zero control flags, as defined by the public type contract.
+Time codes use the same peer direction as packets. A time code sent by A is received by B and vice versa. Ordinary local-simulator time-code validation remains limited to a six-bit count with zero control flags, as defined by the public type contract.
 
 ## Disconnect and recovery
 
@@ -122,7 +122,7 @@ Statistics are maintained per endpoint. TX counters belong to the transmitting e
 
 The local virtual link is synchronized internally and supports concurrent A-to-B and B-to-A operations. This permits full-duplex integration tests without requiring a network transport.
 
-The lifetime of a single `spw_port_t` object must still be coordinated by the application. Closing a port concurrently with another thread using that same handle is outside the v0.1 contract.
+The lifetime of a single `spw_port_t` object must still be coordinated by the application. Closing a port concurrently with another thread using that same handle is outside the local-simulator contract.
 
 ## Zero-copy ownership
 
@@ -135,28 +135,41 @@ RX: backend receives -> acquire -> inspect -> release
 
 The simulator uses fixed aligned host-memory buffers and may copy internally while preserving the application-visible ownership, capacity, timeout and completion semantics.
 
-This is intentional. A future DMA-capable backend can map the same API to coherent/pinned memory and descriptor rings without exposing hardware addresses or descriptor types to applications.
+This is intentional. A DMA-capable backend can map the same API to coherent or pinned memory and descriptor rings without exposing hardware addresses or descriptor types to applications.
 
-## Relationship to distributed simulation
+## Simulation and virtual-device stack today
 
-The process-local simulator remains the v0.1 behavioral reference. Current `main` additionally contains the first v0.2 VSPW-TP/UDP backend:
+The process-local simulator remains the deterministic behavioral reference, but it is no longer the only virtual SpaceWire path. Stable `v0.5.0` includes the distributed VSPW-TP/UDP backend, Linux VSPD virtual-device service, `vspwd`, management/monitoring tools, and optional CUSE `/dev/vspwX` presentation. `develop` additionally carries the v0.6 portable hardware-driver/DMA boundary.
 
 ```text
 Application
     |
-libspwkit
+libspwkit / spw_port_*
     |
-    +-- local simulator       <- v0.1
-    +-- VSPW-TP / UDP         <- v0.2 in progress
-    +-- vspwd / /dev/vspwX   <- later
-    +-- RTOS / bare metal     <- later
-    +-- FPGA / DMA hardware   <- later
+    +-- process-local simulator             <- deterministic in-process reference
+    +-- VSPW-TP / UDP                       <- independent processes/hosts/containers
+    +-- SPW_BACKEND_DEVICE / VSPD
+    |       |
+    |     vspwd                             <- Linux virtual SpaceWire service
+    |       |
+    |     spwcuse                           <- optional CUSE presenter
+    |       |
+    |   /dev/vspwX                          <- real Linux character-device node
+    |
+    +-- SPW_BACKEND_DRIVER                  <- v0.6 portable driver boundary
+            |
+            +-- RTOS / bare-metal driver
+            +-- future MMIO / DMA FPGA driver
+                    |
+                    +-- future physical SpaceWire implementation
 ```
 
-The UDP backend is a separate backend, not an extension of the process-local simulator API. Both remain hidden behind `libspwkit` and share the same SpaceWire-facing concepts.
+The UDP backend is a separate backend, not an extension of the process-local simulator API. VSPD/`vspwd` similarly provides independent-process Linux virtual-device semantics rather than sharing the process-local registry. All of these paths remain hidden behind the same SpaceWire-facing application concepts.
+
+For a CAN-style development analogy, `vspwd` plus VSPD provides the shared virtual-link service, while `spwcuse` can expose virtual endpoints as `/dev/vspwX`. Unlike Linux `vcan`, this is userspace-backed rather than a native Linux network-device driver. That distinction is deliberate because SpaceWire packet terminators, time codes, and link lifecycle do not naturally map to a generic byte stream or ordinary network interface.
 
 ## What this simulator is not
 
-The process-local backend is not `vspwd`, a Linux character device, an electrical/Data-Strobe simulator, or a physical SpaceWire implementation.
+The process-local backend itself is not `vspwd`, a Linux character device, an electrical/Data-Strobe simulator, or a physical SpaceWire implementation. Those are separate layers or future hardware concerns.
 
-It establishes the packet/link behavioral reference before device-driver and physical transports are introduced.
+SpWKit's current virtual stack provides packet/link behavioral simulation and virtual-device integration. It does not claim signal-level Data/Strobe behavior, LVDS electrical characteristics, bit/character timing, physical PHY interoperability, or a real FPGA SpaceWire core.
