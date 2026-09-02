@@ -4,17 +4,42 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
 
 ## v0.6.0 — unreleased
 
-Post-v0.5 interoperability and integration development line. The released `v0.5.0` boundary remains immutable.
+Post-v0.5 interoperability and hardware-driver integration development line. `v0.5.1` is the current stable maintenance release; the earlier `v0.5.0` tag also remains immutable.
 
 ### Added
 
-- optional CCSDSPack `v2.0.0` installed-package interoperability evidence using PUS-C TC/TM packets transported byte-for-byte through independent VSPW-TP/UDP and Linux DEVICE/VSPD peers (#90);
-- typed receiver-side CCSDSPack parsing and structured validation after transport byte-identity checks, while keeping SpaceWire EOP metadata separate from CCSDS packet contents.
+- optional CCSDSPack 2.x installed-package interoperability evidence using PUS-C TC/TM packets transported byte-for-byte through independent VSPW-TP/UDP and Linux DEVICE/VSPD peers (#90);
+- typed receiver-side CCSDSPack parsing and structured validation after transport byte-identity checks, while keeping SpaceWire EOP metadata separate from CCSDS packet contents;
+- portable hardware-driver callback/configuration boundary, DMA/zero-copy ownership mapping and deterministic reference-driver validation for the v0.6 hardware integration line.
 
 ### Changed
 
-- future exact-tag release audits now require the pinned CCSDSPack `v2.0.0` interoperability workflow in addition to the existing transport, platform, packaging and embedded gates;
-- CCSDSPack remains an optional external integration dependency and is not linked into or included by `libspwkit`.
+- CCSDSPack integration is provisional against the validated `CCSDSPack/develop` snapshot until the user-approved immutable 2.x release baseline is selected; a moving development branch is not a final SpWKit release dependency;
+- the final v0.6 release audit must replace that provisional CCSDSPack reference with the explicitly approved immutable tag/commit before publication;
+- CCSDSPack remains an optional external integration dependency and is not linked into or included by `libspwkit`;
+- HardRT integration continues to use released baseline `0.4.0` at validated commit `1b861393cd7967ce5d0b3ac6f45928828a2d63aa`.
+
+## v0.5.1 — 2026-09-02
+
+Maintenance release on the v0.5 line. It preserves the v0.5.0 C runtime ABI, backend behavior, VSPW-TP wire format, VSPD contract and hardware-evidence boundary while completing the optional C++17 convenience surface.
+
+### Fixed
+
+- completed `spwkit::Port` forwarding for workspace requirements and the zero-copy ownership operations already present in the public C API;
+- added `spwkit::Buffer`, `spwkit::BufferView` and `spwkit::WorkspaceRequirements` aliases without introducing a second ABI or backend implementation;
+- preserved the C ownership contract, including pointer clearing after successful zero-copy submit/release operations;
+- added C++ compile coverage for the forwarding surface;
+- added a simulator-backed C++ zero-copy example covering acquire, fill, submit, receive, release, reclaim and final release;
+- extended the loopback C++ example to verify capability-gated `SPW_ERR_UNSUPPORTED` behavior.
+
+### Verification
+
+- hosted C/C++ validation passed on Linux GCC, Linux Clang, Windows MSVC and macOS Clang;
+- pure-C hosted and dedicated no-heap contracts passed;
+- C++ simulator zero-copy execution and Linux ASan+UBSan validation passed;
+- Debian packages were published for `amd64`, `arm64`, `armhf` and `riscv64`, with SHA-256 sidecars;
+- the runtime image was validated across `linux/amd64`, `linux/arm64`, `linux/arm/v7` and `linux/riscv64`;
+- physical SpaceWire/FPGA HIL remains outside the release claim.
 
 ## v0.5.0 — 2026-08-21
 
@@ -51,7 +76,7 @@ Hosted-platform parity and embedded/RTOS integration release. v0.5 builds on the
 
 ### Deferred beyond v0.5
 
-- CCSDSPack 2.x packet-transport integration (#90) remains open until CCSDSPack 2.x is a public validated/tagged release; a moving development branch is not a SpWKit release dependency;
+- CCSDSPack 2.x packet-transport integration (#90) remains open until the user-approved immutable 2.x release baseline is selected; development integration may use a validated `CCSDSPack/develop` snapshot, but a moving branch is not a SpWKit release dependency;
 - physical FPGA/HIL backend and electrical SpaceWire interoperability evidence;
 - generic SpaceWire routing/topology management and router simulation.
 
