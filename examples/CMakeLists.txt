@@ -36,6 +36,14 @@ if(SPWKIT_BUILD_CPP_EXAMPLES)
         target_compile_features(spwkit_example_cpp_wrapper_loopback PRIVATE cxx_std_17)
         spwkit_apply_no_throw_policy(spwkit_example_cpp_wrapper_loopback)
 
+        if(SPWKIT_BUILD_SIMULATOR)
+            add_executable(spwkit_example_cpp_wrapper_simulator_zero_copy
+                cpp_wrapper_simulator_zero_copy.cpp)
+            target_link_libraries(spwkit_example_cpp_wrapper_simulator_zero_copy PRIVATE spwkit::cpp)
+            target_compile_features(spwkit_example_cpp_wrapper_simulator_zero_copy PRIVATE cxx_std_17)
+            spwkit_apply_no_throw_policy(spwkit_example_cpp_wrapper_simulator_zero_copy)
+        endif()
+
         if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
             add_executable(spwkit_example_cpp_device_peer cpp_device_peer.cpp)
             target_link_libraries(spwkit_example_cpp_device_peer PRIVATE spwkit::cpp)

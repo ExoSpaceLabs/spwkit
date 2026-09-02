@@ -30,6 +30,9 @@ inline constexpr Version version{
 
 using Result = spw_result_t;
 using Timeout = spw_timeout_us_t;
+using Buffer = spw_buffer_t;
+using BufferView = spw_buffer_view_t;
+using WorkspaceRequirements = spw_port_workspace_requirements_t;
 
 inline constexpr Timeout immediate = SPW_TIMEOUT_IMMEDIATE;
 inline constexpr Timeout infinite = SPW_TIMEOUT_INFINITE;
@@ -51,6 +54,12 @@ public:
             handle_ = std::exchange(other.handle_, nullptr);
         }
         return *this;
+    }
+
+    static Result workspace_requirements(
+        const spw_port_config_t& config,
+        WorkspaceRequirements& out_requirements) noexcept {
+        return spw_port_workspace_requirements(&config, &out_requirements);
     }
 
     static Result open(const spw_port_config_t& config, Port& out) noexcept {
@@ -186,6 +195,58 @@ public:
     Result clear_fault_statistics() noexcept {
         return handle_ != nullptr
                    ? spw_port_clear_fault_statistics(handle_)
+                   : SPW_ERR_INVALID_STATE;
+    }
+
+    static Result buffer_view(const Buffer& buffer, BufferView& view) noexcept {
+        return spw_buffer_get_view(&buffer, &view);
+    }
+
+    static Result set_packet(Buffer& buffer,
+                             std::size_t length,
+                             spw_terminator_t terminator = SPW_TERMINATOR_EOP) noexcept {
+        return spw_buffer_set_packet(&buffer, length, terminator);
+    }
+
+    Result acquire_tx_buffer(std::size_t min_capacity,
+                             Buffer*& out_buffer,
+                             Timeout timeout = immediate) noexcept {
+        return handle_ != nullptr
+                   ? spw_port_acquire_tx_buffer(
+                         handle_, min_capacity, timeout, &out_buffer)
+                   : SPW_ERR_INVALID_STATE;
+    }
+
+    Result submit_tx_buffer(Buffer*& buffer,
+                            Timeout timeout = immediate) noexcept {
+        return handle_ != nullptr
+                   ? spw_port_submit_tx_buffer(handle_, &buffer, timeout)
+                   : SPW_ERR_INVALID_STATE;
+    }
+
+    Result reclaim_tx_buffer(Buffer*& out_buffer,
+                             Timeout timeout = immediate) noexcept {
+        return handle_ != nullptr
+                   ? spw_port_reclaim_tx_buffer(handle_, timeout, &out_buffer)
+                   : SPW_ERR_INVALID_STATE;
+    }
+
+    Result release_tx_buffer(Buffer*& buffer) noexcept {
+        return handle_ != nullptr
+                   ? spw_port_release_tx_buffer(handle_, &buffer)
+                   : SPW_ERR_INVALID_STATE;
+    }
+
+    Result acquire_rx_buffer(Buffer*& out_buffer,
+                             Timeout timeout = immediate) noexcept {
+        return handle_ != nullptr
+                   ? spw_port_acquire_rx_buffer(handle_, timeout, &out_buffer)
+                   : SPW_ERR_INVALID_STATE;
+    }
+
+    Result release_rx_buffer(Buffer*& buffer) noexcept {
+        return handle_ != nullptr
+                   ? spw_port_release_rx_buffer(handle_, &buffer)
                    : SPW_ERR_INVALID_STATE;
     }
 
