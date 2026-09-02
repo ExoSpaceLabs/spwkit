@@ -1,24 +1,47 @@
 # Current project status
 
-## Released
+## Stable release: v0.5.0
 
-`v0.5.0` is the current stable release. It includes:
+`v0.5.0` is the current immutable stable release. It includes:
 
-- the portable C11 runtime and optional header-only C++17 wrapper;
-- process-local simulation and distributed VSPW-TP/UDP transport;
-- native POSIX and Windows/Winsock UDP runtime support;
-- Linux VSPD virtual-device support, `vspwd`, `spwctl`, `spwmon`, and production CUSE `/dev/vspwX` presentation;
-- hosted package validation for `amd64`, `arm64`, `armhf`, and `riscv64`;
-- one four-platform GHCR runtime image;
-- HardRT POSIX and Cortex-M7 integration evidence;
-- release publication with architecture-specific DEBs and SHA-256 sidecars.
+- process-local SpaceWire simulation;
+- VSPW-TP/UDP on POSIX hosts and native Windows/Winsock;
+- Linux `SPW_BACKEND_DEVICE`, VSPD and `vspwd`;
+- `spwctl` and `spwmon`;
+- production CUSE `/dev/vspwX` presentation;
+- installed-package C and optional C++17 consumers;
+- caller-owned/no-heap construction;
+- zero-copy ownership semantics where advertised;
+- HardRT `0.4.0` POSIX and Cortex-M7 integration evidence;
+- multi-architecture Debian and GHCR publication.
 
-## Development
+## Development release: v0.6.0
 
-`develop` is the integration branch for v0.6.0. `main` remains the stable merge boundary. Ordinary pushes run the consolidated CI workflow. A release is published only from a version tag matching `vX.Y.Z` after the release validator confirms tag, project version, public API version, changelog, and main-history ancestry.
+`develop` carries the v0.6 integration work.
 
-v0.6 currently adds the pinned CCSDSPack v2.0.0 interoperability evidence and is moving next toward a portable hardware-driver/DMA integration contract.
+Completed software slices include:
 
-## Not claimed yet
+- public `SPW_BACKEND_DRIVER` configuration/callback contract;
+- DMA/zero-copy ownership mapping through the existing `spw_buffer_t` API;
+- deterministic host reference-driver execution;
+- no-heap/freestanding driver evidence;
+- CCSDSPack PUS-C packet transport through installed-package UDP and Linux DEVICE/VSPD paths;
+- two-node Docker Compose CCSDSPack-over-VSPW-TP/UDP integration;
+- repository documentation reconciliation and C++ convenience-wrapper parity work.
 
-SpWKit does not yet contain a real FPGA SpaceWire HDL core and does not claim physical SpaceWire interoperability. The software driver contract, mock/reference implementation and compile-time RTOS/bare-metal evidence can be completed before that hardware boundary is defined.
+The CCSDSPack dependency remains **provisional** against `CCSDSPack/develop` at a validated snapshot. Final v0.6 acceptance requires replacing that provisional reference with the user-approved immutable CCSDSPack 2.x release baseline and rerunning the integration evidence.
+
+## Remaining v0.6 evidence
+
+```mermaid
+flowchart LR
+    SW[Portable driver + DMA contract<br/>complete] --> STM[STM32H755 DMA/cache runtime evidence<br/>#119]
+    SW --> FPGA[Public FPGA/driver boundary<br/>#113]
+    SW --> CCSDS[Final CCSDSPack immutable baseline<br/>#90]
+    STM --> AUDIT[Final v0.6 audit]
+    FPGA --> AUDIT
+    CCSDS --> AUDIT
+    AUDIT --> REL[v0.6.0 release]
+```
+
+The STM32H755 runtime test is intentionally not considered complete until its exact board/test architecture is agreed and executed. Physical FPGA/SpaceWire electrical HIL remains outside the current software-only evidence.

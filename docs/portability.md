@@ -1,74 +1,95 @@
 # Portability contract
 
-SpWKit's runtime portability baseline is **C11**. The library core and current runtime backends are implemented in C; C++ is optional and sits above the public C API as a convenience wrapper.
+SpWKit's runtime portability baseline is **C11**. C++ is optional and sits above the C ABI as a header-only convenience layer.
 
 ## Language/toolchain policy
 
 `spwkit::spwkit` must not require:
 
-- a C++ compiler;
-- a C++ linker;
-- libstdc++, libc++ or the C++ ABI runtime;
+- a C++ compiler or linker;
+- libstdc++, libc++ or a C++ ABI runtime;
 - exceptions or RTTI;
-- STL containers or allocators.
+- STL containers/allocators;
+- platform-native handles in common operation signatures.
 
-CI configures the complete simulator + UDP runtime with `CXX=/bin/false`, executes pure-C behavior, and scans the resulting static archive for C++ ABI/runtime references.
-
-The optional `spwkit::cpp` target requires C++17, but it is header-only and delegates to the same public C API. It does not contain a second backend implementation and does not use exceptions for recoverable errors.
+CI includes pure-C profiles with `CXX=/bin/false`. The optional `spwkit::cpp` target requires C++17, uses result codes, and delegates to the C API.
 
 ## Heap policy
 
 Heap allocation is optional.
 
-- `spw_port_open()` is a hosted convenience API and may allocate when `SPWKIT_ENABLE_HEAP=ON`;
-- `spw_port_open_in_place()` constructs the port and backend in caller-owned storage;
-- `SPWKIT_ENABLE_HEAP=OFF` disables the hosted allocation path;
-- dedicated C and C++ no-heap tests verify the mandatory caller-owned core path.
-
-Future embedded backends may request larger or differently aligned caller-owned workspace without changing the public ownership model.
+- `spw_port_open()` is a hosted convenience path when heap support is enabled;
+- `spw_port_workspace_requirements()` reports private storage requirements;
+- `spw_port_open_in_place()` constructs a port in caller-owned storage;
+- C and C++ no-heap fixtures exercise the caller-owned path.
 
 ## Public ABI restrictions
 
-Mandatory public API signatures must not expose:
+Common API signatures must not expose:
 
-- POSIX file descriptors or socket types;
-- RTOS task/semaphore handles;
+- POSIX file descriptors, sockets, `pollfd`, or `sockaddr`;
+- Winsock `SOCKET` values;
+- CUSE/FUSE handles;
+- RTOS task/semaphore/event handles;
 - DMA descriptors or physical addresses;
-- AXI/MMIO addresses;
+- AXI/MMIO register structures;
 - vendor SDK handles;
-- C++ classes, exceptions or RTTI-dependent types.
+- C++ exceptions, classes, STL containers or ABI-dependent types.
 
-Backend-specific configuration may describe implementation choices, but common packet/link operations remain portable C types and functions.
+Backend-specific configuration may describe an implementation with portable values or opaque caller-owned callback/context pointers, but application packet/link semantics remain common C operations.
 
-## Hosted simulator versus portable core
+## Process-local simulator
 
-The process-local simulator is implemented in C11 but uses hosted synchronization internally to provide blocking waits and concurrent peer behavior:
+The simulator is C11 but uses private hosted synchronization to provide blocking waits and concurrent equal-peer behavior:
 
-- pthread mutexes/condition variables on POSIX hosts;
+- pthread mutex/condition variables on POSIX hosts;
 - native SRW locks/condition variables on Windows.
 
-Those primitives are private to the simulator backend. A core-only or embedded build with the simulator disabled has no hosted-thread dependency.
+Disabling the simulator removes that hosted synchronization dependency from the core build.
 
-Bare-metal/RTOS backends are expected to use polling, interrupts, events, scheduler primitives or hardware queues behind the same backend vtable/context contract.
+## Distributed UDP
 
-## Distributed UDP backend
+`SPW_BACKEND_UDP` is implemented on:
 
-The current hosted UDP runtime is C11 and POSIX-specific. Its sockets, `poll()` calls and timing primitives are private implementation details; no POSIX socket type enters the public ABI.
+- POSIX sockets for supported Unix-like hosts;
+- native Winsock for Windows.
 
-The VSPW-TP codec, reassembly logic, virtual timing and deterministic fault engine are C modules separated from the application API. Future lwIP/raw-Ethernet or native Winsock transports can reuse the same public semantics without requiring C++.
+The VSPW-TP codec, reassembly, timing and deterministic fault logic remain shared C code. Socket startup, readiness, error translation and native handle types stay private to the platform runtime.
 
-## Linux virtual-device direction
+Future embedded network transports such as lwIP/raw Ethernet may reuse the same VSPW-TP framing/public semantics without changing the application API.
 
-The v0.4 Linux virtual-device/service layer must obey the same rule. Unix-domain socket, CUSE and device-node details stay private to the backend/daemon implementation. A C application still sees only `spw_port_*`, and optional C++ applications still execute through that same C API.
+## Linux virtual-device stack
+
+`SPW_BACKEND_DEVICE`, VSPD and `vspwd` are Linux hosted components. Unix-domain sockets remain private. v0.5 `spwcuse` is a separate optional presenter that uses libfuse3 without adding a FUSE dependency to `libspwkit`.
+
+Applications can therefore choose either the linked DEVICE API or a `/dev/vspwX` presentation without changing the portable core ABI.
+
+## Portable driver boundary
+
+v0.6 `SPW_BACKEND_DRIVER` accepts a versioned `spw_driver_ops_t` callback table and caller-owned driver context. This supports host reference drivers, bare metal, RTOS devices, vendor SDKs and future FPGA controllers while keeping platform-native mechanism types below the application API.
+
+The driver/DMA callback layer may handle cache synchronization, descriptor submission and completion internally. The application still sees opaque `spw_buffer_t` ownership transitions.
 
 ## Static and shared builds
 
-`BUILD_SHARED_LIBS=OFF` is the normal static/embedded-friendly build. Linux CI also validates `BUILD_SHARED_LIBS=ON`, installs `libspwkit.so`, and links a separate C-only consumer against the installed package.
+`BUILD_SHARED_LIBS=OFF` is the normal static/embedded-friendly build. Hosted CI also validates shared-library installation and independent consumers.
 
-The build artifact type does not change the C API. Backend availability is reported through capabilities and installed package metadata rather than through a different application surface.
+Build artifact type does not change the public API.
+
+## Embedded evidence
+
+Current evidence distinguishes:
+
+```mermaid
+flowchart LR
+    C[Freestanding C / no heap] --> H[HardRT Cortex-M7 compile/link]
+    H --> D[Portable driver/DMA contract]
+    D --> STM[STM32H755 runtime evidence<br/>pending]
+    STM --> PHY[Physical SpaceWire HIL<br/>future]
+```
+
+The HardRT baseline is release `0.4.0`. Cortex-M7 compile/link evidence is not a claim of execution on STM32H755, and the driver/DMA host tests are not a claim of cache/coherency correctness on physical silicon.
 
 ## Verification rule
 
-A backend is not considered compatible merely because it compiles. It must pass the shared public backend contract for every capability it advertises. Optional capabilities such as time codes, EEP and zero-copy are capability-gated, and advertising a capability without the corresponding contract behavior is a test failure.
-
-For language portability, the stronger rule is also enforced: a valid C-only profile must configure, build, execute its C tests/examples, install and link without discovering or invoking a C++ compiler at all.
+A backend is compatible only when it satisfies the shared public contract for every capability it advertises. Compiling is necessary but not sufficient. Physical/hardware-specific claims require corresponding runtime/HIL evidence rather than being inferred from hosted CI.

@@ -1,179 +1,113 @@
 # Zero-copy buffer ownership
 
-SpWKit provides an optional ownership-oriented packet path for backends that can avoid application-side packet copies or naturally expose reusable transfer buffers.
+SpWKit provides a capability-gated zero-copy ownership API for backends that can benefit from backend-managed buffers while preserving the same packet/EOP/EEP semantics as copied I/O.
 
-The copied `spw_port_send()` / `spw_port_receive()` path remains mandatory for every v0.1 backend. Zero-copy is advertised only through `SPW_CAP_ZERO_COPY`.
+The public API models **ownership**, not DMA descriptors or physical memory.
 
-## Design boundary
+## Capability
 
-The public API describes **who owns a buffer and when it may be accessed**. It deliberately does not describe how a backend implements the buffer.
+Applications must query `SPW_CAP_ZERO_COPY` before using zero-copy operations. A backend that does not advertise the capability returns `SPW_ERR_UNSUPPORTED` for those operations.
 
-```text
-Application-visible contract
+## Public types
 
-TX: acquire -> fill -> submit -> backend owns -> reclaim -> reuse/release
-RX: backend receives -> acquire -> inspect -> release
-```
+`spw_buffer_t` is opaque. Applications inspect an owned buffer through `spw_buffer_view_t` using `spw_buffer_get_view()`.
 
-A simulator may implement those buffers with ordinary process memory. A Linux/FPGA backend may map them to coherent memory, pinned pages, descriptor rings, vendor SDK buffers, or another DMA-capable resource.
-
-None of the following are part of the portable ABI:
-
-- physical addresses;
-- `dma_addr_t`;
-- AXI addresses or descriptors;
-- Linux file descriptors or ioctls;
-- vendor DMA handles;
-- FPGA-specific descriptor layouts.
-
-## Public objects
-
-`spw_buffer_t` is opaque. Applications inspect an application-owned buffer using `spw_buffer_get_view()`.
-
-`spw_buffer_view_t` contains:
-
-- `data`: application-visible byte pointer;
-- `length`: current packet payload length;
-- `capacity`: writable/storage capacity;
-- `terminator`: EOP or EEP.
-
-The view is valid only while the application owns the associated `spw_buffer_t`.
-
-For TX, `data` is writable. For RX, packet bytes are read-only by contract until the buffer is released. The C ABI uses one pointer type for the common view; applications must not modify RX data.
+A view contains CPU-visible data, capacity, current length and terminator metadata. It does not expose physical addresses, descriptor rings, vendor handles or mapping objects.
 
 ## TX lifecycle
 
-```text
-spw_port_acquire_tx_buffer()
-        |
-        | application owns buffer
-        v
-spw_buffer_get_view()
-        |
-        | fill view.data
-        v
-spw_buffer_set_packet(length, terminator)
-        |
-        v
-spw_port_submit_tx_buffer()
-        |
-        | success sets application pointer to NULL
-        | backend owns buffer
-        v
-transmit/completion
-        |
-        v
-spw_port_reclaim_tx_buffer()
-        |
-        | application owns buffer again
-        +----------> refill + submit again
-        |
-        v
-spw_port_release_tx_buffer()
-        |
-        | success sets pointer to NULL
-        v
-backend pool
+```mermaid
+flowchart LR
+    ACQ[spw_port_acquire_tx_buffer] --> APP[Application owns]
+    APP --> VIEW[spw_buffer_get_view]
+    VIEW --> FILL[Fill payload]
+    FILL --> META[spw_buffer_set_packet]
+    META --> SUB[spw_port_submit_tx_buffer]
+    SUB --> BE[Backend owns]
+    BE --> DONE[Transmission complete]
+    DONE --> REC[spw_port_reclaim_tx_buffer]
+    REC --> APP
+    APP --> REL[spw_port_release_tx_buffer]
 ```
 
-A failed submit does not transfer ownership and leaves the application pointer unchanged.
+On successful submit, the caller's buffer pointer is cleared. On failed submit, ownership remains with the application and the pointer is unchanged.
 
-Reclaim returns a completed buffer into application ownership. It may then be reused directly or returned to the backend pool with `spw_port_release_tx_buffer()`.
+A reclaimed TX buffer is application-owned again and may be refilled/resubmitted or released back to the backend pool.
 
 ## RX lifecycle
 
-```text
-packet becomes available
-        |
-        v
-spw_port_acquire_rx_buffer()
-        |
-        | application owns buffer/view
-        v
-inspect packet bytes + EOP/EEP
-        |
-        v
-spw_port_release_rx_buffer()
-        |
-        | success sets pointer to NULL
-        v
-backend owns/recycles buffer
+```mermaid
+flowchart LR
+    BE[Backend receives complete packet] --> ACQ[spw_port_acquire_rx_buffer]
+    ACQ --> APP[Application owns RX view]
+    APP --> VIEW[spw_buffer_get_view]
+    VIEW --> REL[spw_port_release_rx_buffer]
+    REL --> BE[Backend recycles]
 ```
 
-Only one application may own a particular buffer at a time. A buffer acquired from one port cannot be submitted or released through another port.
+RX packet metadata is backend-produced. Releasing a successfully acquired RX buffer consumes that received packet and clears the caller pointer.
 
-## Capacity and alignment
+## Packet metadata
 
-Applications must query `spw_port_get_capabilities()`.
+`spw_buffer_set_packet()` is valid only for application-owned TX buffers. It sets the payload length and EOP/EEP terminator before submission.
 
-- `max_packet_size` is the maximum transferable packet size.
-- `buffer_alignment` is the alignment guaranteed/required by the backend's zero-copy buffers.
-- queue-depth fields describe bounded backend resources and may be used for deterministic pool sizing.
+The requested length must not exceed acquired capacity. RX metadata is not application-writable through this operation.
 
-`spw_port_acquire_tx_buffer()` accepts a minimum required capacity. A request larger than the backend can satisfy fails explicitly.
+## Ownership errors
 
-## Exhaustion and timeouts
+The ownership contract is deliberately strict:
 
-Zero-copy pools are bounded resources. Exhaustion is not hidden by allocating more memory.
-
-Immediate acquisition on an exhausted pool returns `SPW_ERR_RESOURCE_EXHAUSTED`. Finite waits may return `SPW_ERR_TIMEOUT`. Backends may wake blocked operations when buffers are reclaimed/released.
-
-This mirrors the deterministic resource model established for the portable core.
+- a buffer belongs to one port/backend;
+- a foreign-port release/submit is rejected;
+- double release/submit is rejected by the underlying ownership state;
+- failed ownership-transfer operations preserve application ownership;
+- buffer tokens/views are valid only according to the documented ownership phase.
 
 ## Simulator implementation
 
-The v0.1 local simulator advertises `SPW_CAP_ZERO_COPY` and implements the same public ownership contract using fixed host-memory buffers.
+The process-local simulator advertises `SPW_CAP_ZERO_COPY`. It uses fixed aligned host-memory slots and may copy internally while preserving the public ownership/completion semantics.
 
-The simulator is allowed to copy internally between its ownership buffers and its packet engine. The purpose of the simulator implementation is to reproduce the **application-visible ownership, ordering, capacity, alignment, timeout, and completion semantics** before physical DMA hardware is available.
+This makes it a deterministic behavioral reference for application code before DMA hardware exists.
 
-That distinction is intentional:
+## Driver/DMA implementation
 
-```text
-Application
-    |
-    | same zero-copy API
-    v
-libspwkit
-    |
-    +--> simulator: fixed host-memory buffers, internal emulation
-    |
-    +--> future FPGA backend: DMA-capable buffers/descriptors internally
+The v0.6 `SPW_BACKEND_DRIVER` can advertise zero-copy when its driver ABI provides the complete DMA callback set.
+
+```mermaid
+flowchart TB
+    APP[spw_buffer_* application API] --> WRAP[SpWKit opaque buffer wrapper]
+    WRAP --> TOKEN[opaque driver buffer token]
+    TOKEN --> DMA[driver DMA/cache implementation]
+    DMA --> HW[MCU / vendor / future FPGA controller]
 ```
 
-The application does not change when the backend changes.
+SpWKit validates capability/callback coherence and keeps bounded wrapper slots in caller-owned port workspace. The driver owns native memory allocation/descriptor representation and may provide cache synchronization callbacks before device access or before CPU readback.
 
-## Scatter/gather policy for v0.1
+The application still follows the same acquire/submit/reclaim/release lifecycle used by the simulator.
 
-Scatter/gather packet buffers are **deferred** for v0.1.
+## C++17 wrapper
 
-A v0.1 zero-copy buffer represents one contiguous SpaceWire packet payload. This keeps packet boundaries and ownership rules unambiguous while the first DMA-capable physical backend does not yet exist.
-
-A future scatter/gather extension should be capability-gated and add explicit segment ownership rather than reinterpret the current contiguous-buffer ABI.
-
-## Interaction with copied I/O
-
-Advertising zero-copy does not remove the copied API. Applications may mix copied and ownership-oriented operations on the same port subject to normal queue/resource behavior.
-
-The shared contract suite verifies that copied send/receive still works after zero-copy transfers.
-
-## Future DMA backend mapping
-
-A physical backend can implement the current API without changing application-visible semantics:
+When `SPWKIT_ENABLE_CPP=ON`, `spwkit::Port` forwards the zero-copy operations:
 
 ```text
-acquire TX
-    -> reserve DMA-capable buffer / descriptor
-submit TX
-    -> publish descriptor to DMA engine
-reclaim TX
-    -> return completed descriptor buffer
-release TX
-    -> return unused/reclaimed buffer to pool
-
-acquire RX
-    -> expose completed RX DMA buffer
-release RX
-    -> recycle descriptor/buffer to RX ring
+acquire_tx_buffer
+submit_tx_buffer
+reclaim_tx_buffer
+release_tx_buffer
+acquire_rx_buffer
+release_rx_buffer
+buffer_view
+set_packet
 ```
 
-Cache maintenance, address translation, descriptor chaining, interrupts, IOMMU handling, and device synchronization remain backend responsibilities.
+The wrapper aliases the C types as `spwkit::Buffer` and `spwkit::BufferView`; it does not invent a second ownership model.
+
+`examples/cpp_wrapper_simulator_zero_copy.cpp` executes the full successful C++ lifecycle against the simulator.
+
+## Scatter/gather
+
+A current `spw_buffer_t` represents one contiguous logical packet payload. Scatter/gather is not part of the present public ownership contract and must not be inferred from a vendor descriptor implementation.
+
+## Verification boundary
+
+Hosted simulator/reference-driver tests verify ownership state, bounded resources, pointer clearing, metadata and completion semantics. They do not prove physical DMA coherency on a specific MCU or FPGA. STM32H755 cache/DMA runtime validation remains separate evidence.
