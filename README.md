@@ -1,35 +1,38 @@
-# SpWKit
+<p align="center">
+  <img src="img/SpWKit_logo.png" alt="SpWKit logo" width="600">
+</p>
 
-[ExoSpaceLabs](https://github.com/ExoSpaceLabs)
-
-**SpaceWire Development & Integration Toolkit**
+<p align="center">
+  <strong>SpaceWire Development & Integration Toolkit</strong><br>
+  <a href="https://github.com/ExoSpaceLabs">ExoSpaceLabs</a>
+</p>
 
 SpWKit is a portable C11 SpaceWire software stack for simulation, distributed integration testing, Linux virtual devices, embedded/RTOS integration, and future hardware-backed links. Applications keep the same SpaceWire-facing API while the backend can move from a deterministic simulator to UDP, a Linux virtual device, or a platform/vendor driver.
 
 ```mermaid
 flowchart TB
-    APP[Application] --> API[spw_port_* public C API]
-    API --> LOOP[Loopback reference]
-    API --> SIM[Process-local simulator]
-    API --> UDP[VSPW-TP / UDP]
-    API --> DEV[Linux DEVICE / VSPD]
-    DEV --> VSPWD[vspwd]
-    VSPWD --> CUSE[spwcuse / /dev/vspwX]
-    API --> DRIVER[Portable driver backend<br/>v0.6 development]
-    DRIVER --> RTOS[RTOS / bare-metal driver]
-    DRIVER --> FPGA[Future MMIO / DMA FPGA driver]
-    FPGA --> PHY[Future physical SpaceWire implementation]
+    APP["Application"] --> API["spw_port_* public C API"]
+    API --> LOOP["Loopback reference"]
+    API --> SIM["Process-local simulator"]
+    API --> UDP["VSPW-TP / UDP"]
+    API --> DEV["Linux DEVICE / VSPD"]
+    DEV --> VSPWD["vspwd"]
+    VSPWD --> CUSE["spwcuse / /dev/vspwX"]
+    API --> DRIVER["Portable driver backend<br/>v0.6 development"]
+    DRIVER --> RTOS["RTOS / bare-metal driver"]
+    DRIVER --> FPGA["Future MMIO / DMA FPGA driver"]
+    FPGA --> PHY["Future physical SpaceWire implementation"]
 ```
 
 The runtime is C11. The optional C++17 layer is header-only and forwards to the same C ABI; it is a convenience surface, not a second implementation.
 
 ## Project status
 
-### Stable: v0.5.0
+### Stable: v0.5.1
 
-`v0.5.0` is the current stable release. Its Git tag and release assets are immutable.
+`v0.5.1` is the current stable maintenance release. It keeps the v0.5 C ABI and backend behavior unchanged while completing parity in the optional C++17 wrapper for workspace and zero-copy operations.
 
-Highlights:
+Stable highlights:
 
 - process-local simulator plus distributed VSPW-TP/UDP transport;
 - native POSIX and Windows/Winsock UDP runtime support behind `SPW_BACKEND_UDP`;
@@ -42,6 +45,8 @@ Highlights:
 - `.deb` releases for `amd64`, `arm64`, `armhf`, and `riscv64`;
 - one GHCR runtime image for `linux/amd64`, `linux/arm64`, `linux/arm/v7`, and `linux/riscv64`.
 
+See the [v0.5.1 release notes](docs/releases/v0.5.1.md).
+
 ### Development: v0.6.0
 
 `develop` is the v0.6 integration branch. Current v0.6 work includes:
@@ -50,7 +55,7 @@ Highlights:
 - DMA/zero-copy ownership mapping through the existing `spw_buffer_t` contract;
 - a deterministic host reference driver and no-heap driver evidence;
 - CCSDSPack PUS-C interoperability through installed packages, Linux DEVICE/VSPD, VSPW-TP/UDP, and a two-node Docker Compose topology;
-- provisional CCSDSPack integration against `CCSDSPack/develop` at a validated snapshot while its final 2.x release baseline is still pending approval.
+- CI integration pinned to immutable CCSDSPack `v2.0.0` at commit `c2f318c330c564429bcc565a8acbff22728b2851`.
 
 The v0.6 software boundary deliberately stops before a proprietary or physical FPGA SpaceWire implementation. STM32H755 runtime DMA/cache validation and the public FPGA/driver interface boundary remain separate evidence items.
 
@@ -126,7 +131,7 @@ return port.stop() == SPW_OK ? 0 : 3;
 
 On `develop`, `spwkit::Port` also forwards workspace requirements, in-place construction, readiness, time codes, statistics, fault statistics, and the zero-copy acquire/submit/reclaim/release API. The C ownership and result semantics remain authoritative.
 
-Heap allocation is optional. Bare-metal/RTOS integrations can query workspace requirements and construct ports in caller-owned storage with `spw_port_open_in_place()` or, on current `develop`, `spwkit::Port::open_in_place()`.
+Heap allocation is optional. Bare-metal/RTOS integrations can query workspace requirements and construct ports in caller-owned storage with `spw_port_open_in_place()` or `spwkit::Port::open_in_place()`.
 
 ## Virtual SpaceWire
 
@@ -136,9 +141,9 @@ Two simulator ports with the same `link_id` and opposite A/B endpoint labels for
 
 ```mermaid
 flowchart LR
-    A[Application A] --> PA[libspwkit<br/>endpoint A]
-    PA <-->|virtual link<br/>link_id = N| PB[libspwkit<br/>endpoint B]
-    PB --> B[Application B]
+    A["Application A"] --> PA["libspwkit<br/>endpoint A"]
+    PA <-->|virtual link<br/>link_id = N| PB["libspwkit<br/>endpoint B"]
+    PB --> B["Application B"]
 ```
 
 ### Distributed UDP
@@ -147,9 +152,9 @@ Independent processes, containers, or hosts can exchange the same logical SpaceW
 
 ```mermaid
 flowchart LR
-    A[Application A] --> UA[SPW_BACKEND_UDP]
-    UA <-->|VSPW-TP / UDP| UB[SPW_BACKEND_UDP]
-    UB --> B[Application B]
+    A["Application A"] --> UA["SPW_BACKEND_UDP"]
+    UA <-->|VSPW-TP / UDP| UB["SPW_BACKEND_UDP"]
+    UB --> B["Application B"]
 ```
 
 UDP is only the carrier. Packet boundaries, EOP/EEP, time codes, session/retry behavior, virtual timing, and SpaceWire-side fault semantics remain SpWKit concepts.
@@ -160,15 +165,15 @@ UDP is only the carrier. Packet boundaries, EOP/EEP, time codes, session/retry b
 
 ```mermaid
 flowchart TB
-    APP[Application using spw_port_*] --> DEV[SPW_BACKEND_DEVICE]
-    DEV --> VSPD[VSPD / AF_UNIX SOCK_SEQPACKET]
-    VSPD --> D[vspwd]
-    RAW[Application using /dev/vspwX] --> NODE["/dev/vspwX"]
-    NODE --> CUSE[spwcuse]
-    CUSE --> DEV2[SPW_BACKEND_DEVICE]
+    APP["Application using spw_port_*"] --> DEV["SPW_BACKEND_DEVICE"]
+    DEV --> VSPD["VSPD / AF_UNIX SOCK_SEQPACKET"]
+    VSPD --> D["vspwd"]
+    RAW["Application using /dev/vspwX"] --> NODE["/dev/vspwX"]
+    NODE --> CUSE["spwcuse"]
+    CUSE --> DEV2["SPW_BACKEND_DEVICE"]
     DEV2 --> VSPD
-    D --> P0[virtual port 0]
-    D --> P1[virtual port 1]
+    D --> P0["virtual port 0"]
+    D --> P1["virtual port 1"]
     P0 <--> P1
 ```
 
@@ -222,19 +227,19 @@ find_package(SpWKit 0.5 CONFIG REQUIRED)
 target_link_libraries(my_cpp_app PRIVATE spwkit::cpp)
 ```
 
-A source build from `develop` reports project/API version `0.6.0`; that does not retroactively change the stable `v0.5.0` package contract.
+A source build from `develop` reports project/API version `0.6.0`; that does not change the stable v0.5 package contract.
 
 Standalone installed-package examples live under `examples/installed*`, distributed peers under `examples/distributed*`, and upper-layer integrations under `integrations/`.
 
 ## Binary releases
 
-`v0.5.0` publishes:
+`v0.5.1` publishes Debian packages for:
 
 ```text
-spwkit_0.5.0-1_amd64.deb
-spwkit_0.5.0-1_arm64.deb
-spwkit_0.5.0-1_armhf.deb
-spwkit_0.5.0-1_riscv64.deb
+amd64
+arm64
+armhf
+riscv64
 ```
 
 The matching GHCR image supports:
@@ -252,16 +257,24 @@ See [binary release artifacts](docs/binary-packages.md).
 
 ```mermaid
 flowchart LR
-    F[Feature branch] --> PRD[PR to develop]
-    PRD --> DEV[develop]
-    DEV --> CI[Consolidated CI]
-    CI --> PRM[Release PR to main]
-    PRM --> MAIN[main]
-    MAIN --> TAG[immutable vX.Y.Z tag]
-    TAG --> REL[Release workflow]
+    F["Feature branch"] --> PRD["PR to develop"]
+    PRD --> DEV["develop"]
+    DEV --> CI["Consolidated CI"]
+    CI --> PRM["Release PR to main"]
+    PRM --> MAIN["main"]
+    MAIN --> TAG["immutable vX.Y.Z tag"]
+    TAG --> REL["Release workflow"]
 ```
 
+`main` is the stable line. `develop` carries the next release. Temporary feature/release branches are deleted after integration; tags and releases preserve release history.
+
 Physical HIL remains separate from hosted CI until appropriate SpaceWire/FPGA hardware exists and the corresponding harness is executed.
+
+## Standards scope
+
+The primary design reference is **ECSS-E-ST-50-12C Rev.1, SpaceWire - Links, nodes, routers and networks (15 May 2019)**. Related ECSS SpaceWire standards cover protocol identification, RMAP, and CCSDS packet transfer.
+
+SpWKit uses these standards as design references. The project does **not** claim formal ECSS conformance or certification until implemented behavior is backed by explicit requirements traceability and verification evidence.
 
 ## Documentation
 
@@ -289,4 +302,4 @@ SpWKit models and transports software-visible SpaceWire packet/link semantics. A
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [CONTRIBUTING.md](CONTRIBUTING.md).
