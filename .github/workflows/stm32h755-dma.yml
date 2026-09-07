@@ -1,0 +1,106 @@
+name: STM32H755 DMA evidence
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'integrations/stm32h755_dma/**'
+      - '.github/workflows/stm32h755-dma.yml'
+  pull_request:
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'integrations/stm32h755_dma/**'
+      - '.github/workflows/stm32h755-dma.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-build:
+    name: Cortex-M7 build/link
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      STM32_CUBE_H7_COMMIT: f5c0b7a2b1f6eb26fde150f72edb2d7deb647066
+
+    steps:
+      - name: Checkout SpWKit
+        uses: actions/checkout@v4
+
+      - name: Install Arm GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi \
+            libnewlib-arm-none-eabi \
+            git
+
+      - name: Fetch pinned STM32 CMSIS headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cube="${RUNNER_TEMP}/STM32CubeH7"
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/STMicroelectronics/STM32CubeH7.git "${cube}"
+          git -C "${cube}" sparse-checkout init --cone
+          git -C "${cube}" sparse-checkout set \
+            Drivers/CMSIS/Include \
+            Drivers/CMSIS/Device/ST/STM32H7xx
+          git -C "${cube}" checkout "${STM32_CUBE_H7_COMMIT}"
+          git -C "${cube}" submodule update --init --depth 1 \
+            Drivers/CMSIS/Device/ST/STM32H7xx
+          test -f "${cube}/Drivers/CMSIS/Include/core_cm7.h"
+          test -f "${cube}/Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h755xx.h"
+          echo "STM32_CUBE_H7_DIR=${cube}" >> "${GITHUB_ENV}"
+
+      - name: Cross-build and install SpWKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/stm32-spwkit \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/build/stm32-install" \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF
+          cmake --build build/stm32-spwkit --parallel 2
+          cmake --install build/stm32-spwkit
+
+      - name: Build STM32H755 evidence firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S integrations/stm32h755_dma -B build/stm32h755-dma \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stm32-install" \
+            -DSTM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR}"
+          cmake --build build/stm32h755-dma --parallel 2
+
+      - name: Verify firmware evidence surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          elf="build/stm32h755-dma/spwkit_stm32h755_dma.elf"
+          test -s "${elf}"
+          arm-none-eabi-nm -g "${elf}" | grep -q 'g_stm32h755_spwkit_evidence'
+          if arm-none-eabi-nm -u "${elf}" | grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free|printf|puts|write|read)$'; then
+            echo 'Unexpected hosted runtime symbol in STM32H755 evidence firmware' >&2
+            arm-none-eabi-nm -u "${elf}" >&2
+            exit 1
+          fi
+          arm-none-eabi-size "${elf}"
+          arm-none-eabi-objdump -h "${elf}" | grep -E '(isr_vector|dma_buffer|text|data|bss)'
