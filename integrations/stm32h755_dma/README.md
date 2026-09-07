@@ -123,21 +123,44 @@ phase = 0xdead0000 | result
 
 The result value identifies the failing contract phase in `firmware.c`.
 
-## Flash and inspect
+## Flash and run the board test
 
-Use an ST-LINK/OpenOCD/GDB setup appropriate to the NUCLEO-H755ZI-Q and target the Cortex-M7 image at the linker-defined flash address (`0x08000000`).
+The repository includes the same OpenOCD/GDB automation pattern used by HardRT for the NUCLEO-H755ZI-Q:
 
-A typical debugger flow is conceptually:
+- `scripts/openocd_h755.cfg` selects ST-LINK over SWD, the STM32H7 dual-bank target, connect-under-reset, and a conservative 400 kHz adapter clock;
+- `scripts/gdb/stm32h755_board_test.gdb` flashes the ELF, runs the CM7 firmware, halts it, prints the complete evidence structure, and emits `RESULT: PASS` only when every acceptance field is valid;
+- `scripts/stm32h755_board_test.sh` validates the pinned CMSIS checkout, cross-builds SpWKit and the evidence firmware, manages OpenOCD, runs GDB in batch mode, captures logs, and returns a nonzero status on failure.
 
-```text
-connect to CM7
-load spwkit_stm32h755_dma.elf
-reset/run
-halt after the firmware reaches its terminal loop
-inspect g_stm32h755_spwkit_evidence
+On Ubuntu, install the host-side tools as appropriate for the distribution. The runner requires CMake, OpenOCD, the Arm GNU embedded toolchain, and either `gdb-multiarch` or `arm-none-eabi-gdb`.
+
+With the board connected through its ST-LINK USB port, run:
+
+```bash
+scripts/stm32h755_board_test.sh --stm32h7-root /tmp/STM32CubeH7
 ```
 
-The exact OpenOCD invocation depends on the installed OpenOCD/ST-LINK version and board configuration, so the acceptance record should include the command/tool versions actually used rather than pretending one magic command is universal.
+For a clean qualification build:
+
+```bash
+scripts/stm32h755_board_test.sh --stm32h7-root /tmp/STM32CubeH7 --clean
+```
+
+To reflash/retest an already built `build/stm32h755-dma/spwkit_stm32h755_dma.elf`:
+
+```bash
+scripts/stm32h755_board_test.sh --stm32h7-root /tmp/STM32CubeH7 --no-build
+```
+
+The runner writes the raw debugger records to:
+
+```text
+build/stm32h755-dma/board-test/openocd.log
+build/stm32h755-dma/board-test/gdb.log
+```
+
+The default OpenOCD script root is `/usr/share/openocd/scripts`; override it with `--openocd-scripts DIR` when the distribution installs OpenOCD elsewhere.
+
+The scripted pass criteria are exactly the `g_stm32h755_spwkit_evidence` values documented above. This is MCU DMA/cache evidence, not SpaceWire electrical/physical-link HIL.
 
 ## Acceptance record for #119
 

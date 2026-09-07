@@ -9,6 +9,9 @@ on:
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'integrations/stm32h755_dma/**'
+      - 'scripts/stm32h755_board_test.sh'
+      - 'scripts/openocd_h755.cfg'
+      - 'scripts/gdb/stm32h755_board_test.gdb'
       - '.github/workflows/stm32h755-dma.yml'
   pull_request:
     paths:
@@ -17,6 +20,9 @@ on:
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'integrations/stm32h755_dma/**'
+      - 'scripts/stm32h755_board_test.sh'
+      - 'scripts/openocd_h755.cfg'
+      - 'scripts/gdb/stm32h755_board_test.gdb'
       - '.github/workflows/stm32h755-dma.yml'
   workflow_dispatch:
 
@@ -35,6 +41,13 @@ jobs:
     steps:
       - name: Checkout SpWKit
         uses: actions/checkout@v4
+
+      - name: Validate board runner syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x scripts/stm32h755_board_test.sh
+          bash -n scripts/stm32h755_board_test.sh
 
       - name: Install Arm GNU toolchain
         run: |
