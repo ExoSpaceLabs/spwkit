@@ -40,10 +40,51 @@ set(_spwkit_rx_profile_probes
     SPW_PROFILE_ID_RX_BACKEND_RETURN
     SPW_PROFILE_ID_RX_API_RETURN
 )
-set(_spwkit_all_profile_probes
-    ${_spwkit_tx_profile_probes}
-    ${_spwkit_rx_profile_probes}
+set(_spwkit_tx_zc_acquire_profile_probes
+    SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_ENTRY
+    SPW_PROFILE_ID_TX_ZC_ACQUIRE_PROVIDER_ENTRY
+    SPW_PROFILE_ID_TX_ZC_ACQUIRE_PROVIDER_RETURN
+    SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_RETURN
 )
+set(_spwkit_tx_zc_submit_profile_probes
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_API_ENTRY
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_BACKEND_ENTRY
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_SYNC_ENTRY
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_SYNC_RETURN
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_PROVIDER_ENTRY
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_PROVIDER_BOUNDARY
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_PROVIDER_RETURN
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_BACKEND_RETURN
+    SPW_PROFILE_ID_TX_ZC_SUBMIT_API_RETURN
+)
+set(_spwkit_tx_zc_reclaim_profile_probes
+    SPW_PROFILE_ID_TX_ZC_RECLAIM_API_ENTRY
+    SPW_PROFILE_ID_TX_ZC_RECLAIM_PROVIDER_ENTRY
+    SPW_PROFILE_ID_TX_ZC_RECLAIM_PROVIDER_BOUNDARY
+    SPW_PROFILE_ID_TX_ZC_RECLAIM_PROVIDER_RETURN
+    SPW_PROFILE_ID_TX_ZC_RECLAIM_BACKEND_RETURN
+    SPW_PROFILE_ID_TX_ZC_RECLAIM_API_RETURN
+)
+set(_spwkit_tx_zc_release_profile_probes
+    SPW_PROFILE_ID_TX_ZC_RELEASE_API_ENTRY
+    SPW_PROFILE_ID_TX_ZC_RELEASE_BACKEND_ENTRY
+    SPW_PROFILE_ID_TX_ZC_RELEASE_PROVIDER_ENTRY
+    SPW_PROFILE_ID_TX_ZC_RELEASE_PROVIDER_RETURN
+    SPW_PROFILE_ID_TX_ZC_RELEASE_BACKEND_RETURN
+    SPW_PROFILE_ID_TX_ZC_RELEASE_API_RETURN
+)
+set(_spwkit_profile_domain_vars
+    _spwkit_tx_profile_probes
+    _spwkit_rx_profile_probes
+    _spwkit_tx_zc_acquire_profile_probes
+    _spwkit_tx_zc_submit_profile_probes
+    _spwkit_tx_zc_reclaim_profile_probes
+    _spwkit_tx_zc_release_profile_probes
+)
+set(_spwkit_all_profile_probes)
+foreach(_spwkit_profile_domain_var IN LISTS _spwkit_profile_domain_vars)
+    list(APPEND _spwkit_all_profile_probes ${${_spwkit_profile_domain_var}})
+endforeach()
 set_property(CACHE SPWKIT_PROFILE_START PROPERTY STRINGS ${_spwkit_all_profile_probes})
 set_property(CACHE SPWKIT_PROFILE_END PROPERTY STRINGS ${_spwkit_all_profile_probes})
 
@@ -65,25 +106,25 @@ if(SPWKIT_ENABLE_PROFILING)
         message(FATAL_ERROR "Unknown SPWKIT_PROFILE_END=${SPWKIT_PROFILE_END}")
     endif()
 
-    list(FIND _spwkit_tx_profile_probes "${SPWKIT_PROFILE_START}" _spwkit_tx_start_index)
-    list(FIND _spwkit_tx_profile_probes "${SPWKIT_PROFILE_END}" _spwkit_tx_end_index)
-    list(FIND _spwkit_rx_profile_probes "${SPWKIT_PROFILE_START}" _spwkit_rx_start_index)
-    list(FIND _spwkit_rx_profile_probes "${SPWKIT_PROFILE_END}" _spwkit_rx_end_index)
-
     set(_spwkit_profile_same_domain OFF)
-    if(NOT _spwkit_tx_start_index EQUAL -1 AND NOT _spwkit_tx_end_index EQUAL -1)
-        set(_spwkit_profile_same_domain ON)
-        if(_spwkit_tx_end_index LESS_EQUAL _spwkit_tx_start_index)
-            message(FATAL_ERROR "TX profiling end probe must follow the start probe")
+    foreach(_spwkit_profile_domain_var IN LISTS _spwkit_profile_domain_vars)
+        list(FIND ${_spwkit_profile_domain_var}
+            "${SPWKIT_PROFILE_START}" _spwkit_profile_start_domain_index)
+        list(FIND ${_spwkit_profile_domain_var}
+            "${SPWKIT_PROFILE_END}" _spwkit_profile_end_domain_index)
+        if(NOT _spwkit_profile_start_domain_index EQUAL -1 AND
+           NOT _spwkit_profile_end_domain_index EQUAL -1)
+            set(_spwkit_profile_same_domain ON)
+            if(_spwkit_profile_end_domain_index LESS_EQUAL
+               _spwkit_profile_start_domain_index)
+                message(FATAL_ERROR
+                    "Profiling end probe must follow the start probe within its operation domain")
+            endif()
         endif()
-    elseif(NOT _spwkit_rx_start_index EQUAL -1 AND NOT _spwkit_rx_end_index EQUAL -1)
-        set(_spwkit_profile_same_domain ON)
-        if(_spwkit_rx_end_index LESS_EQUAL _spwkit_rx_start_index)
-            message(FATAL_ERROR "RX profiling end probe must follow the start probe")
-        endif()
-    endif()
+    endforeach()
     if(NOT _spwkit_profile_same_domain)
-        message(FATAL_ERROR "Profiling start/end probes must belong to the same TX or RX domain")
+        message(FATAL_ERROR
+            "Profiling start/end probes must belong to the same operation domain")
     endif()
 
     message(STATUS

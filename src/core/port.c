@@ -716,6 +716,7 @@ spw_result_t spw_port_acquire_tx_buffer(spw_port_t* port,
                                         size_t min_capacity,
                                         spw_timeout_us_t timeout_us,
                                         spw_buffer_t** out_buffer) {
+    spw_result_t result;
     if (validate_port(port) != SPW_OK || out_buffer == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
@@ -723,8 +724,11 @@ spw_result_t spw_port_acquire_tx_buffer(spw_port_t* port,
     if (port->ops->acquire_tx_buffer == NULL) {
         return SPW_ERR_UNSUPPORTED;
     }
-    return port->ops->acquire_tx_buffer(
+    SPW_PROFILE_TX_ZC_ACQUIRE_API_ENTRY();
+    result = port->ops->acquire_tx_buffer(
         port->backend_context, min_capacity, timeout_us, out_buffer);
+    SPW_PROFILE_TX_ZC_ACQUIRE_API_RETURN();
+    return result;
 }
 
 spw_result_t spw_port_submit_tx_buffer(spw_port_t* port,
@@ -738,8 +742,10 @@ spw_result_t spw_port_submit_tx_buffer(spw_port_t* port,
     if (port->ops->submit_tx_buffer == NULL) {
         return SPW_ERR_UNSUPPORTED;
     }
+    SPW_PROFILE_TX_ZC_SUBMIT_API_ENTRY();
     result = port->ops->submit_tx_buffer(
         port->backend_context, *inout_buffer, timeout_us);
+    SPW_PROFILE_TX_ZC_SUBMIT_API_RETURN();
     if (result == SPW_OK) {
         *inout_buffer = NULL;
     }
@@ -749,6 +755,7 @@ spw_result_t spw_port_submit_tx_buffer(spw_port_t* port,
 spw_result_t spw_port_reclaim_tx_buffer(spw_port_t* port,
                                         spw_timeout_us_t timeout_us,
                                         spw_buffer_t** out_buffer) {
+    spw_result_t result;
     if (validate_port(port) != SPW_OK || out_buffer == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
@@ -756,8 +763,11 @@ spw_result_t spw_port_reclaim_tx_buffer(spw_port_t* port,
     if (port->ops->reclaim_tx_buffer == NULL) {
         return SPW_ERR_UNSUPPORTED;
     }
-    return port->ops->reclaim_tx_buffer(
+    SPW_PROFILE_TX_ZC_RECLAIM_API_ENTRY();
+    result = port->ops->reclaim_tx_buffer(
         port->backend_context, timeout_us, out_buffer);
+    SPW_PROFILE_TX_ZC_RECLAIM_API_RETURN();
+    return result;
 }
 
 spw_result_t spw_port_release_tx_buffer(spw_port_t* port,
@@ -770,7 +780,9 @@ spw_result_t spw_port_release_tx_buffer(spw_port_t* port,
     if (port->ops->release_tx_buffer == NULL) {
         return SPW_ERR_UNSUPPORTED;
     }
+    SPW_PROFILE_TX_ZC_RELEASE_API_ENTRY();
     result = port->ops->release_tx_buffer(port->backend_context, *inout_buffer);
+    SPW_PROFILE_TX_ZC_RELEASE_API_RETURN();
     if (result == SPW_OK) {
         *inout_buffer = NULL;
     }
