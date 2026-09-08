@@ -67,7 +67,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          benchmarks/run_zero_copy_receive_comparison.sh \
+          bash benchmarks/run_zero_copy_receive_comparison.sh \
             --warmup 16 \
             --iterations 64 \
             --payloads "0 64 1024 4096" \
@@ -101,6 +101,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          chmod +x benchmarks/run_zero_copy_receive_comparison.sh
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CMakeLists.txt src tests benchmarks
