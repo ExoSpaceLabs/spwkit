@@ -60,6 +60,63 @@ jobs:
       - name: Execute selected pair
         run: ctest --test-dir build-profile -R '^profiling_pair_smoke$' --output-on-failure
 
+  counter-metadata:
+    name: Counter metadata override
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure known counter frequency
+        run: >-
+          cmake -S . -B build-counter-metadata
+          -DSPWKIT_ENABLE_PROFILING=ON
+          -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY
+          -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_BACKEND_ENTRY
+          -DCMAKE_C_FLAGS=-DSPWKIT_PROFILE_COUNTER_HZ=123456789
+          -DSPWKIT_BUILD_CPP_TESTS=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+
+      - name: Build and verify metadata
+        run: |
+          cmake --build build-counter-metadata --target spwkit_profile_probe_smoke --parallel 2
+          ctest --test-dir build-counter-metadata -R '^profiling_pair_smoke$' --output-on-failure
+
+  cortex-m7-counter:
+    name: Cortex-M7 DWT profiling build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Arm GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi \
+            libnewlib-arm-none-eabi
+
+      - name: Cross-build profiling-enabled library
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-profile-cortex-m7 \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_C_FLAGS=-DSPWKIT_PROFILE_COUNTER_HZ=64000000 \
+            -DSPWKIT_ENABLE_PROFILING=ON \
+            -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+            -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_BACKEND_ENTRY \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF
+          cmake --build build-profile-cortex-m7 --parallel 2
+          arm-none-eabi-nm build-profile-cortex-m7/libspwkit.a | grep -q 'spw_profile_prepare'
+
   invalid-pairs:
     name: Reject invalid probe pairs
     runs-on: ubuntu-24.04

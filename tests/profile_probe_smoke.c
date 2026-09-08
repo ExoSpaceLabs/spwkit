@@ -114,8 +114,20 @@ static void require_one_sample(void) {
     const volatile spw_profile_sample_t* sample = spw_profile_last_sample();
     assert(sample != NULL);
     assert(sample->sequence == 1u);
-    assert(sample->end >= sample->start);
-    assert(sample->delta == (sample->end - sample->start));
+    assert(sample->delta == spw_profile_counter_delta(sample->start, sample->end));
+}
+
+static void exercise_counter_metadata(void) {
+    const uint32_t width = spw_profile_counter_width_bits();
+
+    assert(width == 32u || width == 64u);
+    assert(spw_profile_delta32((uint64_t)UINT32_MAX - 3u, 2u) == 6u);
+    assert(spw_profile_delta64(10u, 20u) == 10u);
+
+#if SPWKIT_PROFILE_COUNTER_HZ > 0
+    assert(spw_profile_counter_frequency_hz() ==
+           (uint64_t)SPWKIT_PROFILE_COUNTER_HZ);
+#endif
 }
 
 static void exercise_probe_mechanism(void) {
@@ -182,6 +194,7 @@ int main(void) {
     spw_profile_prepare();
     assert(spw_profile_counter_kind() != NULL);
 
+    exercise_counter_metadata();
     exercise_probe_mechanism();
     exercise_driver_boundary();
     return 0;
