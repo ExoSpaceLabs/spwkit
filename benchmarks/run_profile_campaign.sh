@@ -22,7 +22,8 @@ Usage: benchmarks/run_profile_campaign.sh [options]
 Runs profiling configurations strictly one at a time. Every case receives a
 fresh build directory and therefore a fresh CMake configure/build before its
 counter-floor calibration and payload sweep. After the layer cases, the
-campaign performs a separate clean direct/native-versus-SpWKit comparison build.
+campaign performs separate clean direct/native-versus-SpWKit TX and RX DRIVER
+comparison builds.
 
 Child benchmarks write machine-readable JSON into the result set but the
 campaign terminal output stays human-readable and ends with a consolidated
@@ -125,7 +126,7 @@ printf '  build profile: Release\n' >&2
 printf '  clean rebuild per case: yes\n' >&2
 printf '  serial cases: yes\n' >&2
 printf '  counter-floor calibration per case: yes\n' >&2
-printf '  direct/native comparison: yes (separate clean build)\n' >&2
+printf '  direct/native comparison: DRIVER copied TX + RX (separate clean builds)\n' >&2
 
 case_index=0
 for case_name in "${selected_cases[@]}"; do
@@ -151,18 +152,32 @@ for case_name in "${selected_cases[@]}"; do
   cat "$calibration_output" >> "$output_dir/calibration.jsonl"
 done
 
-comparison_output="$output_dir/comparison/tx_api_native.jsonl"
-comparison_calibration="$output_dir/comparison/calibration.json"
-printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER\n' >&2
+tx_comparison_output="$output_dir/comparison/tx_api_native.jsonl"
+tx_comparison_calibration="$output_dir/comparison/tx_calibration.json"
+printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER TX\n' >&2
 "$ROOT_DIR/benchmarks/run_native_comparison.sh" \
   --warmup "$warmup" \
   --iterations "$iterations" \
   --payloads "$payloads" \
   --counter-hz "$counter_hz" \
   --settle-seconds "$settle_seconds" \
-  --build-dir "$campaign_build_root/native-comparison" \
-  --output "$comparison_output" \
-  --calibration-output "$comparison_calibration" \
+  --build-dir "$campaign_build_root/native-tx-comparison" \
+  --output "$tx_comparison_output" \
+  --calibration-output "$tx_comparison_calibration" \
+  > /dev/null
+
+rx_comparison_output="$output_dir/comparison/rx_native_api.jsonl"
+rx_comparison_calibration="$output_dir/comparison/rx_calibration.json"
+printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER RX\n' >&2
+bash "$ROOT_DIR/benchmarks/run_native_receive_comparison.sh" \
+  --warmup "$warmup" \
+  --iterations "$iterations" \
+  --payloads "$payloads" \
+  --counter-hz "$counter_hz" \
+  --settle-seconds "$settle_seconds" \
+  --build-dir "$campaign_build_root/native-rx-comparison" \
+  --output "$rx_comparison_output" \
+  --calibration-output "$rx_comparison_calibration" \
   > /dev/null
 
 export SPWKIT_CAMPAIGN_CASES="${selected_cases[*]}"
@@ -197,6 +212,7 @@ metadata = {
     'counter_floor_calibration_per_case': True,
     'direct_native_comparison': True,
     'direct_native_comparison_case': 'tx_api_native',
+    'direct_native_comparison_cases': ['tx_api_native', 'rx_native_api'],
     'direct_native_counter_floor_subtracted': False,
     'summary_file': 'summary.txt',
     'coverage_file': 'coverage.json',
