@@ -100,13 +100,26 @@ jobs:
           assert metadata['build_type'] == 'Release'
           assert metadata['clean_rebuild_per_case'] is True
           assert metadata['serial_execution'] is True
+          assert metadata['counter_floor_calibration_per_case'] is True
           assert metadata['cases']
 
           rows = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines() if line.strip()]
+          calibrations = [json.loads(line) for line in (root / 'calibration.jsonl').read_text().splitlines() if line.strip()]
           if not rows:
               raise SystemExit('benchmark campaign emitted no result rows')
+          if len(calibrations) != len(metadata['cases']):
+              raise SystemExit('benchmark campaign did not emit one calibration row per case')
 
           required_stats = {'min', 'median', 'mean', 'p95', 'p99', 'max', 'stddev'}
+          for calibration in calibrations:
+              assert calibration['schema'] == 'spwkit.profile.calibration.v1'
+              assert calibration['measurement_domain'] == 'instrumentation'
+              assert calibration['unit'] == 'counter_ticks'
+              assert calibration['method'] == 'back_to_back_counter_reads'
+              assert required_stats == set(calibration['statistics'])
+              assert calibration['counter']['width_bits'] in (32, 64)
+              assert calibration['statistics']['min'] <= calibration['statistics']['median'] <= calibration['statistics']['max']
+
           for row in rows:
               assert row['schema'] == 'spwkit.profile.v1'
               assert row['measurement_domain'] == 'software'
@@ -126,8 +139,10 @@ jobs:
               assert row['statistics']['min'] <= row['statistics']['p99'] <= row['statistics']['max']
 
           per_case_files = sorted((root / 'cases').glob('*.jsonl'))
+          calibration_files = sorted((root / 'calibration').glob('*.json'))
           assert len(per_case_files) == len(metadata['cases'])
-          print(f"validated {len(metadata['cases'])} clean-build case(s), {len(rows)} result row(s)")
+          assert len(calibration_files) == len(metadata['cases'])
+          print(f"validated {len(metadata['cases'])} clean-build case(s), {len(rows)} result row(s), {len(calibrations)} calibration row(s)")
           PY
 
       - name: Record runner metadata
@@ -163,20 +178,23 @@ jobs:
           print('### SpWKit hosted profiling campaign')
           print()
           print('Each profiling configuration was configured and built from a clean directory and executed serially.')
+          print('Each case also records a back-to-back counter-read floor. Raw measurements are not silently corrected by that floor.')
           print('GitHub-hosted timing is **informational only**; controlled/local or physical-target runs are required for performance claims.')
           print()
           print(f"Cases: `{', '.join(campaign['cases'])}`")
           print()
-          print('| Case | Payload (B) | Mean ticks | Median | p95 | p99 | Min | Max |')
-          print('|---|---:|---:|---:|---:|---:|---:|---:|')
+          print('| Case | Counter-floor median | Payload (B) | Mean ticks | Median | p95 | p99 | Min | Max |')
+          print('|---|---:|---:|---:|---:|---:|---:|---:|---:|')
           for case_file in sorted((root / 'cases').glob('*.jsonl')):
               case_name = case_file.stem
+              calibration = json.loads((root / 'calibration' / f'{case_name}.json').read_text())
+              floor = calibration['statistics']['median']
               for line in case_file.read_text().splitlines():
                   if not line.strip():
                       continue
                   row = json.loads(line)
                   s = row['statistics']
-                  print(f"| {case_name} | {row['payload_bytes']} | {s['mean']:.3f} | {s['median']:.3f} | {s['p95']} | {s['p99']} | {s['min']} | {s['max']} |")
+                  print(f"| {case_name} | {floor:.3f} | {row['payload_bytes']} | {s['mean']:.3f} | {s['median']:.3f} | {s['p95']} | {s['p99']} | {s['min']} | {s['max']} |")
           PY
 
       - name: Upload benchmark results

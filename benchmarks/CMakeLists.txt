@@ -35,21 +35,30 @@ if(NOT SPWKIT_BENCHMARK_COUNTER_HZ STREQUAL "0")
         SPWKIT_PROFILE_COUNTER_HZ=${SPWKIT_BENCHMARK_COUNTER_HZ})
 endif()
 
-add_executable(spwkit_profile_benchmark profile_benchmark.c)
-target_link_libraries(spwkit_profile_benchmark PRIVATE spwkit::spwkit)
-target_include_directories(spwkit_profile_benchmark PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../src")
-target_compile_definitions(spwkit_profile_benchmark PRIVATE
-    SPWKIT_ENABLE_PROFILING=1
-    SPWKIT_PROFILE_START=${SPWKIT_BENCHMARK_PROFILE_START}
-    SPWKIT_PROFILE_END=${SPWKIT_BENCHMARK_PROFILE_END}
-)
-if(NOT SPWKIT_BENCHMARK_COUNTER_HZ STREQUAL "0")
-    target_compile_definitions(spwkit_profile_benchmark PRIVATE
-        SPWKIT_PROFILE_COUNTER_HZ=${SPWKIT_BENCHMARK_COUNTER_HZ})
-endif()
-target_compile_features(spwkit_profile_benchmark PRIVATE c_std_11)
-set_target_properties(spwkit_profile_benchmark PROPERTIES
-    C_STANDARD 11
-    C_STANDARD_REQUIRED YES
-    C_EXTENSIONS OFF)
+function(spwkit_configure_profile_executable target_name source_file)
+    add_executable(${target_name} ${source_file})
+    target_link_libraries(${target_name} PRIVATE spwkit::spwkit)
+    target_include_directories(${target_name} PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/../src")
+    target_compile_definitions(${target_name} PRIVATE
+        SPWKIT_ENABLE_PROFILING=1
+        SPWKIT_PROFILE_START=${SPWKIT_BENCHMARK_PROFILE_START}
+        SPWKIT_PROFILE_END=${SPWKIT_BENCHMARK_PROFILE_END}
+    )
+    if(NOT SPWKIT_BENCHMARK_COUNTER_HZ STREQUAL "0")
+        target_compile_definitions(${target_name} PRIVATE
+            SPWKIT_PROFILE_COUNTER_HZ=${SPWKIT_BENCHMARK_COUNTER_HZ})
+    endif()
+    target_compile_features(${target_name} PRIVATE c_std_11)
+    set_target_properties(${target_name} PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF)
+endfunction()
+
+spwkit_configure_profile_executable(
+    spwkit_profile_benchmark
+    profile_benchmark.c)
+spwkit_configure_profile_executable(
+    spwkit_profile_counter_floor
+    profile_counter_floor.c)

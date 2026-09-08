@@ -20,7 +20,7 @@ Usage: benchmarks/run_profile_campaign.sh [options]
 
 Runs profiling configurations strictly one at a time. Every case receives a
 fresh build directory and therefore a fresh CMake configure/build before its
-payload sweep.
+counter-floor calibration and payload sweep.
 
 Options:
   --cases "LIST"        all, or space/comma-separated case names (default: all)
@@ -83,20 +83,23 @@ done
 # A campaign itself also starts from a clean state. Per-case runners repeat the
 # deletion defensively before configuring their own tree.
 rm -rf -- "$build_root" "$output_dir"
-mkdir -p "$build_root" "$output_dir/cases"
+mkdir -p "$build_root" "$output_dir/cases" "$output_dir/calibration"
 : > "$output_dir/results.jsonl"
+: > "$output_dir/calibration.jsonl"
 
 printf 'SpWKit profiling campaign\n' >&2
 printf '  cases: %s\n' "${selected_cases[*]}" >&2
 printf '  build profile: Release\n' >&2
 printf '  clean rebuild per case: yes\n' >&2
 printf '  serial cases: yes\n' >&2
+printf '  counter-floor calibration per case: yes\n' >&2
 
 case_index=0
 for case_name in "${selected_cases[@]}"; do
   case_index=$((case_index + 1))
   case_build="$build_root/$case_name"
   case_output="$output_dir/cases/$case_name.jsonl"
+  calibration_output="$output_dir/calibration/$case_name.json"
   printf '\n[campaign %d/%d] %s\n' "$case_index" "${#selected_cases[@]}" "$case_name" >&2
 
   "$ROOT_DIR/benchmarks/run_profile_benchmark.sh" \
@@ -107,9 +110,11 @@ for case_name in "${selected_cases[@]}"; do
     --counter-hz "$counter_hz" \
     --settle-seconds "$settle_seconds" \
     --build-dir "$case_build" \
-    --output "$case_output"
+    --output "$case_output" \
+    --calibration-output "$calibration_output"
 
   cat "$case_output" >> "$output_dir/results.jsonl"
+  cat "$calibration_output" >> "$output_dir/calibration.jsonl"
 done
 
 export SPWKIT_CAMPAIGN_CASES="${selected_cases[*]}"
@@ -133,6 +138,7 @@ metadata = {
     'build_type': 'Release',
     'clean_rebuild_per_case': True,
     'serial_execution': True,
+    'counter_floor_calibration_per_case': True,
     'cases': os.environ['SPWKIT_CAMPAIGN_CASES'].split(),
     'warmup_iterations': int(os.environ['SPWKIT_CAMPAIGN_WARMUP']),
     'measured_iterations': int(os.environ['SPWKIT_CAMPAIGN_ITERATIONS']),

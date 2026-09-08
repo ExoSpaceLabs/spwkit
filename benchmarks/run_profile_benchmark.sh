@@ -11,6 +11,7 @@ iterations="1024"
 payloads="0 1 8 64 256 1024 4096"
 counter_hz="0"
 output=""
+calibration_output=""
 build_dir="$ROOT_DIR/build/profile-benchmark"
 settle_seconds="1"
 
@@ -29,6 +30,8 @@ Options:
   --payloads "LIST"     space/comma-separated payload sizes, 0..4096
   --counter-hz N        optional architectural counter frequency override
   --output PATH         write JSON Lines to PATH as well as stdout
+  --calibration-output PATH
+                        write back-to-back counter-read calibration JSON
   --build-dir PATH      disposable CMake build directory
   --settle-seconds N    pause after build before timing (default: 1)
   --list-ranges         print supported cases and exit
@@ -44,6 +47,7 @@ while [[ $# -gt 0 ]]; do
     --payloads) payloads="$2"; shift 2 ;;
     --counter-hz) counter_hz="$2"; shift 2 ;;
     --output) output="$2"; shift 2 ;;
+    --calibration-output) calibration_output="$2"; shift 2 ;;
     --build-dir) build_dir="$2"; shift 2 ;;
     --settle-seconds) settle_seconds="$2"; shift 2 ;;
     --list-ranges) spw_profile_case_list; exit 0 ;;
@@ -94,17 +98,29 @@ cmake -S "$ROOT_DIR/benchmarks" -B "$build_dir" \
   -DSPWKIT_BENCHMARK_PROFILE_START="$start" \
   -DSPWKIT_BENCHMARK_PROFILE_END="$end" \
   -DSPWKIT_BENCHMARK_COUNTER_HZ="$counter_hz"
-cmake --build "$build_dir" --target spwkit_profile_benchmark --parallel 2
+cmake --build "$build_dir" \
+  --target spwkit_profile_benchmark spwkit_profile_counter_floor \
+  --parallel 2
 
 binary="$build_dir/spwkit_profile_benchmark"
-if [[ ! -x "$binary" ]]; then
-  echo "benchmark executable was not produced: $binary" >&2
-  exit 1
-fi
+floor_binary="$build_dir/spwkit_profile_counter_floor"
+for executable in "$binary" "$floor_binary"; do
+  if [[ ! -x "$executable" ]]; then
+    echo "benchmark executable was not produced: $executable" >&2
+    exit 1
+  fi
+done
 
 if (( settle_seconds > 0 )); then
   echo "[benchmark:$range] settling for ${settle_seconds}s before timing" >&2
   sleep "$settle_seconds"
+fi
+
+calibration_line="$($floor_binary --warmup "$warmup" --iterations "$iterations")"
+echo "[benchmark:$range] counter floor: $calibration_line" >&2
+if [[ -n "$calibration_output" ]]; then
+  mkdir -p "$(dirname "$calibration_output")"
+  printf '%s\n' "$calibration_line" > "$calibration_output"
 fi
 
 if [[ -n "$output" ]]; then
