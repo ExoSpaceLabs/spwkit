@@ -1,0 +1,74 @@
+name: Profiling
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  paired-probes:
+    name: Paired probes / ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: TX API to provider boundary
+            start: SPW_PROFILE_ID_TX_API_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+          - name: RX provider boundary to API
+            start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+            end: SPW_PROFILE_ID_RX_API_RETURN
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure selected pair
+        run: >-
+          cmake -S . -B build-profile
+          -DSPWKIT_ENABLE_PROFILING=ON
+          -DSPWKIT_PROFILE_START=${{ matrix.start }}
+          -DSPWKIT_PROFILE_END=${{ matrix.end }}
+          -DSPWKIT_BUILD_CPP_TESTS=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+
+      - name: Build profiling smoke target
+        run: cmake --build build-profile --target spwkit_profile_probe_smoke --parallel 2
+
+      - name: Execute selected pair
+        run: ctest --test-dir build-profile -R '^profiling_pair_smoke$' --output-on-failure
+
+  invalid-pairs:
+    name: Reject invalid probe pairs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Reject identical probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cmake -S . -B build-invalid-same \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+              -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_API_ENTRY; then
+            echo 'identical profiling probes were incorrectly accepted' >&2
+            exit 1
+          fi
+
+      - name: Reject cross-domain probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cmake -S . -B build-invalid-domain \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+              -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_RX_API_RETURN; then
+            echo 'cross-domain profiling probes were incorrectly accepted' >&2
+            exit 1
+          fi
