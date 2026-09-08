@@ -153,7 +153,7 @@ for case_name in "${selected_cases[@]}"; do
 done
 
 tx_comparison_output="$output_dir/comparison/tx_api_native.jsonl"
-tx_comparison_calibration="$output_dir/comparison/tx_calibration.json"
+tx_comparison_calibration="$output_dir/comparison/calibration.json"
 printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER TX\n' >&2
 "$ROOT_DIR/benchmarks/run_native_comparison.sh" \
   --warmup "$warmup" \
