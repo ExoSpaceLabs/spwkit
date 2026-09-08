@@ -31,15 +31,23 @@ def coverage_entries(root: Path):
     def measured(path: str):
         return (root / path).exists() and (root / path).stat().st_size > 0
 
+    tx_driver = measured("comparison/tx_api_native.jsonl")
+    rx_driver = measured("comparison/rx_native_api.jsonl")
     entries = [
         {
             "backend": "driver",
             "path": "copied",
             "direction": "tx",
-            "status": "measured" if measured("comparison/tx_api_native.jsonl") else "not-implemented-benchmark",
-            "reason": "same-process direct/provider comparison" if measured("comparison/tx_api_native.jsonl") else "comparison result missing",
+            "status": "measured" if tx_driver else "not-implemented-benchmark",
+            "reason": "same-process direct/provider comparison" if tx_driver else "comparison result missing",
         },
-        {"backend": "driver", "path": "copied", "direction": "rx", "status": "not-implemented-benchmark", "reason": "tracked by #166"},
+        {
+            "backend": "driver",
+            "path": "copied",
+            "direction": "rx",
+            "status": "measured" if rx_driver else "not-implemented-benchmark",
+            "reason": "same-process direct/provider comparison" if rx_driver else "tracked by #166",
+        },
         {"backend": "driver", "path": "zero-copy", "direction": "tx", "status": "not-implemented-benchmark", "reason": "tracked by #138/#159/#160"},
         {"backend": "driver", "path": "zero-copy", "direction": "rx", "status": "not-implemented-benchmark", "reason": "tracked by #138"},
         {"backend": "loopback", "path": "standard", "direction": "tx", "status": "not-implemented-benchmark", "reason": "tracked by #163"},
@@ -73,6 +81,29 @@ def coverage_entries(root: Path):
     }
 
 
+def append_comparison(lines, title, comparison_path: Path):
+    comparisons = load_jsonl(comparison_path)
+    if not comparisons:
+        return
+    lines.append(title)
+    lines.append("--------------------------------------------------------------")
+    lines.append("Payload   Native med   SpWKit med   Delta   Delta %   p95 delta")
+    for row in comparisons:
+        native = row["native_statistics"]
+        spwkit = row["spwkit_statistics"]
+        delta = row["delta"]
+        p95_delta = spwkit["p95"] - native["p95"]
+        lines.append(
+            f"{row['payload_bytes']:>6} B   "
+            f"{fmt(native['median']):>10}   "
+            f"{fmt(spwkit['median']):>10}   "
+            f"{fmt(delta['median_ticks']):>5}   "
+            f"{fmt(delta['median_percent']):>7}   "
+            f"{fmt(p95_delta):>9}"
+        )
+    lines.append("")
+
+
 def render_summary(root: Path, campaign, coverage):
     lines = []
     lines.append("SpWKit Host Profiling Summary")
@@ -84,26 +115,16 @@ def render_summary(root: Path, campaign, coverage):
     lines.append(f"Build      : {campaign['build_type']} / clean serial cases")
     lines.append("")
 
-    comparison_path = root / "comparison" / "tx_api_native.jsonl"
-    comparisons = load_jsonl(comparison_path)
-    if comparisons:
-        lines.append("DRIVER copied TX: direct/provider vs SpWKit")
-        lines.append("--------------------------------------------------------------")
-        lines.append("Payload   Native med   SpWKit med   Delta   Delta %   p95 delta")
-        for row in comparisons:
-            native = row["native_statistics"]
-            spwkit = row["spwkit_statistics"]
-            delta = row["delta"]
-            p95_delta = spwkit["p95"] - native["p95"]
-            lines.append(
-                f"{row['payload_bytes']:>6} B   "
-                f"{fmt(native['median']):>10}   "
-                f"{fmt(spwkit['median']):>10}   "
-                f"{fmt(delta['median_ticks']):>5}   "
-                f"{fmt(delta['median_percent']):>7}   "
-                f"{fmt(p95_delta):>9}"
-            )
-        lines.append("")
+    append_comparison(
+        lines,
+        "DRIVER copied TX: direct/provider vs SpWKit",
+        root / "comparison" / "tx_api_native.jsonl",
+    )
+    append_comparison(
+        lines,
+        "DRIVER copied RX: direct/provider vs SpWKit",
+        root / "comparison" / "rx_native_api.jsonl",
+    )
 
     case_files = sorted((root / "cases").glob("*.jsonl"))
     if case_files:
@@ -124,9 +145,9 @@ def render_summary(root: Path, campaign, coverage):
 
     lines.append("Hosted-backend coverage")
     lines.append("-----------------------")
-    measured = coverage["counts"].get("measured", 0)
+    measured_count = coverage["counts"].get("measured", 0)
     total = len(coverage["entries"])
-    lines.append(f"Measured: {measured}/{total}")
+    lines.append(f"Measured: {measured_count}/{total}")
     for entry in coverage["entries"]:
         label = f"{entry['backend']}/{entry['path']}/{entry['direction']}"
         lines.append(f"  {label:<30} {entry['status']:<26} {entry['reason']}")
