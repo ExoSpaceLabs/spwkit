@@ -1,0 +1,71 @@
+name: Controlled host profiling bootstrap
+
+on:
+  push:
+    branches: [fix/controlled-host-profiling]
+    paths:
+      - 'scripts/apply_controlled_host_profiling.py'
+      - '.github/workflows/controlled-host-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/controlled-host-profiling
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python3 scripts/apply_controlled_host_profiling.py
+
+      - name: Static validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n benchmarks/run_profile_campaign.sh
+          bash -n benchmarks/run_controlled_profile_campaign.sh
+          python3 -m py_compile benchmarks/summarize_profile_campaign.py
+
+      - name: Controlled campaign smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build/controlled-smoke-results build/controlled-smoke-build
+          result_dir="$(benchmarks/run_controlled_profile_campaign.sh \
+            --warmup 2 \
+            --iterations 4 \
+            --payloads '0 64' \
+            --build-root build/controlled-smoke-build \
+            --output-root build/controlled-smoke-results | tail -n 1)"
+          test -d "$result_dir"
+          python3 benchmarks/validate_profile_campaign.py "$result_dir" --expected-type host --expected-measured 12
+          python3 - "$result_dir" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          root = Path(sys.argv[1])
+          campaign = json.loads((root / 'campaign.json').read_text())
+          control = campaign['host_control']
+          assert control['enabled'] is True
+          assert isinstance(control['selected_cpu'], int)
+          assert control['child_process_affinity'] == 'taskset-single-cpu'
+          summary = (root / 'summary.txt').read_text()
+          assert 'CPU        : pinned logical CPU' in summary
+          PY
+
+      - name: Commit permanent changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Robert A Incze'
+          git config user.email '98164670+Inczert@users.noreply.github.com'
+          git add benchmarks/run_profile_campaign.sh benchmarks/run_controlled_profile_campaign.sh benchmarks/summarize_profile_campaign.py
+          git diff --cached --check
+          git diff --cached --quiet && exit 0
+          git commit -m 'test(spwkit): stabilize controlled-host profiling'
+          git push origin HEAD:fix/controlled-host-profiling
