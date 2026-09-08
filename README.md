@@ -7,7 +7,7 @@
   <a href="https://github.com/ExoSpaceLabs">ExoSpaceLabs</a>
 </p>
 
-SpWKit is a portable C11 SpaceWire software stack for simulation, distributed integration testing, Linux virtual devices, embedded/RTOS integration, and future hardware-backed links. Applications keep the same SpaceWire-facing API while the backend can move from a deterministic simulator to UDP, a Linux virtual device, or a platform/vendor driver.
+SpWKit is a portable C11 SpaceWire software stack for simulation, distributed integration testing, Linux virtual devices, embedded/RTOS integration, and hardware-backed links. Applications use the same SpaceWire-facing API while the backend can move from a deterministic simulator to UDP, a Linux virtual device, or a platform/vendor driver.
 
 ```mermaid
 flowchart TB
@@ -18,48 +18,40 @@ flowchart TB
     API --> DEV["Linux DEVICE / VSPD"]
     DEV --> VSPWD["vspwd"]
     VSPWD --> CUSE["spwcuse / /dev/vspwX"]
-    API --> DRIVER["Portable driver backend<br/>v0.6 development"]
+    API --> DRIVER["Portable driver backend"]
     DRIVER --> RTOS["RTOS / bare-metal driver"]
-    DRIVER --> FPGA["Future MMIO / DMA FPGA driver"]
-    FPGA --> PHY["Future physical SpaceWire implementation"]
+    DRIVER --> FPGA["MMIO / DMA FPGA/vendor driver"]
+    FPGA --> PHY["Physical SpaceWire implementation"]
 ```
 
 The runtime is C11. The optional C++17 layer is header-only and forwards to the same C ABI; it is a convenience surface, not a second implementation.
 
 ## Project status
 
-### Stable: v0.5.1
+### Stable: v0.6.0
 
-`v0.5.1` is the current stable maintenance release. It keeps the v0.5 C ABI and backend behavior unchanged while completing parity in the optional C++17 wrapper for workspace and zero-copy operations.
+`v0.6.0` completes the public hardware-driver software boundary while preserving all established virtual/hosted backends.
 
-Stable highlights:
+Highlights:
 
 - process-local simulator plus distributed VSPW-TP/UDP transport;
 - native POSIX and Windows/Winsock UDP runtime support behind `SPW_BACKEND_UDP`;
 - Linux `SPW_BACKEND_DEVICE`, `vspwd`, `spwctl`, and `spwmon`;
-- production CUSE `/dev/vspwX` presentation without adding libfuse to `libspwkit`;
+- optional production CUSE `/dev/vspwX` presentation without adding libfuse to `libspwkit`;
 - packet EOP/EEP preservation, time codes, link lifecycle/state, readiness, statistics, deterministic timing/fault support, and optional zero-copy ownership;
 - C11 authoritative runtime with caller-owned/no-heap construction;
 - optional header-only C++17 consumer layer;
-- HardRT `0.4.0` POSIX and Cortex-M7 integration evidence;
-- `.deb` releases for `amd64`, `arm64`, `armhf`, and `riscv64`;
-- one GHCR runtime image for `linux/amd64`, `linux/arm64`, `linux/arm/v7`, and `linux/riscv64`.
+- portable `SPW_BACKEND_DRIVER` callback/configuration contract;
+- DMA-capable driver ownership mapped onto the existing `spw_buffer_t` API;
+- deterministic reference-driver and freestanding/no-heap evidence;
+- accepted CCSDSPack `v2.0.0` baseline at `c2f318c330c564429bcc565a8acbff22728b2851`;
+- CCSDSPack PUS-C TC/TM interoperability over installed-package UDP, Linux DEVICE/VSPD, and a two-node Docker Compose topology;
+- physical NUCLEO-H755ZI-Q Cortex-M7 DMA/cache/zero-copy qualification;
+- Debian/GHCR publication for `amd64`, `arm64`, `armhf`, and `riscv64` hosted targets.
 
-See the [v0.5.1 release notes](docs/releases/v0.5.1.md).
+See the [v0.6.0 release notes](docs/releases/v0.6.0.md) and [current project status](docs/current-status.md).
 
-### Development: v0.6.0
-
-`develop` is the v0.6 integration branch. Current v0.6 work includes:
-
-- the portable `SPW_BACKEND_DRIVER` callback/configuration boundary;
-- DMA/zero-copy ownership mapping through the existing `spw_buffer_t` contract;
-- a deterministic host reference driver and no-heap driver evidence;
-- CCSDSPack PUS-C interoperability through installed packages, Linux DEVICE/VSPD, VSPW-TP/UDP, and a two-node Docker Compose topology;
-- CI integration pinned to immutable CCSDSPack `v2.0.0` at commit `c2f318c330c564429bcc565a8acbff22728b2851`.
-
-The v0.6 software boundary deliberately stops before a proprietary or physical FPGA SpaceWire implementation. STM32H755 runtime DMA/cache validation and the public FPGA/driver interface boundary remain separate evidence items.
-
-See [v0.6 hardware integration boundary](docs/v0.6-scope.md) and [current project status](docs/current-status.md).
+The v0.6 public boundary deliberately stops before proprietary FPGA/HDL implementation details and before physical SpaceWire PHY/electrical interoperability claims.
 
 ## Supported backends
 
@@ -70,7 +62,7 @@ See [v0.6 hardware integration boundary](docs/v0.6-scope.md) and [current projec
 | VSPW-TP / UDP | yes | yes | yes | transport-dependent | stable hosted |
 | Linux DEVICE / VSPD | yes | no | no | no | stable |
 | CUSE `/dev/vspwX` presenter | yes | no | no | no | stable optional service |
-| Portable driver backend | yes | yes | yes | yes | v0.6 development |
+| Portable driver backend | yes | yes | yes | yes | stable public integration boundary |
 
 Backend source visibility is separate from runtime availability. Applications should handle `SPW_ERR_UNSUPPORTED` when a backend or optional capability is disabled in a particular build.
 
@@ -129,7 +121,7 @@ if (port.send(payload.data(), payload.size(), SPW_TERMINATOR_EOP) != SPW_OK) {
 return port.stop() == SPW_OK ? 0 : 3;
 ```
 
-On `develop`, `spwkit::Port` also forwards workspace requirements, in-place construction, readiness, time codes, statistics, fault statistics, and the zero-copy acquire/submit/reclaim/release API. The C ownership and result semantics remain authoritative.
+`spwkit::Port` forwards workspace requirements, in-place construction, readiness, time codes, statistics, fault statistics, and zero-copy acquire/submit/reclaim/release operations to the public C runtime. C ownership and result semantics remain authoritative.
 
 Heap allocation is optional. Bare-metal/RTOS integrations can query workspace requirements and construct ports in caller-owned storage with `spw_port_open_in_place()` or `spwkit::Port::open_in_place()`.
 
@@ -161,7 +153,7 @@ UDP is only the carrier. Packet boundaries, EOP/EEP, time codes, session/retry b
 
 ### Linux virtual device
 
-`vspwd` provides shared virtual SpaceWire endpoints for independent Linux processes. Applications can use the normal DEVICE backend, while `spwcuse` optionally presents a daemon port as a real character device.
+`vspwd` provides shared virtual SpaceWire endpoints for independent Linux processes. Applications can use the normal DEVICE backend, while `spwcuse` optionally presents a daemon port as a character device.
 
 ```mermaid
 flowchart TB
@@ -179,6 +171,54 @@ flowchart TB
 
 `spwctl` provides non-owning management and `spwmon` provides passive observation. CUSE/libfuse stays outside the public runtime ABI.
 
+## Hardware driver boundary
+
+`SPW_BACKEND_DRIVER` lets a platform/vendor driver implement the native controller side while applications remain on the ordinary SpWKit API.
+
+The public contract covers:
+
+- lifecycle and link state;
+- complete DATA/EOP/EEP packets;
+- time codes and readiness where supported;
+- statistics and timeout/error mapping;
+- copied I/O;
+- zero-copy buffer ownership;
+- optional DMA/cache synchronization hooks.
+
+The public project intentionally does not standardize or publish private register maps, descriptor layouts, RTL architecture, internal bus/clock/reset/interrupt design, or electrical implementation details.
+
+### STM32H755 evidence
+
+The physical NUCLEO-H755ZI-Q qualification exercises real STM32 DMA2 and Cortex-M7 D-cache ownership through the public driver boundary. The final phase also proves that a TX buffer acquired before `spw_port_reset()` becomes stale afterward.
+
+```text
+magic                   = 0x53505736
+phase                   = 0x0000700d
+result                  = 0x00000000
+sync_to_device          = 1
+sync_from_device        = 1
+dma_transfers           = 2
+tx_packets              = 2
+rx_packets              = 2
+reset_stale_invalidated = 1
+RESULT: PASS
+```
+
+This is real MCU DMA/cache evidence. It is not SpaceWire PHY/electrical HIL.
+
+## CCSDSPack integration
+
+CCSDSPack is an optional upper-layer integration dependency, not a dependency of `libspwkit`.
+
+SpWKit v0.6 pins the interoperability fixture to:
+
+```text
+CCSDSPack v2.0.0
+c2f318c330c564429bcc565a8acbff22728b2851
+```
+
+The integration serializes PUS-C TC/TM packets with CCSDSPack, transports the bytes unchanged through SpWKit, verifies byte identity, then parses/validates them on the receiver. The fixture covers independent-process UDP, Linux DEVICE/VSPD, and a two-node Docker Compose topology.
+
 ## Build
 
 Typical hosted build:
@@ -191,7 +231,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Enable the optional C++17 wrapper target explicitly when it is needed by installed consumers:
+Enable the optional C++17 wrapper target explicitly when needed:
 
 ```bash
 cmake -S . -B build-cpp \
@@ -213,27 +253,25 @@ cmake --build build-freestanding
 
 ## Installation and consumers
 
-Stable v0.5 consumers use the exported C target:
+Stable v0.6 consumers use the exported C target:
 
 ```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.6 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE spwkit::spwkit)
 ```
 
 When the package was built with `SPWKIT_ENABLE_CPP=ON`:
 
 ```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.6 CONFIG REQUIRED)
 target_link_libraries(my_cpp_app PRIVATE spwkit::cpp)
 ```
 
-A source build from `develop` reports project/API version `0.6.0`; that does not change the stable v0.5 package contract.
-
-Standalone installed-package examples live under `examples/installed*`, distributed peers under `examples/distributed*`, and upper-layer integrations under `integrations/`.
+Standalone installed-package examples live under `examples/installed*`, distributed peers under `examples/distributed*`, and upper-layer/platform integrations under `integrations/`.
 
 ## Binary releases
 
-`v0.5.1` publishes Debian packages for:
+`v0.6.0` publishes Debian packages for:
 
 ```text
 amd64
@@ -266,9 +304,9 @@ flowchart LR
     TAG --> REL["Release workflow"]
 ```
 
-`main` is the stable line. `develop` carries the next release. Temporary feature/release branches are deleted after integration; tags and releases preserve release history.
+`main` is the stable line. `develop` carries subsequent integration work. Temporary feature/release branches are deleted after integration; tags and releases preserve release history.
 
-Physical HIL remains separate from hosted CI until appropriate SpaceWire/FPGA hardware exists and the corresponding harness is executed.
+The tag-triggered Release workflow requires the tagged commit to be the exact `main` head before publishing artifacts.
 
 ## Standards scope
 
@@ -293,12 +331,13 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [`vspwd`](docs/vspwd.md)
 - [CUSE presenter](docs/cuse.md)
 - [Driver backend](docs/driver-backend.md)
+- [Hardware acceptance](docs/hardware-acceptance.md)
 - [Testing](docs/testing.md)
 - [Roadmap](docs/roadmap.md)
 
 ## Scope of compliance claims
 
-SpWKit models and transports software-visible SpaceWire packet/link semantics. Automated simulation, transport, RTOS, package, and compile/link evidence is not a substitute for physical electrical interoperability or qualification evidence. No claim of real FPGA SpaceWire HIL is made until matching hardware exists and the HIL suite is executed against it.
+SpWKit models and transports software-visible SpaceWire packet/link semantics and now has real MCU driver/DMA/cache evidence. Automated simulation, transport, RTOS, package, compile/link, and STM32 DMA evidence are not substitutes for physical SpaceWire electrical interoperability or formal qualification. No claim of real FPGA SpaceWire HIL is made until matching hardware exists and the corresponding HIL suite is executed against it.
 
 ## License
 

@@ -1,52 +1,61 @@
 # Current project status
 
-## Stable release: v0.5.1
+## Stable release: v0.6.0
 
-`v0.5.1` is the current stable maintenance release on the v0.5 line. It preserves the v0.5 C ABI and backend behavior while completing optional C++17 wrapper parity for workspace and zero-copy operations.
+`v0.6.0` is the current stable release. It completes the public software boundary for hardware-backed SpaceWire integrations while preserving the same application-facing `spw_port_*` API used by virtual and hosted backends.
 
-The stable v0.5 line includes:
+The stable v0.6 line includes:
 
 - process-local SpaceWire simulation;
 - VSPW-TP/UDP on POSIX hosts and native Windows/Winsock;
 - Linux `SPW_BACKEND_DEVICE`, VSPD and `vspwd`;
-- `spwctl` and `spwmon`;
-- production CUSE `/dev/vspwX` presentation;
-- installed-package C and optional C++17 consumers;
-- caller-owned/no-heap construction;
-- zero-copy ownership semantics where advertised;
-- HardRT `0.4.0` POSIX and Cortex-M7 integration evidence;
-- multi-architecture Debian and GHCR publication.
-
-See [v0.5.1 release notes](releases/v0.5.1.md).
-
-## Development release: v0.6.0
-
-`develop` carries the v0.6 integration work.
-
-Completed software slices include:
-
+- `spwctl`, `spwmon`, and optional CUSE `/dev/vspwX` presentation;
+- caller-owned/no-heap construction and optional zero-copy ownership;
 - public `SPW_BACKEND_DRIVER` configuration/callback contract;
-- DMA/zero-copy ownership mapping through the existing `spw_buffer_t` API;
-- deterministic host reference-driver execution;
-- no-heap/freestanding driver evidence;
-- CCSDSPack PUS-C packet transport through installed-package UDP and Linux DEVICE/VSPD paths;
-- two-node Docker Compose CCSDSPack-over-VSPW-TP/UDP integration;
-- CI pinning of CCSDSPack `v2.0.0` to immutable commit `c2f318c330c564429bcc565a8acbff22728b2851`;
-- repository documentation reconciliation and C++ convenience-wrapper parity work.
+- DMA-capable driver buffer ownership through the existing `spw_buffer_t` API;
+- deterministic host reference-driver and freestanding/no-heap evidence;
+- accepted CCSDSPack `v2.0.0` interoperability baseline at commit `c2f318c330c564429bcc565a8acbff22728b2851`;
+- installed-package PUS-C TC/TM transport over VSPW-TP/UDP and Linux DEVICE/VSPD paths;
+- deployment-shaped two-node Docker Compose interoperability evidence;
+- physical NUCLEO-H755ZI-Q Cortex-M7 DMA/cache qualification through the public driver boundary;
+- multi-architecture Debian and GHCR publication for `amd64`, `arm64`, `armhf`, and `riscv64` hosted targets.
 
-The old provisional `CCSDSPack/develop` reference is no longer used by the integration gate. Issue #90 remains open for explicit acceptance/closure bookkeeping around that dependency baseline.
+See [v0.6.0 release notes](releases/v0.6.0.md).
 
-## Remaining v0.6 evidence
+## STM32H755 qualification
 
-```mermaid
-flowchart LR
-    SW["Portable driver + DMA contract<br/>complete"] --> STM["STM32H755 DMA/cache runtime evidence<br/>#119"]
-    SW --> FPGA["Public FPGA/driver boundary<br/>#113"]
-    SW --> CCSDS["CCSDSPack baseline acceptance / closure<br/>#90"]
-    STM --> AUDIT["Final v0.6 audit"]
-    FPGA --> AUDIT
-    CCSDS --> AUDIT
-    AUDIT --> REL["v0.6.0 release"]
+The phase-7 physical-board run completed successfully with:
+
+```text
+magic                   = 0x53505736
+phase                   = 0x0000700d
+result                  = 0x00000000
+sync_to_device          = 1
+sync_from_device        = 1
+dma_transfers           = 2
+tx_packets              = 2
+rx_packets              = 2
+reset_stale_invalidated = 1
+RESULT: PASS
 ```
 
-The STM32H755 runtime test is intentionally not considered complete until its exact board/test architecture is agreed and executed. Physical FPGA/SpaceWire electrical HIL remains outside the current software-only evidence.
+This validates real STM32 DMA2 execution, Cortex-M7 cache clean/invalidate ownership transitions, copied and zero-copy packet paths, and reset-time stale-buffer invalidation. It is MCU driver evidence, not physical SpaceWire electrical/PHY interoperability evidence.
+
+## CCSDSPack integration baseline
+
+SpWKit v0.6 accepts the immutable external integration reference:
+
+- tag: `CCSDSPack v2.0.0`;
+- commit: `c2f318c330c564429bcc565a8acbff22728b2851`.
+
+CCSDSPack remains optional and external. `libspwkit` does not include or link CCSDSPack.
+
+## Hardware boundary
+
+The public repository defines the portable driver semantics and generic HIL acceptance criteria. It does not publish proprietary FPGA/HDL implementation details, register maps, descriptor layouts, bus/clock/reset/interrupt architecture, or electrical design.
+
+Physical FPGA-backed SpaceWire interoperability remains a later validation layer described in [`hardware-acceptance.md`](hardware-acceptance.md).
+
+## Development flow after v0.6
+
+`main` tracks stable releases and `develop` remains the integration branch for subsequent work. No post-v0.6 feature is considered delivered until it has its own implementation and evidence boundary.
