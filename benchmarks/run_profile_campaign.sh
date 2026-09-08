@@ -21,7 +21,8 @@ Usage: benchmarks/run_profile_campaign.sh [options]
 
 Runs profiling configurations strictly one at a time. Every case receives a
 fresh build directory and therefore a fresh CMake configure/build before its
-counter-floor calibration and payload sweep.
+counter-floor calibration and payload sweep. After the layer cases, the
+campaign performs a separate clean direct/native-versus-SpWKit comparison build.
 
 Results are stored under:
   <output-root>/<type>-<UTC timestamp>-<short git commit>/
@@ -106,7 +107,10 @@ if [[ -e "$output_dir" ]]; then
   echo "result directory already exists: $output_dir" >&2
   exit 1
 fi
-mkdir -p "$campaign_build_root" "$output_dir/cases" "$output_dir/calibration"
+mkdir -p "$campaign_build_root" \
+         "$output_dir/cases" \
+         "$output_dir/calibration" \
+         "$output_dir/comparison"
 : > "$output_dir/results.jsonl"
 : > "$output_dir/calibration.jsonl"
 
@@ -120,6 +124,7 @@ printf '  build profile: Release\n' >&2
 printf '  clean rebuild per case: yes\n' >&2
 printf '  serial cases: yes\n' >&2
 printf '  counter-floor calibration per case: yes\n' >&2
+printf '  direct/native comparison: yes (separate clean build)\n' >&2
 
 case_index=0
 for case_name in "${selected_cases[@]}"; do
@@ -143,6 +148,19 @@ for case_name in "${selected_cases[@]}"; do
   cat "$case_output" >> "$output_dir/results.jsonl"
   cat "$calibration_output" >> "$output_dir/calibration.jsonl"
 done
+
+comparison_output="$output_dir/comparison/tx_api_native.jsonl"
+comparison_calibration="$output_dir/comparison/calibration.json"
+printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER\n' >&2
+"$ROOT_DIR/benchmarks/run_native_comparison.sh" \
+  --warmup "$warmup" \
+  --iterations "$iterations" \
+  --payloads "$payloads" \
+  --counter-hz "$counter_hz" \
+  --settle-seconds "$settle_seconds" \
+  --build-dir "$campaign_build_root/native-comparison" \
+  --output "$comparison_output" \
+  --calibration-output "$comparison_calibration"
 
 export SPWKIT_CAMPAIGN_CASES="${selected_cases[*]}"
 export SPWKIT_CAMPAIGN_WARMUP="$warmup"
@@ -174,6 +192,9 @@ metadata = {
     'clean_rebuild_per_case': True,
     'serial_execution': True,
     'counter_floor_calibration_per_case': True,
+    'direct_native_comparison': True,
+    'direct_native_comparison_case': 'tx_api_native',
+    'direct_native_counter_floor_subtracted': False,
     'cases': os.environ['SPWKIT_CAMPAIGN_CASES'].split(),
     'warmup_iterations': int(os.environ['SPWKIT_CAMPAIGN_WARMUP']),
     'measured_iterations': int(os.environ['SPWKIT_CAMPAIGN_ITERATIONS']),
