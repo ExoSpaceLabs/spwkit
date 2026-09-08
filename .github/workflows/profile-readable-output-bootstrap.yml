@@ -2,7 +2,8 @@ name: Profile readable output bootstrap
 
 on:
   push:
-    branches: [fix/profile-campaign-readable-output]
+    branches:
+      - fix/profile-campaign-readable-output
     paths:
       - .github/workflows/profile-readable-output-bootstrap.yml
 
@@ -20,126 +21,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply readable campaign output changes
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          campaign_path = Path('benchmarks/run_profile_campaign.sh')
-          campaign = campaign_path.read_text()
-
-          old = '''set -euo pipefail
-
-ROOT_DIR='''
-          new = '''set -euo pipefail
-
-# Child benchmark runners emit machine-readable calibration JSON on stderr.
-# Keep those records in their artifact files, but do not spray JSON blobs into
-# the human-facing campaign console. Other diagnostics and errors still pass.
-exec 3>&2
-exec 2> >(grep -vE 'counter floor: \\{.*\\}$' >&3)
-
-ROOT_DIR='''
-          if old not in campaign:
-              raise SystemExit('campaign stderr insertion point not found')
-          campaign = campaign.replace(old, new, 1)
-
-          old = '''printf '\\n' >&2
-python3 "$ROOT_DIR/benchmarks/summarize_profile_campaign.py" "$output_dir" >&2
-printf 'Campaign complete: %s\\n' "$output_dir" >&2
-printf '%s\\n' "$output_dir"
-'''
-          new = '''printf '\\n==================== PROFILING RESULTS ====================\\n' >&2
-python3 "$ROOT_DIR/benchmarks/summarize_profile_campaign.py" "$output_dir" >&2
-printf '===========================================================\\n' >&2
-printf 'Human-readable summary : %s/summary.txt\\n' "$output_dir" >&2
-printf 'Machine-readable data  : %s/*.json, %s/*.jsonl\\n' "$output_dir" "$output_dir" >&2
-printf 'Campaign complete      : %s\\n' "$output_dir" >&2
-printf '%s\\n' "$output_dir"
-'''
-          if old not in campaign:
-              raise SystemExit('campaign summary footer not found')
-          campaign = campaign.replace(old, new, 1)
-          campaign_path.write_text(campaign)
-
-          summary_path = Path('benchmarks/summarize_profile_campaign.py')
-          summary = summary_path.read_text()
-          summary = summary.replace('import json\nimport platform\n', 'import json\nimport math\nimport platform\n', 1)
-
-          old = '''def fmt(value, digits=3):
-    if value is None:
-        return "n/a"
-    if isinstance(value, int):
-        return str(value)
-    return f"{value:.{digits}f}"
-'''
-          new = '''def rounded_tick(value):
-    """Round a counter-tick statistic to the nearest representable tick."""
-    numeric = float(value)
-    if numeric >= 0:
-        return math.floor(numeric + 0.5)
-    return math.ceil(numeric - 0.5)
-
-
-def fmt_ticks(value):
-    if value is None:
-        return "n/a"
-    return str(rounded_tick(value))
-
-
-def fmt_percent(value):
-    if value is None:
-        return "n/a"
-    return f"{float(value):.1f}"
-'''
-          if old not in summary:
-              raise SystemExit('summary formatter block not found')
-          summary = summary.replace(old, new, 1)
-          summary = summary.replace('fmt(', 'fmt_ticks(')
-          summary = summary.replace("fmt_ticks(delta['median_percent'])", "fmt_percent(delta['median_percent'])")
-
-          old = '''    lines.append(f"Build      : {campaign['build_type']} / clean serial cases")
-    lines.append("")
-'''
-          new = '''    lines.append(f"Build      : {campaign['build_type']} / clean serial cases")
-    lines.append("Units      : architectural counter ticks")
-    lines.append("Display    : tick values rounded to nearest integer; JSON retains full precision")
-    lines.append("")
-'''
-          if old not in summary:
-              raise SystemExit('summary header insertion point not found')
-          summary = summary.replace(old, new, 1)
-
-          old = '''    case_files = sorted((root / "cases").glob("*.jsonl"))
-'''
-          new = '''    case_files = [
-        root / "cases" / f"{case_name}.jsonl"
-        for case_name in campaign.get("cases", [])
-        if (root / "cases" / f"{case_name}.jsonl").exists()
-    ]
-'''
-          if old not in summary:
-              raise SystemExit('case ordering line not found')
-          summary = summary.replace(old, new, 1)
-
-          old = '''    if campaign["result_type"] == "github-hosted":
-'''
-          new = '''    lines.append("Result artifacts")
-    lines.append("----------------")
-    lines.append("  summary.txt                    ordered human-readable result")
-    lines.append("  comparison/*.jsonl             exact comparison data")
-    lines.append("  cases/*.jsonl                  exact paired-range data")
-    lines.append("  calibration/*.json             exact counter-floor calibration")
-    lines.append("  coverage.json / campaign.json  campaign metadata and coverage")
-    lines.append("")
-
-    if campaign["result_type"] == "github-hosted":
-'''
-          if old not in summary:
-              raise SystemExit('artifact section insertion point not found')
-          summary = summary.replace(old, new, 1)
-          summary_path.write_text(summary)
-          PY
+        run: python3 scripts/apply_profile_output_cleanup.py
 
       - name: Validate formatting contract
         shell: bash
@@ -162,8 +44,8 @@ def fmt_percent(value):
           assert mod.fmt_ticks(-24.5) == '-25'
           assert mod.fmt_percent(12.245) == '12.2'
           PY
-          grep -q "counter floor: .*\\{.*\\}" benchmarks/run_profile_campaign.sh || true
           grep -q 'tick values rounded to nearest integer' benchmarks/summarize_profile_campaign.py
+          grep -q 'PROFILING RESULTS' benchmarks/run_profile_campaign.sh
 
       - name: Commit implementation
         shell: bash
