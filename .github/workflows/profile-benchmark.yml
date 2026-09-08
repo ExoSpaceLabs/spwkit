@@ -119,17 +119,24 @@ jobs:
           assert metadata['clean_rebuild_per_case'] is True
           assert metadata['serial_execution'] is True
           assert metadata['counter_floor_calibration_per_case'] is True
+          assert metadata['direct_native_comparison'] is True
+          assert metadata['direct_native_comparison_case'] == 'tx_api_native'
+          assert metadata['direct_native_counter_floor_subtracted'] is False
           assert metadata['cases']
 
           rows = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines() if line.strip()]
           calibrations = [json.loads(line) for line in (root / 'calibration.jsonl').read_text().splitlines() if line.strip()]
+          comparison_rows = [json.loads(line) for line in (root / 'comparison' / 'tx_api_native.jsonl').read_text().splitlines() if line.strip()]
+          comparison_calibration = json.loads((root / 'comparison' / 'calibration.json').read_text())
           if not rows:
               raise SystemExit('benchmark campaign emitted no result rows')
+          if not comparison_rows:
+              raise SystemExit('benchmark campaign emitted no direct/native comparison rows')
           if len(calibrations) != len(metadata['cases']):
               raise SystemExit('benchmark campaign did not emit one calibration row per case')
 
           required_stats = {'min', 'median', 'mean', 'p95', 'p99', 'max', 'stddev'}
-          for calibration in calibrations:
+          for calibration in [*calibrations, comparison_calibration]:
               assert calibration['schema'] == 'spwkit.profile.calibration.v1'
               assert calibration['measurement_domain'] == 'instrumentation'
               assert calibration['unit'] == 'counter_ticks'
@@ -156,11 +163,38 @@ jobs:
               assert row['statistics']['min'] <= row['statistics']['p95'] <= row['statistics']['max']
               assert row['statistics']['min'] <= row['statistics']['p99'] <= row['statistics']['max']
 
+          for row in comparison_rows:
+              assert row['schema'] == 'spwkit.profile.comparison.v1'
+              assert row['measurement_domain'] == 'software'
+              assert row['unit'] == 'counter_ticks'
+              assert row['backend'] == 'driver'
+              assert row['direction'] == 'tx'
+              assert row['spwkit_path'] == 'copied'
+              assert row['native_path'] == 'direct-provider-call'
+              assert row['provider_fixture'] == 'shared-reference-provider-submit'
+              assert row['sample_order'] == 'alternating-per-iteration'
+              assert row['counter_floor_subtracted'] is False
+              assert 0 <= row['payload_bytes'] <= 4096
+              assert 1 <= row['iterations'] <= 4096
+              assert required_stats == set(row['native_statistics'])
+              assert required_stats == set(row['spwkit_statistics'])
+              assert row['delta']['definition'] == 'spwkit-minus-native'
+              assert {'median_ticks', 'mean_ticks', 'p95_ticks', 'p99_ticks', 'median_percent', 'mean_percent'} <= set(row['delta'])
+              for side in ('native_statistics', 'spwkit_statistics'):
+                  stats = row[side]
+                  assert stats['min'] <= stats['median'] <= stats['max']
+                  assert stats['min'] <= stats['p95'] <= stats['max']
+                  assert stats['min'] <= stats['p99'] <= stats['max']
+
           per_case_files = sorted((root / 'cases').glob('*.jsonl'))
           calibration_files = sorted((root / 'calibration').glob('*.json'))
           assert len(per_case_files) == len(metadata['cases'])
           assert len(calibration_files) == len(metadata['cases'])
-          print(f"validated {len(metadata['cases'])} clean-build case(s), {len(rows)} result row(s), {len(calibrations)} calibration row(s) in {root.name}")
+          print(
+              f"validated {len(metadata['cases'])} clean-build case(s), "
+              f"{len(rows)} result row(s), {len(calibrations)} layer calibration row(s), "
+              f"and {len(comparison_rows)} direct/native comparison row(s) in {root.name}"
+          )
           PY
 
       - name: Record runner metadata
@@ -201,7 +235,8 @@ jobs:
           print(f"Result set: `{root.name}`")
           print()
           print('Each profiling configuration was configured and built from a clean directory and executed serially.')
-          print('Each case also records a back-to-back counter-read floor. Raw measurements are not silently corrected by that floor.')
+          print('Standalone counter-floor data is diagnostic only and is not subtracted from software intervals.')
+          print('The direct/native comparison uses the same process, counter and shared provider submission function, with path order alternating per iteration.')
           print('GitHub-hosted timing is **informational only**; controlled/local or physical-target runs are required for performance claims.')
           print()
           print(f"Cases: `{', '.join(campaign['cases'])}`")
@@ -218,6 +253,24 @@ jobs:
                   row = json.loads(line)
                   s = row['statistics']
                   print(f"| {case_name} | {floor:.3f} | {row['payload_bytes']} | {s['mean']:.3f} | {s['median']:.3f} | {s['p95']} | {s['p99']} | {s['min']} | {s['max']} |")
+
+          print()
+          print('#### Direct/native reference comparison')
+          print()
+          comparison_calibration = json.loads((root / 'comparison' / 'calibration.json').read_text())
+          print(f"Diagnostic counter-floor median: `{comparison_calibration['statistics']['median']:.3f}` ticks. It is not subtracted.")
+          print()
+          print('| Payload (B) | Native median | SpWKit median | Delta ticks | Delta % | Native p95 | SpWKit p95 |')
+          print('|---:|---:|---:|---:|---:|---:|---:|')
+          for line in (root / 'comparison' / 'tx_api_native.jsonl').read_text().splitlines():
+              if not line.strip():
+                  continue
+              row = json.loads(line)
+              native = row['native_statistics']
+              spwkit = row['spwkit_statistics']
+              delta = row['delta']
+              pct = 'n/a' if delta['median_percent'] is None else f"{delta['median_percent']:.3f}"
+              print(f"| {row['payload_bytes']} | {native['median']:.3f} | {spwkit['median']:.3f} | {delta['median_ticks']:.3f} | {pct} | {native['p95']} | {spwkit['p95']} |")
           PY
 
       - name: Upload benchmark results
