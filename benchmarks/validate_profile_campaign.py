@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import platform
 import re
 from pathlib import Path
 
@@ -65,11 +66,31 @@ def validate_udp_comparison(row, direction):
     assert 1 <= row['iterations'] <= 4096
 
 
+def validate_device_comparison(row, direction):
+    assert row['schema'] == 'spwkit.profile.comparison.v1'
+    assert row['measurement_domain'] == 'software'
+    assert row['unit'] == 'counter_ticks'
+    assert row['backend'] == 'device'
+    assert row['direction'] == direction
+    assert row['spwkit_path'] == 'vspd'
+    assert row['native_path'] == 'direct-vspd-seqpacket'
+    assert row['boundary'] == 'complete-public-api-operation'
+    assert row['provider_fixture'] == 'same-vspwd-daemon-peer-pair'
+    assert row['carrier'] == 'af-unix-seqpacket'
+    assert row['sample_order'] == 'alternating-per-iteration'
+    assert row['counter_floor_subtracted'] is False
+    assert REQUIRED_STATS == set(row['native_statistics'])
+    assert REQUIRED_STATS == set(row['spwkit_statistics'])
+    assert row['delta']['definition'] == 'spwkit-minus-native'
+    assert 0 <= row['payload_bytes'] <= 4096
+    assert 1 <= row['iterations'] <= 4096
+
+
 def main():
     parser = argparse.ArgumentParser(description='Validate a SpWKit profiling campaign result set')
     parser.add_argument('result_dir', type=Path)
     parser.add_argument('--expected-type', default=None)
-    parser.add_argument('--expected-measured', type=int, default=8)
+    parser.add_argument('--expected-measured', type=int, default=10 if platform.system() == 'Linux' else 8)
     args = parser.parse_args()
 
     root = args.result_dir
@@ -89,6 +110,10 @@ def main():
     assert metadata['direct_native_comparison'] is True
     assert metadata['direct_native_comparison_cases'] == ['tx_api_native', 'rx_native_api']
     assert metadata['udp_comparison_cases'] == ['udp_tx', 'udp_rx']
+    if platform.system() == 'Linux':
+        assert metadata['device_comparison_cases'] == ['device_tx', 'device_rx']
+    else:
+        assert metadata['device_comparison_cases'] == []
     assert metadata['direct_native_counter_floor_subtracted'] is False
     assert metadata['host_backend_cases'] == ['loopback_tx', 'loopback_rx', 'simulator_tx', 'simulator_rx']
     assert metadata['summary_file'] == 'summary.txt'
@@ -140,6 +165,23 @@ def main():
         root / 'comparison' / 'udp_tx_calibration.json',
         root / 'comparison' / 'udp_rx_calibration.json',
     ]
+
+    device_tx_rows = []
+    device_rx_rows = []
+    if platform.system() == 'Linux':
+        device_tx_rows = load_jsonl(root / 'comparison' / 'device_tx.jsonl')
+        device_rx_rows = load_jsonl(root / 'comparison' / 'device_rx.jsonl')
+        if not device_tx_rows or not device_rx_rows:
+            raise SystemExit('benchmark campaign emitted incomplete DEVICE comparison results')
+        for row in device_tx_rows:
+            validate_device_comparison(row, 'tx')
+        for row in device_rx_rows:
+            validate_device_comparison(row, 'rx')
+        comparison_calibrations.extend([
+            root / 'comparison' / 'device_tx_calibration.json',
+            root / 'comparison' / 'device_rx_calibration.json',
+        ])
+
     for path in comparison_calibrations:
         validate_calibration(load_json(path))
 
@@ -188,11 +230,16 @@ def main():
         ('udp', 'vspw-tp', 'tx'),
         ('udp', 'vspw-tp', 'rx'),
     }
+    if platform.system() == 'Linux':
+        expected_measured |= {
+            ('device', 'vspd', 'tx'),
+            ('device', 'vspd', 'rx'),
+        }
     assert expected_measured <= measured
     assert coverage['counts'].get('measured', 0) >= args.expected_measured
 
     summary = (root / 'summary.txt').read_text()
-    for heading in [
+    headings = [
         'DRIVER copied TX: direct/provider vs SpWKit',
         'DRIVER copied RX: direct/provider vs SpWKit',
         'UDP VSPW-TP TX: direct socket vs SpWKit',
@@ -202,7 +249,13 @@ def main():
         'SIMULATOR TX: complete public API operation',
         'SIMULATOR RX: complete public API operation',
         'Hosted-backend coverage',
-    ]:
+    ]
+    if platform.system() == 'Linux':
+        headings.extend([
+            'DEVICE VSPD TX: direct VSPD vs SpWKit',
+            'DEVICE VSPD RX: direct VSPD vs SpWKit',
+        ])
+    for heading in headings:
         assert heading in summary
     assert f'Measured: {args.expected_measured}/12' in summary
 
@@ -210,6 +263,7 @@ def main():
         f"validated {len(metadata['cases'])} DRIVER layer case(s), "
         f"{len(tx_rows)} DRIVER TX comparison row(s), {len(rx_rows)} DRIVER RX comparison row(s), "
         f"{len(udp_tx_rows)} UDP TX row(s), {len(udp_rx_rows)} UDP RX row(s), "
+        f"{len(device_tx_rows)} DEVICE TX row(s), {len(device_rx_rows)} DEVICE RX row(s), "
         f"{backend_row_count} in-memory backend row(s), {args.expected_measured}/12 coverage in {root.name}"
     )
 

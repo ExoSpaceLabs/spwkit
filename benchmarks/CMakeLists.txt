@@ -12,6 +12,8 @@ option(SPWKIT_BENCHMARK_BUILD_SIMULATOR
     "Build the process-local simulator for host backend benchmark cases" OFF)
 option(SPWKIT_BENCHMARK_BUILD_UDP
     "Build the VSPW-TP/UDP runtime for UDP benchmark cases" OFF)
+option(SPWKIT_BENCHMARK_BUILD_DEVICE
+    "Build the Linux DEVICE/VSPD runtime and daemon for DEVICE benchmark cases" OFF)
 
 set(SPWKIT_ENABLE_PROFILING ON CACHE BOOL "" FORCE)
 set(SPWKIT_PROFILE_START "${SPWKIT_BENCHMARK_PROFILE_START}" CACHE STRING "" FORCE)
@@ -23,8 +25,8 @@ set(SPWKIT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_CPP_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_SIMULATOR ${SPWKIT_BENCHMARK_BUILD_SIMULATOR} CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_UDP ${SPWKIT_BENCHMARK_BUILD_UDP} CACHE BOOL "" FORCE)
-set(SPWKIT_BUILD_DEVICE OFF CACHE BOOL "" FORCE)
-set(SPWKIT_BUILD_VSPWD OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_DEVICE ${SPWKIT_BENCHMARK_BUILD_DEVICE} CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_VSPWD ${SPWKIT_BENCHMARK_BUILD_DEVICE} CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_CUSE OFF CACHE BOOL "" FORCE)
 
@@ -80,4 +82,10 @@ if(UNIX)
     spwkit_configure_profile_executable(
         spwkit_profile_udp_comparison
         profile_udp_comparison.c)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND SPWKIT_BENCHMARK_BUILD_DEVICE)
+    spwkit_configure_profile_executable(
+        spwkit_profile_device_comparison
+        profile_device_comparison.c)
 endif()

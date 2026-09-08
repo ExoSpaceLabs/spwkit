@@ -39,6 +39,8 @@ def coverage_entries(root: Path):
     simulator_rx = measured("backends/simulator_rx.jsonl")
     udp_tx = measured("comparison/udp_tx.jsonl")
     udp_rx = measured("comparison/udp_rx.jsonl")
+    device_tx = measured("comparison/device_tx.jsonl")
+    device_rx = measured("comparison/device_rx.jsonl")
 
     def backend_entry(backend, direction, is_measured, issue):
         return {
@@ -56,6 +58,23 @@ def coverage_entries(root: Path):
             "direction": direction,
             "status": "measured" if is_measured else "not-implemented-benchmark",
             "reason": "same-process direct UDP socket comparison" if is_measured else "tracked by #164",
+        }
+
+    def device_entry(direction, is_measured):
+        if not is_linux:
+            return {
+                "backend": "device",
+                "path": "vspd",
+                "direction": direction,
+                "status": "unsupported-platform",
+                "reason": "DEVICE/VSPD runtime is Linux-only",
+            }
+        return {
+            "backend": "device",
+            "path": "vspd",
+            "direction": direction,
+            "status": "measured" if is_measured else "not-implemented-benchmark",
+            "reason": "same-vspwd-daemon direct VSPD comparison" if is_measured else "tracked by #165",
         }
 
     entries = [
@@ -81,20 +100,8 @@ def coverage_entries(root: Path):
         backend_entry("simulator", "rx", simulator_rx, 163),
         udp_entry("tx", udp_tx),
         udp_entry("rx", udp_rx),
-        {
-            "backend": "device",
-            "path": "vspd",
-            "direction": "tx",
-            "status": "not-implemented-benchmark" if is_linux else "unsupported-platform",
-            "reason": "tracked by #165" if is_linux else "DEVICE/VSPD runtime is Linux-only",
-        },
-        {
-            "backend": "device",
-            "path": "vspd",
-            "direction": "rx",
-            "status": "not-implemented-benchmark" if is_linux else "unsupported-platform",
-            "reason": "tracked by #165" if is_linux else "DEVICE/VSPD runtime is Linux-only",
-        },
+        device_entry("tx", device_tx),
+        device_entry("rx", device_rx),
     ]
     counts = {}
     for entry in entries:
@@ -163,6 +170,8 @@ def render_summary(root: Path, campaign, coverage):
     append_comparison(lines, "DRIVER copied RX: direct/provider vs SpWKit", root / "comparison" / "rx_native_api.jsonl")
     append_comparison(lines, "UDP VSPW-TP TX: direct socket vs SpWKit", root / "comparison" / "udp_tx.jsonl")
     append_comparison(lines, "UDP VSPW-TP RX: direct socket vs SpWKit", root / "comparison" / "udp_rx.jsonl")
+    append_comparison(lines, "DEVICE VSPD TX: direct VSPD vs SpWKit", root / "comparison" / "device_tx.jsonl")
+    append_comparison(lines, "DEVICE VSPD RX: direct VSPD vs SpWKit", root / "comparison" / "device_rx.jsonl")
 
     case_files = sorted((root / "cases").glob("*.jsonl"))
     if case_files:
