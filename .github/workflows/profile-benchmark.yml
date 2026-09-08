@@ -1,0 +1,170 @@
+name: Profile benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      range:
+        description: Profiling range
+        required: true
+        default: tx_api_native
+        type: choice
+        options:
+          - tx_api_backend
+          - tx_backend_provider
+          - tx_provider_native
+          - tx_api_native
+      warmup:
+        description: Warmup iterations per payload
+        required: true
+        default: '256'
+        type: string
+      iterations:
+        description: Measured iterations per payload (1..4096)
+        required: true
+        default: '1024'
+        type: string
+      payloads:
+        description: Space/comma-separated payload sizes in bytes (0..4096)
+        required: true
+        default: '0 1 8 64 256 1024 4096'
+        type: string
+      counter_hz:
+        description: Optional architectural counter frequency override; 0 means unknown/platform-reported
+        required: true
+        default: '0'
+        type: string
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'benchmarks/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/profile-benchmark.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'benchmarks/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/profile-benchmark.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-benchmark:
+    name: Hosted benchmark mechanics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BENCHMARK_RANGE: ${{ github.event.inputs.range || 'tx_api_native' }}
+      BENCHMARK_WARMUP: ${{ github.event.inputs.warmup || '64' }}
+      BENCHMARK_ITERATIONS: ${{ github.event.inputs.iterations || '256' }}
+      BENCHMARK_PAYLOADS: ${{ github.event.inputs.payloads || '0 64 1024 4096' }}
+      BENCHMARK_COUNTER_HZ: ${{ github.event.inputs.counter_hz || '0' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run hosted benchmark sweep
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-results
+          benchmarks/run_profile_benchmark.sh \
+            --range "${BENCHMARK_RANGE}" \
+            --warmup "${BENCHMARK_WARMUP}" \
+            --iterations "${BENCHMARK_ITERATIONS}" \
+            --payloads "${BENCHMARK_PAYLOADS}" \
+            --counter-hz "${BENCHMARK_COUNTER_HZ}" \
+            --output benchmark-results/results.jsonl
+
+      - name: Validate machine-readable results
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('benchmark-results/results.jsonl')
+          rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+          if not rows:
+              raise SystemExit('benchmark emitted no result rows')
+
+          required_stats = {'min', 'median', 'mean', 'p95', 'p99', 'max', 'stddev'}
+          for row in rows:
+              assert row['schema'] == 'spwkit.profile.v1'
+              assert row['measurement_domain'] == 'software'
+              assert row['unit'] == 'counter_ticks'
+              assert row['backend'] == 'driver'
+              assert row['direction'] == 'tx'
+              assert row['path'] == 'copied'
+              assert row['heap_used'] is False
+              assert row['sample_storage'] == 'fixed'
+              assert 0 <= row['payload_bytes'] <= 4096
+              assert 1 <= row['iterations'] <= 4096
+              assert required_stats == set(row['statistics'])
+              assert row['counter']['width_bits'] in (32, 64)
+              assert isinstance(row['counter']['frequency_hz'], int)
+              assert row['statistics']['min'] <= row['statistics']['median'] <= row['statistics']['max']
+              assert row['statistics']['min'] <= row['statistics']['p95'] <= row['statistics']['max']
+              assert row['statistics']['min'] <= row['statistics']['p99'] <= row['statistics']['max']
+          print(f'validated {len(rows)} benchmark result row(s)')
+          PY
+
+      - name: Record run metadata
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          metadata = {
+              'schema': 'spwkit.profile.run.v1',
+              'git_sha': os.environ['GITHUB_SHA'],
+              'git_ref': os.environ['GITHUB_REF'],
+              'github_event': os.environ['GITHUB_EVENT_NAME'],
+              'runner': 'github-hosted/ubuntu-24.04',
+              'range': os.environ['BENCHMARK_RANGE'],
+              'warmup': int(os.environ['BENCHMARK_WARMUP']),
+              'iterations': int(os.environ['BENCHMARK_ITERATIONS']),
+              'payloads': os.environ['BENCHMARK_PAYLOADS'],
+              'counter_hz_override': int(os.environ['BENCHMARK_COUNTER_HZ']),
+              'authoritative_performance_result': False,
+              'note': 'GitHub-hosted timing is informational; use controlled/local or physical-target runs for performance claims.'
+          }
+          Path('benchmark-results/run-metadata.json').write_text(
+              json.dumps(metadata, indent=2) + '\n')
+          PY
+
+      - name: Publish summary
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          rows = [json.loads(line) for line in Path('benchmark-results/results.jsonl').read_text().splitlines() if line.strip()]
+          print('### SpWKit hosted profiling benchmark')
+          print()
+          print('GitHub-hosted timing is **informational only**. The workflow validates benchmark mechanics and provides convenient snapshots; controlled/local or physical-target runs are required for performance claims.')
+          print()
+          print('| Payload (B) | Mean ticks | Median | p95 | p99 | Min | Max |')
+          print('|---:|---:|---:|---:|---:|---:|---:|')
+          for row in rows:
+              s = row['statistics']
+              print(f"| {row['payload_bytes']} | {s['mean']:.3f} | {s['median']:.3f} | {s['p95']} | {s['p99']} | {s['min']} | {s['max']} |")
+          PY
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-profile-results-${{ github.run_id }}
+          path: benchmark-results/
+          if-no-files-found: error
+          retention-days: 30
