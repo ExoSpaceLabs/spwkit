@@ -68,12 +68,13 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Configure known counter frequency
+        env:
+          CFLAGS: -DSPWKIT_PROFILE_COUNTER_HZ=123456789
         run: >-
           cmake -S . -B build-counter-metadata
           -DSPWKIT_ENABLE_PROFILING=ON
           -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY
           -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_BACKEND_ENTRY
-          -DCMAKE_C_FLAGS=-DSPWKIT_PROFILE_COUNTER_HZ=123456789
           -DSPWKIT_BUILD_CPP_TESTS=OFF
           -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
 
@@ -98,11 +99,12 @@ jobs:
 
       - name: Cross-build profiling-enabled library
         shell: bash
+        env:
+          CFLAGS: -DSPWKIT_PROFILE_COUNTER_HZ=64000000
         run: |
           set -euo pipefail
           cmake -S . -B build-profile-cortex-m7 \
             -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
-            -DCMAKE_C_FLAGS=-DSPWKIT_PROFILE_COUNTER_HZ=64000000 \
             -DSPWKIT_ENABLE_PROFILING=ON \
             -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
             -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_BACKEND_ENTRY \
