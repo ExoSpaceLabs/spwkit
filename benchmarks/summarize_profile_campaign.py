@@ -239,6 +239,13 @@ def render_summary(root: Path, campaign, coverage):
     lines.append(f"UTC        : {campaign['timestamp_utc']}")
     lines.append(f"Commit     : {campaign['git_short_sha']} ({campaign['git_sha']})")
     lines.append(f"Build      : {campaign['build_type']} / clean serial cases")
+    control = campaign.get("host_control", {})
+    if control.get("enabled"):
+        lines.append(f"CPU        : pinned logical CPU {control.get('selected_cpu')} ({control.get('auto_cpu_policy')})")
+        lines.append(f"Precond.   : {control.get('precondition_seconds', 0)}s before each campaign step")
+        lines.append(f"Governor   : requested={control.get('requested_governor')} effective={control.get('governor_effective')} driver={control.get('scaling_driver')} status={control.get('governor_change_status')}")
+    else:
+        lines.append("CPU        : uncontrolled / inherited scheduler affinity")
     lines.append("Units      : architectural counter ticks")
     lines.append("Display    : tick values rounded to nearest integer; JSON retains full precision")
     lines.append("")
@@ -300,7 +307,13 @@ def render_summary(root: Path, campaign, coverage):
     if campaign["result_type"] == "github-hosted":
         lines.append("NOTE: GitHub-hosted timings are informational/regression data only.")
     else:
-        lines.append("NOTE: Local timing is suitable for controlled-host characterization only when host conditions are recorded and kept stable.")
+        control = campaign.get("host_control", {})
+        if not control.get("enabled"):
+            lines.append("WARNING: Local campaign was not CPU-pinned; use run_controlled_profile_campaign.sh for reference characterization.")
+        elif control.get("requested_governor") == "performance" and control.get("governor_effective") != "performance":
+            lines.append("WARNING: performance governor was requested but not effective; cross-case absolute timing may still drift.")
+        else:
+            lines.append("NOTE: Controlled-host affinity and cpufreq state were recorded for this campaign.")
     lines.append("Standalone counter-floor calibration is diagnostic and is not subtracted from measured intervals.")
     return "\n".join(lines) + "\n"
 
