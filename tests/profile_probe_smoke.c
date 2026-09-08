@@ -59,7 +59,7 @@ static spw_result_t profile_send(void* raw,
     profile_driver_t* driver = (profile_driver_t*)raw;
     (void)timeout_us;
 
-    /* This callback entry is the generic SpWKit -> provider handoff. */
+    /* A real provider places this at DMA/MMIO/native submission. */
     SPW_PROFILE_TX_PROVIDER_BOUNDARY();
 
     if (driver->state != SPW_LINK_RUN || packet->length > sizeof(driver->payload)) {
@@ -154,21 +154,19 @@ static void exercise_driver_boundary(void) {
     assert(spw_port_open(&config, &port) == SPW_OK);
     assert(spw_port_start(port) == SPW_OK);
 
-#if SPWKIT_PROFILE_START == SPW_PROFILE_ID_TX_API_ENTRY && \
-    SPWKIT_PROFILE_END == SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+#if SPWKIT_PROFILE_START >= SPW_PROFILE_ID_TX_API_ENTRY && \
+    SPWKIT_PROFILE_START <= SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
     spw_profile_reset();
-    SPW_PROFILE_TX_API_ENTRY();
     assert(spw_port_send(port, &tx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     require_one_sample();
 #else
     assert(spw_port_send(port, &tx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
 #endif
 
-#if SPWKIT_PROFILE_START == SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY && \
-    SPWKIT_PROFILE_END == SPW_PROFILE_ID_RX_API_RETURN
+#if SPWKIT_PROFILE_START >= SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY && \
+    SPWKIT_PROFILE_START <= SPW_PROFILE_ID_RX_API_RETURN
     spw_profile_reset();
     assert(spw_port_receive(port, &rx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
-    SPW_PROFILE_RX_API_RETURN();
     require_one_sample();
 #else
     assert(spw_port_receive(port, &rx, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);

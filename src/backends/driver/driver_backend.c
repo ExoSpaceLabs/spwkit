@@ -5,6 +5,7 @@
 #include <spwkit/driver.h>
 
 #include "core/buffer_internal.h"
+#include "profiling/profile.h"
 
 #include <stdbool.h>
 #include <stdalign.h>
@@ -187,6 +188,8 @@ static spw_result_t driver_send(void* raw,
                                 const spw_packet_t* packet,
                                 spw_timeout_us_t timeout_us) {
     spw_driver_backend_t* b = (spw_driver_backend_t*)raw;
+    SPW_PROFILE_TX_BACKEND_ENTRY();
+    SPW_PROFILE_TX_PROVIDER_ENTRY();
     return b->ops->send(b->driver_context, packet, timeout_us);
 }
 
@@ -194,7 +197,11 @@ static spw_result_t driver_receive(void* raw,
                                    spw_packet_t* packet,
                                    spw_timeout_us_t timeout_us) {
     spw_driver_backend_t* b = (spw_driver_backend_t*)raw;
-    return b->ops->receive(b->driver_context, packet, timeout_us);
+    spw_result_t result =
+        b->ops->receive(b->driver_context, packet, timeout_us);
+    SPW_PROFILE_RX_PROVIDER_RETURN();
+    SPW_PROFILE_RX_BACKEND_RETURN();
+    return result;
 }
 
 static spw_result_t driver_send_time_code(void* raw,

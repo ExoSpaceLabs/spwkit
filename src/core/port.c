@@ -20,6 +20,7 @@
 #endif
 #include "core/backend_c.h"
 #include "core/buffer_internal.h"
+#include "profiling/profile.h"
 
 #include <stdbool.h>
 #include <stdalign.h>
@@ -608,16 +609,20 @@ spw_result_t spw_port_send(spw_port_t* port,
     if (validate_port(port) != SPW_OK || packet == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
+    SPW_PROFILE_TX_API_ENTRY();
     return port->ops->send(port->backend_context, packet, timeout_us);
 }
 
 spw_result_t spw_port_receive(spw_port_t* port,
                               spw_packet_t* packet,
                               spw_timeout_us_t timeout_us) {
+    spw_result_t result;
     if (validate_port(port) != SPW_OK || packet == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    return port->ops->receive(port->backend_context, packet, timeout_us);
+    result = port->ops->receive(port->backend_context, packet, timeout_us);
+    SPW_PROFILE_RX_API_RETURN();
+    return result;
 }
 
 spw_result_t spw_port_send_time_code(spw_port_t* port,
