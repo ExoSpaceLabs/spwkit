@@ -24,6 +24,10 @@ fresh build directory and therefore a fresh CMake configure/build before its
 counter-floor calibration and payload sweep. After the layer cases, the
 campaign performs a separate clean direct/native-versus-SpWKit comparison build.
 
+Child benchmarks write machine-readable JSON into the result set but the
+campaign terminal output stays human-readable and ends with a consolidated
+numeric summary.
+
 Results are stored under:
   <output-root>/<type>-<UTC timestamp>-<short git commit>/
 
@@ -99,9 +103,6 @@ result_dir_name="${result_type}-${timestamp_utc}-${git_short_sha}"
 output_dir="$output_root/$result_dir_name"
 campaign_build_root="$build_root/$result_dir_name"
 
-# Every campaign gets isolated build and result directories. Existing results
-# are never silently overwritten, even if two runs somehow resolve to the same
-# second and commit.
 rm -rf -- "$campaign_build_root"
 if [[ -e "$output_dir" ]]; then
   echo "result directory already exists: $output_dir" >&2
@@ -143,7 +144,8 @@ for case_name in "${selected_cases[@]}"; do
     --settle-seconds "$settle_seconds" \
     --build-dir "$case_build" \
     --output "$case_output" \
-    --calibration-output "$calibration_output"
+    --calibration-output "$calibration_output" \
+    > /dev/null
 
   cat "$case_output" >> "$output_dir/results.jsonl"
   cat "$calibration_output" >> "$output_dir/calibration.jsonl"
@@ -160,7 +162,8 @@ printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER\n' >&2
   --settle-seconds "$settle_seconds" \
   --build-dir "$campaign_build_root/native-comparison" \
   --output "$comparison_output" \
-  --calibration-output "$comparison_calibration"
+  --calibration-output "$comparison_calibration" \
+  > /dev/null
 
 export SPWKIT_CAMPAIGN_CASES="${selected_cases[*]}"
 export SPWKIT_CAMPAIGN_WARMUP="$warmup"
@@ -195,6 +198,8 @@ metadata = {
     'direct_native_comparison': True,
     'direct_native_comparison_case': 'tx_api_native',
     'direct_native_counter_floor_subtracted': False,
+    'summary_file': 'summary.txt',
+    'coverage_file': 'coverage.json',
     'cases': os.environ['SPWKIT_CAMPAIGN_CASES'].split(),
     'warmup_iterations': int(os.environ['SPWKIT_CAMPAIGN_WARMUP']),
     'measured_iterations': int(os.environ['SPWKIT_CAMPAIGN_ITERATIONS']),
@@ -205,5 +210,7 @@ metadata = {
 (out / 'campaign.json').write_text(json.dumps(metadata, indent=2) + '\n')
 PY
 
-printf '\nCampaign complete: %s\n' "$output_dir" >&2
+printf '\n' >&2
+python3 "$ROOT_DIR/benchmarks/summarize_profile_campaign.py" "$output_dir" >&2
+printf 'Campaign complete: %s\n' "$output_dir" >&2
 printf '%s\n' "$output_dir"
