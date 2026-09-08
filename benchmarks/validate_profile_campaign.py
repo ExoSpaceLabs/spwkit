@@ -47,6 +47,33 @@ def validate_driver_comparison(row, direction, fixture):
     assert row['delta']['definition'] == 'spwkit-minus-native'
 
 
+def validate_zero_copy_comparison(row):
+    assert row['schema'] == 'spwkit.profile.zero-copy-comparison.v1'
+    assert row['measurement_domain'] == 'software'
+    assert row['unit'] == 'counter_ticks'
+    assert row['backend'] == 'driver'
+    assert row['direction'] == 'tx'
+    assert row['fixture'] == 'provider-owned-dma-buffer-reference'
+    assert row['boundary'] == 'application-preparation-to-provider-native-boundary'
+    assert row['copied_path'] == 'caller-fill-plus-explicit-provider-copy'
+    assert row['zero_copy_path'] == 'acquire-direct-fill-submit'
+    assert row['completion_cleanup'] == 'reclaim-plus-release-outside-total'
+    assert row['provider_storage_shared'] is True
+    assert row['sync_hook_present'] is False
+    assert row['sample_order'] == 'alternating-per-iteration'
+    assert row['counter_floor_subtracted'] is False
+    assert REQUIRED_STATS == set(row['copied_statistics'])
+    assert REQUIRED_STATS == set(row['zero_copy_statistics'])
+    assert set(row['ownership_statistics']) == {'acquire', 'submit', 'reclaim', 'release'}
+    for stats in row['ownership_statistics'].values():
+        assert REQUIRED_STATS == set(stats)
+    assert row['delta']['definition'] == 'zero-copy-minus-copied'
+    assert isinstance(row['delta']['zero_copy_faster_by_median'], bool)
+    assert set(row['effective_software_throughput']) == {'copied', 'zero_copy'}
+    assert 0 <= row['payload_bytes'] <= 4096
+    assert 1 <= row['iterations'] <= 4096
+
+
 def validate_udp_comparison(row, direction):
     assert row['schema'] == 'spwkit.profile.comparison.v1'
     assert row['measurement_domain'] == 'software'
@@ -90,7 +117,7 @@ def main():
     parser = argparse.ArgumentParser(description='Validate a SpWKit profiling campaign result set')
     parser.add_argument('result_dir', type=Path)
     parser.add_argument('--expected-type', default=None)
-    parser.add_argument('--expected-measured', type=int, default=10 if platform.system() == 'Linux' else 8)
+    parser.add_argument('--expected-measured', type=int, default=11 if platform.system() == 'Linux' else 9)
     args = parser.parse_args()
 
     root = args.result_dir
@@ -109,6 +136,7 @@ def main():
     assert metadata['counter_floor_calibration_per_case'] is True
     assert metadata['direct_native_comparison'] is True
     assert metadata['direct_native_comparison_cases'] == ['tx_api_native', 'rx_native_api']
+    assert metadata['zero_copy_comparison_cases'] == ['driver_tx_copy_zero_copy']
     assert metadata['udp_comparison_cases'] == ['udp_tx', 'udp_rx']
     if platform.system() == 'Linux':
         assert metadata['device_comparison_cases'] == ['device_tx', 'device_rx']
@@ -145,15 +173,18 @@ def main():
 
     tx_rows = load_jsonl(root / 'comparison' / 'tx_api_native.jsonl')
     rx_rows = load_jsonl(root / 'comparison' / 'rx_native_api.jsonl')
+    zero_copy_rows = load_jsonl(root / 'comparison' / 'driver_tx_copy_zero_copy.jsonl')
     udp_tx_rows = load_jsonl(root / 'comparison' / 'udp_tx.jsonl')
     udp_rx_rows = load_jsonl(root / 'comparison' / 'udp_rx.jsonl')
-    if not tx_rows or not rx_rows or not udp_tx_rows or not udp_rx_rows:
+    if not tx_rows or not rx_rows or not zero_copy_rows or not udp_tx_rows or not udp_rx_rows:
         raise SystemExit('benchmark campaign emitted incomplete comparison results')
 
     for row in tx_rows:
         validate_driver_comparison(row, 'tx', 'shared-reference-provider-submit')
     for row in rx_rows:
         validate_driver_comparison(row, 'rx', 'shared-reference-provider-receive')
+    for row in zero_copy_rows:
+        validate_zero_copy_comparison(row)
     for row in udp_tx_rows:
         validate_udp_comparison(row, 'tx')
     for row in udp_rx_rows:
@@ -162,6 +193,7 @@ def main():
     comparison_calibrations = [
         root / 'comparison' / 'calibration.json',
         root / 'comparison' / 'rx_calibration.json',
+        root / 'comparison' / 'driver_tx_copy_zero_copy_calibration.json',
         root / 'comparison' / 'udp_tx_calibration.json',
         root / 'comparison' / 'udp_rx_calibration.json',
     ]
@@ -223,6 +255,7 @@ def main():
     expected_measured = {
         ('driver', 'copied', 'tx'),
         ('driver', 'copied', 'rx'),
+        ('driver', 'zero-copy', 'tx'),
         ('loopback', 'standard', 'tx'),
         ('loopback', 'standard', 'rx'),
         ('simulator', 'standard', 'tx'),
@@ -242,6 +275,7 @@ def main():
     headings = [
         'DRIVER copied TX: direct/provider vs SpWKit',
         'DRIVER copied RX: direct/provider vs SpWKit',
+        'DRIVER TX: copied vs zero-copy DMA-buffer preparation',
         'UDP VSPW-TP TX: direct socket vs SpWKit',
         'UDP VSPW-TP RX: direct socket vs SpWKit',
         'LOOPBACK TX: complete public API operation',
@@ -262,6 +296,7 @@ def main():
     print(
         f"validated {len(metadata['cases'])} DRIVER layer case(s), "
         f"{len(tx_rows)} DRIVER TX comparison row(s), {len(rx_rows)} DRIVER RX comparison row(s), "
+        f"{len(zero_copy_rows)} DRIVER copied/zero-copy TX row(s), "
         f"{len(udp_tx_rows)} UDP TX row(s), {len(udp_rx_rows)} UDP RX row(s), "
         f"{len(device_tx_rows)} DEVICE TX row(s), {len(device_rx_rows)} DEVICE RX row(s), "
         f"{backend_row_count} in-memory backend row(s), {args.expected_measured}/12 coverage in {root.name}"

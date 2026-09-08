@@ -22,7 +22,8 @@ Usage: benchmarks/run_profile_campaign.sh [options]
 Runs profiling configurations strictly one at a time. Every measurement case
 receives a fresh build directory and therefore a fresh CMake configure/build.
 The campaign includes paired DRIVER layers, direct/native DRIVER TX/RX,
-LOOPBACK/SIMULATOR TX/RX, VSPW-TP/UDP TX/RX, and on Linux DEVICE/VSPD TX/RX.
+DRIVER copied-vs-zero-copy TX, LOOPBACK/SIMULATOR TX/RX, VSPW-TP/UDP TX/RX,
+and on Linux DEVICE/VSPD TX/RX.
 
 Child benchmarks write machine-readable JSON into the result set but the
 campaign terminal output stays human-readable and ends with a consolidated
@@ -127,6 +128,7 @@ printf '  build profile: Release\n' >&2
 printf '  clean rebuild per measurement configuration: yes\n' >&2
 printf '  serial execution: yes\n' >&2
 printf '  direct/native comparison: DRIVER copied TX + RX\n' >&2
+printf '  copy-elimination comparison: DRIVER copied vs zero-copy TX\n' >&2
 printf '  in-memory backends: LOOPBACK + SIMULATOR TX/RX\n' >&2
 printf '  UDP backend: VSPW-TP TX/RX vs direct loopback UDP socket\n' >&2
 if [[ "$(uname -s)" == "Linux" ]]; then
@@ -169,6 +171,20 @@ printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER TX\n' >&2
   --build-dir "$campaign_build_root/native-tx-comparison" \
   --output "$tx_comparison_output" \
   --calibration-output "$tx_comparison_calibration" \
+  > /dev/null
+
+zero_copy_comparison_output="$output_dir/comparison/driver_tx_copy_zero_copy.jsonl"
+zero_copy_comparison_calibration="$output_dir/comparison/driver_tx_copy_zero_copy_calibration.json"
+printf '\n[campaign comparison] DRIVER copied vs zero-copy TX\n' >&2
+bash "$ROOT_DIR/benchmarks/run_zero_copy_comparison.sh" \
+  --warmup "$warmup" \
+  --iterations "$iterations" \
+  --payloads "$payloads" \
+  --counter-hz "$counter_hz" \
+  --settle-seconds "$settle_seconds" \
+  --build-dir "$campaign_build_root/driver-tx-copy-zero-copy" \
+  --output "$zero_copy_comparison_output" \
+  --calibration-output "$zero_copy_comparison_calibration" \
   > /dev/null
 
 rx_comparison_output="$output_dir/comparison/rx_native_api.jsonl"
@@ -283,6 +299,7 @@ metadata = {
     'direct_native_comparison': True,
     'direct_native_comparison_case': 'tx_api_native',
     'direct_native_comparison_cases': ['tx_api_native', 'rx_native_api'],
+    'zero_copy_comparison_cases': ['driver_tx_copy_zero_copy'],
     'udp_comparison_cases': ['udp_tx', 'udp_rx'],
     'device_comparison_cases': os.environ['SPWKIT_CAMPAIGN_DEVICE_CASES'].split(),
     'direct_native_counter_floor_subtracted': False,
