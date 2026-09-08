@@ -1,47 +1,52 @@
 # HardRT Cortex-M7 integration
 
-This fixture is the first v0.5 bare-metal integration contract for SpWKit. It deliberately targets a precise architecture profile rather than claiming generic Cortex-M compatibility.
+This fixture is the v0.5 bare-metal integration contract for SpWKit. It targets a precise architecture profile rather than claiming generic Cortex-M compatibility.
 
 ## Target profile
 
 ```text
-target triple : arm-none-eabi
-CPU           : Cortex-M7 / ARMv7E-M
-ISA           : Thumb
-float ABI     : soft
-SpWKit heap   : disabled
-hosted backends: disabled
+target triple   : arm-none-eabi
+CPU             : Cortex-M7 / ARMv7E-M
+ISA             : Thumb
+float ABI       : soft
+SpWKit heap     : disabled
+hosted backends : disabled
 ```
 
-The profile matches the architectural class used by STM32H7 devices, including the STM32H755, but the hosted CI job is **not** STM32H7 HIL or electrical SpaceWire validation.
+The profile matches the architectural class used by STM32H7 devices, including STM32H755, but the hosted CI job is **not** STM32H7 runtime HIL or electrical SpaceWire validation.
 
 ## Dependency model
 
-HardRT remains an external integration dependency. CI pins HardRT commit:
+The integration uses HardRT release `0.4.0`, pinned at its exact release commit:
 
 ```text
 1b861393cd7967ce5d0b3ac6f45928828a2d63aa
 ```
 
-Both HardRT and SpWKit are cross-built and installed/staged separately, then this firmware consumes their exported CMake packages. No HardRT header/type becomes part of the SpWKit public ABI.
+Both HardRT and SpWKit are cross-built/staged separately, then this firmware consumes their exported CMake packages. No HardRT header/type becomes part of the SpWKit public ABI.
+
+```mermaid
+flowchart TB
+    APP[Integration firmware] --> SPW[Installed no-heap SpWKit]
+    APP --> HRT[Installed HardRT 0.4.0]
+    HRT --> CM[HardRT cortex_m port<br/>PendSV + SysTick]
+    SPW --> PORT[caller-owned SpWKit port]
+```
 
 ## Firmware evidence
 
-The integration firmware links:
+The fixture links:
 
-- the HardRT `cortex_m` scheduler/port, including PendSV assembly and SysTick support;
+- the HardRT Cortex-M scheduler/port including PendSV assembly and SysTick support;
 - a no-heap SpWKit loopback port using caller-owned aligned workspace;
 - EEP DATA, a time code and statistics through the public SpWKit API.
 
-The fixture provides a small Cortex-M7 linker contract with explicit FLASH/RAM regions, `__RAM_START__`, `__RAM_END__`, `__StackTop` and `SystemCoreClock` symbols required by the current HardRT Cortex-M port.
+The linker contract provides explicit FLASH/RAM regions and the symbols required by the validated HardRT Cortex-M port.
 
-CI verifies the final ELF and map file and rejects hosted socket/thread/C++ ABI leakage.
+CI verifies the final ELF/map and rejects hosted socket/thread/C++ ABI leakage.
 
 ## Evidence boundary
 
-This is **compile/link/ABI evidence**. It does not claim that SysTick/PendSV scheduling was executed on a faithful STM32H7 model. Runtime validation should be added when either:
+This is **compile/link/ABI evidence**. It does not claim that scheduling or SpWKit executed on STM32H755 silicon.
 
-- a faithful Cortex-M7 target/emulator is selected and its limitations are documented; or
-- physical STM32H7 HIL is available.
-
-Physical SpaceWire electrical interoperability remains a separate hardware-backend milestone.
+Real STM32H755 DMA/cache runtime evidence is tracked separately under v0.6 #119 and will begin only after the board/test architecture is agreed. Physical SpaceWire electrical interoperability remains a later hardware/HIL milestone.

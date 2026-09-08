@@ -2,17 +2,25 @@
 
 This standalone integration proves that an installed HardRT scheduler and an installed SpWKit package can be used together without coupling either library's runtime implementation.
 
-The CI fixture currently pins HardRT commit:
+## Dependency baseline
+
+The integration uses the canonical HardRT release:
+
+```text
+ExoSpaceLabs/hardrt@0.4.0
+```
+
+Tag `0.4.0` resolves to commit:
 
 ```text
 1b861393cd7967ce5d0b3ac6f45928828a2d63aa
 ```
 
-HardRT reports package version `0.4.0` at that commit, but the HardRT repository does not currently expose a matching `v0.4.0` tag. Pinning the exact commit keeps this integration reproducible until HardRT has an audited release tag.
+SpWKit CI pins that exact release commit for reproducibility. HardRT's canonical tag intentionally has **no `v` prefix**; `v0.4.0` is not the release identity.
 
 ## Contract
 
-The integration project consumes only installed CMake packages:
+The integration consumes installed CMake packages only:
 
 ```cmake
 find_package(HardRT 0.4 CONFIG REQUIRED)
@@ -29,10 +37,17 @@ Two HardRT POSIX tasks each own an independent SpWKit loopback port and validate
 - statistics;
 - clean port close.
 
-Each task owns its own `spw_port_t`. This test intentionally does not imply that concurrent calls into one shared SpWKit port are supported; thread/task safety of a shared handle requires a separate explicit contract.
+Each task owns its own `spw_port_t`. This fixture does not imply that arbitrary concurrent calls into one shared port handle are supported.
 
 ## Dependency boundary
 
-HardRT is an external integration dependency only. `libspwkit`, its exported CMake package and public headers must contain no HardRT dependency or HardRT-specific types.
+HardRT is an external integration dependency only. `libspwkit`, its exported CMake package and public headers contain no HardRT dependency or HardRT-specific application type.
 
-The Cortex-M/bare-metal counterpart is tracked in issue #89 and will use the same dependency rule with `arm-none-eabi`, HardRT's `cortex_m` port and SpWKit's hosted backends disabled.
+```mermaid
+flowchart LR
+    TASK[HardRT POSIX task] --> API[SpWKit public API]
+    API --> PORT[task-owned spw_port_t]
+    H[HardRT 0.4.0] -. scheduler/runtime .-> TASK
+```
+
+The Cortex-M7 counterpart applies the same dependency rule with `arm-none-eabi`, the HardRT `cortex_m` port and SpWKit hosted backends disabled.

@@ -42,7 +42,7 @@ maximum VSPD payload per record: 32 KiB
 maximum logical DATA packet:     1 MiB
 ```
 
-CUSE may later expose `/dev/vspwX`, but that is a presentation layer. It must not require a different backend/daemon protocol.
+Since v0.5, CUSE may expose `/dev/vspwX` as a presentation layer above the same DEVICE/VSPD path. It does not use or require a different backend/daemon protocol.
 
 ## Byte order and native-layout rule
 
@@ -158,7 +158,7 @@ Protocol version and SpWKit package/API version are intentionally independent.
 
 ## ATTACH and virtual-port identity
 
-`port_id` is a daemon-local numeric port identifier. It is not a Linux file descriptor and is not the future `/dev/vspwX` minor number by ABI promise.
+`port_id` is a daemon-local numeric port identifier. It is not a Linux file descriptor and is not the `/dev/vspwX` minor number by ABI promise.
 
 Initial v0.4 semantics:
 
@@ -197,7 +197,7 @@ peer returns/re-attaches -> CONNECTING -> RUN
 
 The backend must expose these states through `spw_port_get_link_state()`. `LINK_STATE_EVENT` lets `vspwd` notify the backend without requiring busy polling.
 
-If the daemon connection itself disappears, application operations must not report success. The Linux backend will expose link/service unavailability through the normal result/state model. The v0.4 restart target is that a configured backend can reconnect, HELLO/ATTACH again, and recover through `CONNECTING -> RUN` without introducing a new application handle/API.
+If the daemon connection itself disappears, application operations must not report success. The Linux backend exposes link/service unavailability through the normal result/state model and can reconnect, HELLO/ATTACH again, and recover through `CONNECTING -> RUN` without introducing a new application handle/API.
 
 ## DATA fragmentation
 
@@ -341,17 +341,14 @@ The protocol codec itself is portable C and has no socket dependency. Only the L
 
 ## CUSE and `/dev/vspwX`
 
-The intended user-facing Linux naming remains:
+The user-facing Linux naming is:
 
 ```text
 /dev/vspw0   virtual SpaceWire
-/dev/spw0    physical SpaceWire
+/dev/spw0    physical SpaceWire (future platform/hardware convention)
 ```
 
-The first v0.4 implementation does not require a kernel module or CUSE to function. The Unix-socket path establishes and tests semantics first.
-
-If CUSE is adopted, it will map `/dev/vspwX` operations onto the same daemon/device model. It must not become a competing application API or change VSPD packet/link semantics.
-
+v0.4 established the Unix-socket DEVICE/VSPD semantics without requiring CUSE. v0.5 subsequently shipped the packet-record-oriented `spwcuse` presenter, which maps `/dev/vspwX` operations onto that same daemon/device model. CUSE is therefore a presentation layer, not a competing application API, and it does not change VSPD packet/link semantics.
 
 ### Bridged port flag
 

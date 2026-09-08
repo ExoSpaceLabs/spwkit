@@ -2,6 +2,57 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
+## v0.6.0 — 2026-09-08
+
+Hardware-driver integration release. v0.6 adds the public software boundary needed to move an application from virtual SpaceWire backends to platform/vendor hardware drivers without changing the application-facing `spw_port_*` API or publishing proprietary hardware implementation details.
+
+### Added
+
+- portable `SPW_BACKEND_DRIVER` callback boundary for caller/vendor-owned SpaceWire hardware drivers, preserving lifecycle, copied packet I/O, EOP/EEP, time-code, readiness, statistics and timeout/error semantics without exposing native handles (#110);
+- DMA-capable driver buffer descriptors mapped onto the existing opaque SpWKit zero-copy ownership API, with opaque driver tokens, configurable no-heap wrapper slots and optional cache/coherency synchronization hooks (#111);
+- deterministic host reference-driver execution and freestanding/no-heap driver evidence (#112);
+- proprietary-safe public FPGA/driver integration boundary and generic future HIL acceptance criteria (#113);
+- optional CCSDSPack `v2.0.0` installed-package interoperability evidence using PUS-C TC/TM packets transported byte-for-byte through independent VSPW-TP/UDP and Linux DEVICE/VSPD peers (#90);
+- typed receiver-side CCSDSPack parsing and structured validation after transport byte-identity checks while keeping SpaceWire EOP/EEP metadata separate from CCSDS packet contents;
+- deployment-shaped two-node Docker Compose CCSDSPack-over-VSPW-TP/UDP integration (#117);
+- standalone STM32H755 Cortex-M7 evidence firmware using real DMA2 memory-to-memory transfer, DMA-visible D2 SRAM and explicit D-cache clean/invalidate synchronization through the public driver contract (#119);
+- scripted ST-LINK/OpenOCD/GDB board qualification that records deterministic `g_stm32h755_spwkit_evidence` values and rejects stale pre-reset buffers after `spw_port_reset()`.
+
+### Changed
+
+- the CCSDSPack integration baseline is finalized at immutable tag `v2.0.0`, commit `c2f318c330c564429bcc565a8acbff22728b2851`; `CCSDSPack/develop` is not a SpWKit release dependency;
+- CCSDSPack remains an optional external integration dependency and is not linked into or included by `libspwkit`;
+- hosted applications can use the same public SpWKit API while a hardware provider supplies controller-specific behavior below `spw_driver_ops_t`;
+- release-facing documentation now distinguishes MCU DMA/cache qualification from physical SpaceWire PHY/electrical interoperability.
+
+### Verification
+
+- consolidated CI passes the hosted, pure-C, C++ convenience, simulator, VSPW-TP/UDP, Linux DEVICE/VSPD, package/consumer and freestanding/embedded gates on the v0.6 release candidate;
+- the dedicated STM32H755 workflow cross-builds and links the Cortex-M7 integration against the pinned STM32CubeH7 CMSIS baseline;
+- the physical NUCLEO-H755ZI-Q phase-7 run completed with `magic=0x53505736`, `phase=0x0000700d`, `result=0`, two DMA transfers, two TX packets, two RX packets, cache synchronization in both directions, and `reset_stale_invalidated=1` (`RESULT: PASS`);
+- CCSDSPack PUS-C TC/TM serialized bytes survive SpWKit transport unchanged through independent UDP and Linux DEVICE/VSPD peers and the deployment-shaped Compose fixture;
+- exact-tag publication requires the tagged commit to be the exact `main` head and validates project/API/changelog/installed-consumer version alignment before producing release assets.
+
+### Deferred beyond v0.6
+
+- proprietary FPGA/HDL implementation and register/descriptor/internal bus details;
+- physical FPGA-backed SpaceWire PHY/electrical interoperability HIL;
+- formal ECSS conformance/certification claims beyond the evidence explicitly documented by the project;
+- generic router implementation; SpWKit remains focused on endpoint/link communication while allowing applications to communicate through external SpaceWire routing infrastructure.
+
+## v0.5.1 — 2026-09-02
+
+Maintenance release on the v0.5 line. It does not change the C runtime ABI, backend behavior, VSPW-TP wire format, VSPD contract, or hardware evidence boundary.
+
+### Fixed
+
+- completed the optional C++17 `spwkit::Port` convenience wrapper for workspace-requirement and zero-copy ownership operations already present in the v0.5.0 public C API;
+- exposed `Buffer`, `BufferView`, and `WorkspaceRequirements` aliases without introducing a second ABI or backend implementation;
+- preserved C ownership semantics, including pointer clearing after successful submit/release operations;
+- added C++ compile coverage for the additional forwarding surface;
+- added a simulator-backed C++ zero-copy example covering acquire, fill, submit, receive, release, reclaim and release;
+- extended the loopback C++ example to verify capability-gated `SPW_ERR_UNSUPPORTED` behavior.
+
 ## v0.5.0 — 2026-08-21
 
 Hosted-platform parity and embedded/RTOS integration release. v0.5 builds on the v0.4 software-simulation/service boundary while keeping the public C API authoritative and keeping host-, RTOS- and presentation-specific implementation details private.
@@ -175,4 +226,5 @@ Portable core and process-local virtual SpaceWire baseline:
 - process-local equal-peer simulator;
 - caller-owned/no-heap port construction;
 - optional zero-copy ownership API;
-- reusable backend contract tests.
+- reusable backend contract tests;
+- CMake install/export and standalone `find_package(SpWKit)` consumption.

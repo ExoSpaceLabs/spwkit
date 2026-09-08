@@ -1,264 +1,167 @@
 # Architecture
 
-SpWKit is designed around one rule: **applications depend on SpaceWire semantics, not on a transport or hardware implementation**.
+SpWKit keeps one SpaceWire-facing application contract above several interchangeable software and hardware integration backends.
 
 ## Layer model
 
-```text
-+-------------------------------------------------------------+
-| Application                                                 |
-+-----------------------------+-------------------------------+
-                              |
-+-----------------------------v-------------------------------+
-| Public SpWKit C ABI                                         |
-|                                                             |
-| Port | Packet | Terminator | TimeCode | LinkState | Stats    |
-+-----------------------------+-------------------------------+
-                              |
-+-----------------------------v-------------------------------+
-| Portable C11 core                                           |
-|                                                             |
-| Validation | state | errors | capabilities | ownership       |
-+-----------------------------+-------------------------------+
-                              |
-                   C backend vtable/context
-                              |
-       +----------------------+--------------------------+
-       |                      |                          |
-+------v-------+      +-------v--------+        +--------v-------+
-| Local        |      | Distributed   |        | Linux hosted   |
-| simulator    |      | VSPW-TP/UDP   |        | virtual device |
-+------+-------+      +-------+--------+        +--------+-------+
-       |                      |                          |
- process-local link         UDP/IP                VSPD / vspwd
-                                                        |
-                                             future /dev/vspwX
+```mermaid
+flowchart TB
+    APP[Application / upper-layer protocol] --> API[Public C11 API<br/>spw_port_* / spw_buffer_*]
+    CPP[Optional C++17 wrapper] --> API
+
+    API --> LOOP[Loopback reference]
+    API --> SIM[Process-local simulator]
+    API --> UDP[VSPW-TP / UDP]
+    API --> DEVICE[Linux DEVICE backend]
+    API --> DRIVER[Portable driver backend<br/>v0.6]
+
+    DEVICE --> VSPD[VSPD local protocol]
+    VSPD --> VSPWD[vspwd]
+    VSPWD --> VP[Virtual port topology]
+    CUSE[spwcuse / /dev/vspwX] --> DEVICE
+
+    DRIVER --> RTOS[RTOS / bare-metal adapter]
+    DRIVER --> HW[Future vendor / MMIO / DMA controller]
+    HW --> PHY[Future physical SpaceWire implementation]
 ```
 
-Implemented backends currently include:
+The application does not switch APIs when it moves between these paths. Backend-specific configuration selects an implementation; packet boundaries, EOP/EEP, link state, time codes, result values, timeout rules and optional buffer ownership remain common concepts.
 
-- deterministic loopback reference backend;
-- process-local two-peer simulator;
-- POSIX VSPW-TP/UDP distributed backend;
-- Linux hosted virtual-device backend speaking VSPD to `vspwd`.
+## Authoritative runtime boundary
 
-The v0.4 virtual-device/service feature set is complete: the device backend, `vspwd`, readiness, management/monitoring, installed consumers and VSPW-TP/UDP bridge are implemented. A production `/dev/vspwX` CUSE presenter remains an optional post-v0.4 layer tracked by #78. Embedded/RTOS adapters and physical FPGA/vendor implementations follow on the roadmap.
+`libspwkit` is C11. The public C ABI is the portability and binary-compatibility baseline.
 
-## Public API boundary
+The optional `spwkit::cpp` target is header-only. It provides RAII for `spw_port_t` plus thin forwarding for lifecycle, copied I/O, readiness, time codes, statistics, workspace construction and zero-copy ownership. It contains no backend implementation and introduces no second runtime.
 
-The public API represents concepts visible to software using a SpaceWire interface:
-
-- ports;
-- packets;
-- EOP/EEP termination;
-- link state and management;
-- time codes;
-- statistics and errors;
-- implementation capabilities;
-- optional ownership-oriented packet buffers.
-
-The mandatory common API does not expose transport-specific concepts such as UDP sockets, Unix-domain sockets, VSPD frames, CUSE handles, Ethernet addresses, AXI registers, DMA descriptors, physical addresses or vendor handles.
-
-Backend-specific configuration structures may describe the selected implementation using portable values, but normal packet/link operations remain portable.
-
-## C runtime and optional C++ use
-
-The portability baseline is C11 end to end: the public ABI and `libspwkit` runtime are C. A project using only `spwkit::spwkit` does not enable or link C++.
-
-`SPWKIT_ENABLE_CPP=ON` adds the header-only C++17 `spwkit::cpp` target. It provides move-only RAII/convenience syntax over the same C handles, structures and `spw_result_t` values; it contains no backend implementation.
-
-```text
-C application -----------------------------+
-                                           |
-C++ application -> optional spwkit::cpp ---+--> stable C ABI --> C11 core/backends
+```mermaid
+flowchart LR
+    C[C application] --> ABI[libspwkit C ABI]
+    CPP[C++17 application] --> WRAP[spwkit::cpp]
+    WRAP --> ABI
+    ABI --> BACKENDS[Common backend dispatch]
 ```
 
-`find_package(SpWKit)` remains the package/config name; imported CMake target namespaces are lowercase.
+## Backend families
 
-The Linux virtual-device path is tested through both the C API and the optional C++ wrapper. The wrapper reaches the same `SPW_BACKEND_DEVICE` implementation and does not speak VSPD directly.
+### Loopback
 
-See `docs/language-bindings.md` for the exact language/build contract.
+A deterministic single-port reference implementation used to validate the mandatory contract and bounded-resource behavior. It is not a SpaceWire network simulator.
 
-## Backend model
+### Process-local simulator
 
-Backends translate portable SpaceWire operations to an implementation while preserving the same application-visible contract.
+Two equal peers with a shared `link_id` and opposite A/B pairing labels. It models packet/link behavior, time codes, bounded queues, disconnect/recovery and zero-copy ownership semantics without modeling Data-Strobe/LVDS signal behavior.
 
-Current backends:
+### VSPW-TP / UDP
 
-- `SPW_BACKEND_LOOPBACK`: deterministic in-process reference backend;
-- `SPW_BACKEND_SIMULATOR`: process-local equal-peer SpaceWire simulator;
-- `SPW_BACKEND_UDP`: distributed VSPW-TP transport over UDP on supported POSIX hosts;
-- `SPW_BACKEND_DEVICE`: Linux hosted VSPD client backend for `vspwd`.
+Distributed virtual SpaceWire carried over IPv4 UDP. The same public backend contract is implemented by POSIX sockets on Unix-like hosts and native Winsock on Windows.
 
-Planned backend families:
-
-- Linux physical character device;
-- bare-metal MMIO/DMA;
-- HardRT integration;
-- FreeRTOS integration;
-- RTEMS integration;
-- vendor-specific hardware adapters.
-
-A backend advertises capabilities rather than forcing every implementation to pretend it supports every optional feature.
-
-## Local virtual SpaceWire
-
-The process-local simulator pairs two endpoints by `link_id` and A/B pairing label:
-
-```text
-Application A                            Application B
-+-------------+                          +-------------+
-| libspwkit   |<====== virtual link ====>| libspwkit   |
-| endpoint A  |                          | endpoint B  |
-+-------------+                          +-------------+
+```mermaid
+flowchart LR
+    A[Node A<br/>SPW_BACKEND_UDP] <-->|VSPW-TP / UDP| B[Node B<br/>SPW_BACKEND_UDP]
 ```
 
-A/B are deterministic pairing labels only. There is no server/client role.
+VSPW-TP preserves logical packet identity across fragmentation/reassembly and transports time codes, liveness and acknowledgements separately. UDP loss/reordering is a transport concern; it is not automatically interpreted as a SpaceWire EEP or electrical/link fault.
 
-The simulator preserves packet boundaries, EOP/EEP, time codes, bounded resources, link lifecycle/recovery and zero-copy ownership semantics. It is implemented in C and can be built and behaviorally tested with no C++ compiler.
+### Linux virtual device
 
-## Distributed virtual SpaceWire
+Linux applications that require independent processes can attach to `vspwd` through `SPW_BACKEND_DEVICE` and the private VSPD protocol.
 
-v0.2.0 introduced the distributed VSPW-TP/UDP backend:
-
-```text
-Host A                                      Host B
-+-------------+                             +-------------+
-| Application |                             | Application |
-+------+------+                             +------+------+
-       |                                           |
-   libspwkit                                   libspwkit
-       |                                           |
- SPW_BACKEND_UDP                            SPW_BACKEND_UDP
-       |                                           |
-       +------------ VSPW-TP / UDP ----------------+
-                    real IP network
+```mermaid
+flowchart TB
+    A[Application A] --> DA[SPW_BACKEND_DEVICE]
+    B[Application B] --> DB[SPW_BACKEND_DEVICE]
+    DA --> D[vspwd]
+    DB --> D
+    D --> P0[virtual port 0]
+    D --> P1[virtual port 1]
+    P0 <--> P1
 ```
 
-VSPW-TP is an internal versioned framing protocol. The implementation fragments and reassembles SpaceWire packet payloads independently of Ethernet MTU while keeping fragments invisible to applications.
+`spwctl` uses a non-owning management plane, while `spwmon` passively subscribes to bounded daemon state snapshots.
 
-Ethernet/IP timing, MTU and datagram boundaries do not become SpaceWire semantics. Transport loss/reordering and peer liveness remain transport concerns and are not silently reclassified as SpaceWire errors.
+Since v0.5, `spwcuse` can additionally present a `vspwd` port as a real Linux CUSE character device such as `/dev/vspw0`. The character-device record ABI remains packet-oriented so DATA boundaries, EOP/EEP and time codes are not flattened into a UART-like byte stream.
 
-## Linux virtual-device model
-
-The Linux-facing naming model distinguishes:
-
-```text
-/dev/vspw0    virtual SpaceWire port
-/dev/spw0     physical SpaceWire port
+```mermaid
+flowchart LR
+    RAW[Device-node application] --> NODE[/dev/vspw0]
+    NODE --> CUSE[spwcuse]
+    CUSE --> DEV[SPW_BACKEND_DEVICE]
+    DEV --> D[vspwd]
 ```
 
-v0.4 develops the virtual path first. The first working layer is userspace-hosted:
+CUSE/libfuse is confined to the separate presenter process and is not a dependency of `libspwkit`.
 
-```text
-Application
-    |
-spw_port_* / optional spwkit::Port
-    |
-SPW_BACKEND_DEVICE
-    |
-private VSPD over AF_UNIX/SOCK_SEQPACKET
-    |
-  vspwd
-    |
-virtual port 0 <================> virtual port 1
+### Portable driver backend
+
+`SPW_BACKEND_DRIVER` is the v0.6 software boundary for vendor, MCU and future FPGA drivers. Applications still call the normal public API; SpWKit delegates through `spw_driver_ops_t` to a caller-owned driver context.
+
+```mermaid
+flowchart TB
+    API[spw_port_* / spw_buffer_*] --> DB[SPW_BACKEND_DRIVER]
+    DB --> OPS[spw_driver_ops_t]
+    OPS --> REF[Host reference driver]
+    OPS --> MCU[MCU / RTOS driver]
+    OPS --> FPGA[Future FPGA/vendor driver]
 ```
 
-The public backend configuration contains only a bounded endpoint path and daemon `port_id`. Unix file descriptors, `sockaddr_un`, VSPD records and poll state remain private.
+Driver ABI v2 maps DMA-capable buffers onto the same opaque `spw_buffer_t` ownership lifecycle used by the simulator. Physical addresses, descriptor layouts and vendor handles do not cross the application ABI.
 
-The backend translates lifecycle, DATA, EOP/EEP, time codes, state/capabilities and statistics to VSPD. It reassembles logical packets before returning them through `spw_port_receive()` and preserves receive-too-small retry semantics. After daemon/session loss, subsequent normal API calls attempt reconnect/HELLO/ATTACH and restore START intent without requiring a new public port object.
+## Packet data path
 
-The current userspace socket is both the implementation transport and unprivileged CI boundary. CUSE/libfuse3 feasibility has been validated with a packet-record prototype; the production event-driven presenter is tracked in #78. Any future `/dev/vspwX` presentation remains below `spw_port_*` and does not become a second application API.
+Copied I/O keeps storage ownership with the caller during each call:
 
-`vspwd` may also reserve one of the two reference ports as a topology-owned VSPW-TP/UDP bridge endpoint:
-
-```text
-local application -> SPW_BACKEND_DEVICE -> VSPD -> vspwd
-                                                local port <-> bridged port
-                                                                 |
-                                                            SPW_BACKEND_UDP
-                                                                 |
-                                                            remote peer
+```mermaid
+flowchart LR
+    TX[Caller TX buffer] --> SEND[spw_port_send]
+    SEND --> BE[Selected backend]
+    BE --> RECV[spw_port_receive]
+    RECV --> RX[Caller RX buffer]
 ```
 
-The bridge reuses the existing UDP backend and keeps VSPW-TP reliability/transport logic out of the daemon itself.
+Backends advertising `SPW_CAP_ZERO_COPY` may instead use explicit ownership transitions:
 
-The future physical `/dev/spwX` path should reuse the same application-facing contract while replacing the implementation beneath it.
-
-## Embedded model
-
-Bare-metal and RTOS targets do not require a filesystem or `/dev` abstraction. They instantiate logical ports directly.
-
-```text
-Application
-    |
-SpWKit core
-    |
-backend instance
-    |
-+-------------------+----------------------+
-|                                          |
-Virtual Ethernet                       FPGA hardware
-lwIP / UDP / raw L2                    MMIO + DMA
+```mermaid
+flowchart LR
+    A[Acquire TX] --> F[Application fills]
+    F --> S[Submit]
+    S --> O[Backend owns]
+    O --> C[Completion]
+    C --> R[Reclaim]
+    R --> X{Reuse?}
+    X -->|yes| F
+    X -->|no| REL[Release]
 ```
 
-The embedded core is intended to support deterministic memory ownership, caller-owned storage, polling, interrupt-driven operation and optional zero-copy paths.
+The same application-visible ownership sequence can be backed by fixed simulator memory or by DMA-capable hardware buffers.
 
-Hosted Linux backends such as `SPW_BACKEND_DEVICE` are explicitly disabled in the freestanding/embedded portability profile. The VSPD codec itself remains portable C and may still be compiled there because fixed-width protocol encoding has no socket/POSIX dependency.
+## Embedded and RTOS model
 
-The VSPW-TP codec itself likewise has no socket/POSIX dependency so it can be reused by future lwIP-based distributed backends.
+SpWKit does not require POSIX or heap allocation at the core API boundary. `spw_port_workspace_requirements()` plus `spw_port_open_in_place()` allow caller-owned construction. The driver boundary can therefore be used from bare metal or an RTOS without exposing scheduler primitives in the public API.
 
-## FPGA reference path
+HardRT `0.4.0` is the current validated external RTOS integration baseline. CI provides POSIX execution evidence and Cortex-M7 compile/link evidence; it does not claim STM32H755 runtime or physical SpaceWire HIL.
 
-A reference AMD SoC integration is expected to use:
+## Hardware and FPGA stop line
 
-```text
-Application
-    |
-SpWKit
-    |
-Linux / bare-metal driver
-    |
-+----------------------+----------------------+
-| AXI4-Lite            | AXI4-Stream / DMA    |
-| control/status       | packet data          |
-+----------+-----------+-----------+----------+
-           |                       |
-           +-----------+-----------+
-                       |
-                SpaceWire codec
-                       |
-                Data / Strobe
+The public repository defines only the software contract a future hardware driver must satisfy. It does not publish or guess proprietary implementation details such as:
+
+- RTL architecture;
+- register/address maps;
+- DMA descriptor formats;
+- internal bus topology;
+- clock/reset/interrupt design;
+- vendor IP selection.
+
+A future physical backend must translate its own controller model into the public packet/link/ownership semantics and then pass the reusable backend contract plus hardware-specific HIL evidence.
+
+## Evidence boundaries
+
+```mermaid
+flowchart LR
+    UNIT[Unit/API tests] --> SIM[Software simulation]
+    SIM --> PROC[Process / container / namespace integration]
+    PROC --> RTOS[RTOS / cross-build evidence]
+    RTOS --> MCU[MCU runtime evidence]
+    MCU --> HIL[Physical SpaceWire HIL]
 ```
 
-The FPGA implementation is deliberately outside the portable software contract. Open or proprietary cores can implement the same backend requirements.
-
-## Router simulation
-
-A future virtual router should model SpaceWire routing semantics rather than use a Linux Ethernet bridge as a substitute.
-
-```text
-node A ----+
-           |
-node B ----+---- virtual SpaceWire router ---- node D
-           |
-node C ----+
-```
-
-Routing, contention, finite buffering and path/logical addressing belong to the SpaceWire simulation layer.
-
-## Design constraints
-
-The portable core maintains these constraints:
-
-- no mandatory heap allocation;
-- no mandatory POSIX dependency in the common API/core contract;
-- no mandatory C++ runtime, exceptions or RTTI;
-- deterministic resource ownership;
-- explicit error returns;
-- bounded resources where implementations require them;
-- shared backend contract testing;
-- transport-independent packet semantics;
-- stable application-facing ABI suitable for long-lived embedded integrations.
-
-Hosted backends may add private platform dependencies when selected, but portability CI must prove those dependencies disappear when the backend is disabled.
+Passing an earlier layer does not imply a later one. In particular, QEMU/cross-link, Docker networking, CUSE, or STM32 memory-to-memory DMA do not constitute SpaceWire electrical interoperability.

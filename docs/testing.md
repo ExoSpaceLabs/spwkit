@@ -1,306 +1,236 @@
 # Testing and CI strategy
 
-SpWKit verifies one observable public contract across every backend. Unit tests cover implementation details; contract tests cover application-visible semantics; simulator tests cover paired-link behavior; distributed tests cover VSPW-TP/UDP behavior; later device/embedded/HIL layers must reuse the same public contract rather than invent parallel semantics.
+SpWKit verifies one observable public SpaceWire contract across every backend. Unit/implementation tests add depth, but they do not replace the common application-facing contract.
 
-## Active gates
+## Evidence layers
 
-### Hosted matrix (`CI`)
+```mermaid
+flowchart LR
+    UNIT[Unit / API compile] --> CONTRACT[Shared backend contract]
+    CONTRACT --> SIM[Simulator behavior]
+    CONTRACT --> DIST[Process / namespace / Compose]
+    CONTRACT --> DEV[Linux DEVICE / CUSE]
+    CONTRACT --> DRIVER[Reference driver / DMA ownership]
+    DRIVER --> RTOS[HardRT / Cortex-M build evidence]
+    RTOS --> MCU[STM32 runtime evidence<br/>pending]
+    MCU --> HIL[Physical SpaceWire HIL<br/>future]
+```
 
-The cross-platform host matrix verifies:
+A green result at one layer is not presented as evidence for a later layer.
+
+## Consolidated CI
+
+The current `.github/workflows/ci.yml` owns the main verification matrix. It includes hosted/compiler, pure-C, package, distributed, virtual-device, CUSE, RTOS, driver and integration jobs rather than relying on the older release-specific workflow descriptions that existed during v0.4 development.
+
+Key active evidence includes:
 
 - Linux GCC and Clang;
-- Windows MSVC;
 - macOS Clang;
-- C and C++ public-header consumers;
-- public API/unit/contract tests;
-- public C examples and optional C++ examples;
-- installed-package `find_package(SpWKit)` C consumer;
-- installed optional C++ wrapper consumer when enabled;
-- ASan + UBSan;
-- no-heap C++ development fixture;
-- exception/RTTI-free C++ wrapper/test policy.
+- Windows MSVC;
+- native Windows/Winsock VSPW-TP runtime;
+- pure-C runtime with `CXX=/bin/false`;
+- static and shared installed-package consumers;
+- optional C++17 wrapper consumers without exceptions/RTTI;
+- no-heap/freestanding profiles;
+- ASan/UBSan jobs;
+- process-local simulator contract/edge cases;
+- VSPW-TP transport/golden/malformed/reordering/timing/fault tests;
+- independent process and Linux network-namespace D2D tests;
+- Docker Compose distributed tests;
+- Linux DEVICE/VSPD/`vspwd` tests;
+- `spwctl`/`spwmon` management/monitor tests;
+- live `/dev/cuse` character-device contract where runner support exists;
+- installed C/C++ device consumers and mixed-language pairs;
+- HardRT `0.4.0` POSIX and Cortex-M7 integration;
+- driver backend, DMA/ownership and deterministic reference-driver tests;
+- CCSDSPack installed-package and two-node Compose integration against the current provisional baseline.
 
-CI rejects explicit `throw`, `try`, and `catch` syntax in C++ sources. Recoverable library failures remain result-code based.
+## Pure-C runtime gate
 
-### Pure-C runtime (`C-only runtime`)
+A valid C-only profile must configure, build, execute, install and link without discovering or invoking a C++ compiler.
 
-This gate is the authoritative proof that the runtime is not merely C-compatible at the header boundary. It runs with `CXX=/bin/false` and verifies:
+This gate verifies:
 
-- static C11 core with real CTest behavior and C examples;
-- no CXX compiler entry in the CMake cache;
-- no C++ ABI/runtime symbols in the archive;
-- installed C-only consumer using `spwkit::spwkit`;
-- complete simulator + UDP runtime build without CXX;
-- pure-C two-peer simulator behavior including EOP/EEP and time codes;
-- Linux shared `libspwkit.so` installed and consumed by a C-only project;
-- no-heap `spw_port_open_in_place()` behavior in C.
+- C11 library/archive behavior;
+- simulator/UDP C paths where enabled;
+- no C++ ABI/runtime symbols in the C library;
+- independent installed C consumer;
+- static/shared C consumption;
+- caller-owned/no-heap construction.
 
-`SPWKIT_BUILD_CPP_TESTS` and `SPWKIT_BUILD_CPP_EXAMPLES` are separate switches so `SPWKIT_BUILD_TESTS=ON` and `SPWKIT_BUILD_EXAMPLES=ON` do not force C++ into a C-only project.
+The C++ wrapper is optional and cannot become the only proof of runtime behavior.
 
-### Simulator
+## C++17 wrapper gate
 
-The dedicated Simulator workflow enables the process-local simulator and runs both simulator-labelled tests and the reusable public backend contract. It complements the pure-C simulator test with deeper C++ development fixtures for threading, edge cases, zero-copy ownership and shared contract behavior.
+When enabled, the wrapper is compiled with C++17, exceptions disabled and RTTI disabled. Tests/examples verify it delegates to the same C runtime.
 
-### Device-to-device
+Coverage includes:
 
-The D2D workflow runs the real VSPW-TP/UDP integration tests and `backend_contract_udp`. It installs SpWKit, then builds `examples/distributed` as a **separate C-only** `find_package(SpWKit 0.5)` consumer with `CXX=/bin/false`.
-
-It executes both:
-
-- two independent peer processes with disconnect/new-session restart;
-- two Linux network namespaces connected by a 1500-byte-MTU veth pair.
-
-The namespace scenario validates actual IP-interface isolation while the 8 KiB logical packet forces VSPW-TP fragmentation/reassembly.
-
-### Embedded portability
-
-The Embedded portability workflow is a real build, not a green placeholder for missing target files. It compiles the portable static core with:
-
-- C only;
-- `SPWKIT_ENABLE_HEAP=OFF`;
-- simulator/UDP disabled;
-- `-ffreestanding -fno-builtin`;
-- warnings as errors;
-- no hosted thread/socket/C++ runtime symbol references.
-
-This is portability evidence only. ARM/HardRT target execution remains future v0.5 work and must be reported separately when actual cross toolchains/targets exist.
-
-### Tooling
-
-The Tooling workflow is deliberately separate from runtime/library gates. It installs tshark only inside its Ubuntu job, generates a deterministic Ethernet/IPv4/UDP PCAP, loads `tools/wireshark/vspw_tp.lua` through tshark's real Lua dissector engine, and verifies filterable VSPW-TP DATA fragments, KEEPALIVE, ACK/session binding, TIME_CODE fields, unsupported-version handling, and heuristic rejection of unrelated UDP.
-
-Wireshark/tshark remain development dependencies only; nothing from this gate is linked into `libspwkit`.
-
-### Virtual device
-
-The Virtual device workflow separates the portable daemon/protocol profile from the hosted public backend. GCC and Clang pure-C jobs cover VSPD codec/seqpacket behavior, `vspwd` process lifecycle, public `SPW_BACKEND_DEVICE`, the shared backend contract, readiness, peer loss/restart and ASan+UBSan. A separate pure-C bridge job exercises device↔`vspwd`↔VSPW-TP/UDP exchange and remote restart.
-
-### Tools
-
-The Tools workflow builds `vspwd`, `spwctl` and `spwmon` with GCC and Clang under `CXX=/bin/false`, runs live management/monitor integration, then installs and smoke-tests all three CLIs.
-
-### Installed device examples
-
-The Installed device examples workflow installs an actual device-enabled package, builds standalone C and optional C++ consumers against exported targets only, and executes C↔C, C++↔C++, C↔C++ and C++↔C process pairs through the installed daemon.
-
-### CUSE feasibility
-
-CUSE feasibility runs inside the C-only workflow under GCC and Clang. It validates the private record codec and linked libfuse3 API without claiming full `/dev/cuse` runtime evidence on hosted runners that do not expose the device. Production CUSE is tracked by #78 and is not a v0.4 release gate.
-
-### HIL
-
-The HIL workflow remains explicit/manual and must fail if someone claims hardware is ready without the required harness. No hosted workflow result is presented as physical SpaceWire evidence, and HIL is not a v0.4 release blocker while hardware is unavailable.
-
-## Test labels
-
-Current CTest labels include:
-
-```text
-unit
-contract
-edge
-example
-simulator
-integration
-noheap
-transport
-d2d
-timing
-fault
-c
-cpp
-wrapper
-```
-
-Additional active labels include `device`, `protocol`, `process`, `restart`, `tools`, `management`, `monitor` and `bridge`. Future physical/standards work may add `hil` and `compliance` evidence when real targets exist.
-
-## C versus C++ test policy
-
-Runtime behavior belongs to C and must have a meaningful pure-C verification path. C++ tests are still valuable for richer development fixtures, historical transport vectors and optional wrapper behavior, but they are not allowed to be the only proof that `libspwkit` works.
-
-The build therefore separates:
-
-```text
-SPWKIT_BUILD_TESTS          C test infrastructure / CTest
-SPWKIT_BUILD_CPP_TESTS      development-side C++ fixtures
-SPWKIT_BUILD_EXAMPLES       C examples
-SPWKIT_BUILD_CPP_EXAMPLES   C++ examples
-SPWKIT_ENABLE_CPP           installed/public C++ wrapper
-```
-
-The optional C++ wrapper is tested against the same C runtime, not against a duplicate backend implementation.
+- RAII/move-only port lifetime;
+- workspace requirements and in-place construction surface;
+- copied DATA and capability-gated behavior;
+- successful simulator zero-copy acquire/fill/submit/RX/release/reclaim ownership;
+- installed `spwkit::cpp` consumer behavior.
 
 ## Shared backend contract
 
-The reusable public backend contract verifies, as applicable:
+The reusable backend contract verifies, as applicable:
 
 - lifecycle and observable link state;
-- packet transfer;
+- complete packet transfer;
 - EOP/EEP preservation;
 - zero-length and large packets;
-- receive-capacity failure without packet truncation/consumption;
+- undersized receive without truncation/consumption;
 - immediate and finite timeout behavior;
 - bounded resources and recovery;
 - time codes when advertised;
 - statistics when advertised;
+- readiness when advertised;
 - zero-copy ownership when advertised.
 
-Capabilities gate genuinely optional features. A backend that advertises `SPW_CAP_ZERO_COPY` must execute the zero-copy ownership contract; it cannot silently skip it.
+Capabilities gate genuinely optional behavior. Advertising a capability without satisfying the corresponding tests is a failure.
 
-Successful transfer operations additionally use a fixture-provided transfer-timeout profile. The default remains `SPW_TIMEOUT_IMMEDIATE`, preserving strict local behavior. Distributed fixtures may provide a finite success budget because socket/kernel delivery and transport acknowledgements are asynchronous. Explicit non-blocking and finite-timeout contract tests remain fixed and therefore cannot be weakened by the fixture profile.
+Distributed fixtures may use a finite success budget because transport ACK/liveness is asynchronous; explicit timeout/non-blocking contract cases remain fixed and cannot be weakened by that fixture budget.
 
-The bounded-queue test deliberately keeps queue filling and the full-queue assertion non-blocking so advertised capacity remains observable. After the receiver drains the queue, the subsequent successful recovery send uses the fixture transfer budget: on a reliable distributed backend the application packet may already be drained while its transport ACK is still in flight, so the sender's bounded reliable slot can remain occupied briefly. Local fixtures still use the immediate default.
+## Process-local simulator
 
-The loopback, local simulator and VSPW-TP/UDP backend execute the applicable shared contract directly. The UDP fixture is capability-driven and does not require backend-name conditionals; unsupported zero-copy is skipped because the backend does not advertise it.
+Simulator-specific tests add:
 
-A reusable distributed-contract extension additionally checks peer loss and restart entirely through public operations: `SPW_LINK_ERROR_WAIT`, `SPW_ERR_LINK_UNAVAILABLE`, session/restart recovery to `SPW_LINK_RUN`, and successful packet transfer after recovery.
+- A/B pairing and duplicate-endpoint rejection;
+- link slot exhaustion;
+- missing-peer CONNECTING behavior;
+- stop/reset/close/reopen recovery;
+- bounded packet/time-code queues;
+- exact size boundaries;
+- full-duplex/concurrent peer behavior;
+- zero-copy pool exhaustion and ownership errors;
+- copied/zero-copy interoperability.
 
-The common UDP contract intentionally keeps its 4 KiB large-packet case in one VSPW-TP datagram. Dedicated distributed tests separately verify fragmentation/reassembly, arbitrary ordering, reliability, timing and fault-injection mechanics. The shared contract therefore stays application-facing instead of accumulating UDP implementation details.
+The simulator is software-visible behavioral evidence, not Data-Strobe/electrical timing evidence.
 
-## Portable/public edge cases
+## Distributed VSPW-TP
 
-Portable/public tests intentionally cover failure paths and exact boundaries rather than only nominal transfer:
+### Public backend contract
 
-- null API arguments;
-- invalid config size/version/flags/backend;
-- invalid backend configuration on loopback;
-- workspace null/undersized/misaligned handling;
-- operations before link start;
-- invalid terminator, null payload, inconsistent capacity;
-- exact maximum packet size and one-byte oversize rejection;
-- zero-length packets;
-- exact-fit receive;
-- `SPW_ERR_BUFFER_TOO_SMALL` required-length and terminator reporting;
-- proof that an undersized receive does not modify caller storage or consume the packet;
-- bounded packet queue exhaustion/recovery;
-- empty receive timeout;
-- time-code count/control-field boundaries;
-- statistics clear/reset;
-- repeated stop/reset lifecycle calls.
+Two public UDP ports verify application-facing lifecycle, packets, EOP/EEP, time codes, statistics, peer loss/restart and recovery.
 
-Simulator-specific fixtures additionally cover:
+### Transport-specific tests
 
-- simulator config size/version/endpoint validation;
-- duplicate endpoint rejection;
-- lone started endpoint remaining `CONNECTING`;
-- unavailable-peer send/receive results;
-- exact 4096-byte packet boundary and 4097-byte rejection;
-- finite packet/time-code timeouts;
-- bounded time-code queue;
-- `SPW_CAP_ZERO_COPY` consistency;
-- zero-copy minimum-capacity rejection;
-- complete TX buffer-pool exhaustion and recovery;
-- invalid zero-copy metadata;
-- foreign-port ownership rejection with ownership preserved;
-- submit -> reclaim -> release lifecycle;
-- copied TX interoperating with zero-copy RX and vice versa;
-- RX metadata immutability;
-- peer stop, reset, close, reopen and surviving-handle recovery;
-- all 16 local simulator link slots plus deterministic 17th-link exhaustion.
+Separate tests cover:
 
-## Distributed verification
+- frame validation/golden vectors;
+- fragmentation/reassembly;
+- arbitrary-order/duplicate/overlap handling;
+- session-bound ACK/retry/deduplication;
+- keepalive/peer timeout and new-session restart;
+- virtual rate/latency;
+- deterministic transport faults;
+- explicit SpaceWire-side EEP injection.
 
-### Reusable public contract
+### Independent nodes
 
-The reusable UDP public contract creates two localhost ports through the public API and verifies lifecycle, full-duplex copied packets, EOP/EEP, zero-length packets, large packets, no-truncation retry, timeout behavior, bounded resources, time codes, statistics, peer-loss reporting and peer restart recovery.
+The D2D gate includes:
 
-### Transport-specific D2D tests
-
-Transport-specific tests verify details that must remain invisible to ordinary applications:
-
-- VSPW-TP framing through the actual backend;
-- packets larger than the transport MTU fragmented/reassembled before delivery;
-- arbitrary-order fragments, exact duplicates and valid overlap handling;
-- EOP/EEP and time-code preservation;
-- session-bound ACK/retransmission and duplicate suppression;
-- peer loss and new-session restart recovery;
-- deterministic SpaceWire-side virtual rate/latency behavior;
-- deterministic transport drop/duplicate/reorder/delay injection;
-- explicit SpaceWire-side EEP injection kept distinct from transport failure.
-
-The VSPW-TP codec also has golden-vector and malformed-frame tests covering magic/version/type/header/flag/fragment validation.
-
-### Process and network isolation
-
-`examples/distributed` is an installed-package **C-only** consumer:
-
-```cmake
-project(spwkit_distributed_peer LANGUAGES C)
-find_package(SpWKit 0.5 CONFIG REQUIRED)
-target_link_libraries(spwkit_udp_peer PRIVATE spwkit::spwkit)
+```mermaid
+flowchart LR
+    PROC[Independent processes] --> NETNS[Linux network namespaces]
+    NETNS --> COMPOSE[Docker Compose nodes]
 ```
 
-The D2D workflow actively rejects a CXX compiler appearing in that consumer's CMake cache.
+The namespace topology uses a real veth/IP boundary. Compose adds deployment-shaped container/network isolation. These are stronger software-network boundaries, not physical SpaceWire hardware.
 
-`tests/d2d/run_multi_process.sh` launches two independent peer processes. A starts first and waits in the public connecting state; B starts later. The peers exchange 8 KiB packets and time codes in both directions, B exits, A must observe `SPW_LINK_ERROR_WAIT`, a new B process/session starts, and both perform a second exchange.
+## CCSDSPack integration
 
-`tests/d2d/run_netns.sh` repeats that scenario in two Linux network namespaces connected by a 1500-byte-MTU veth pair. The namespaces use distinct IPv4 addresses (`10.231.0.1` and `10.231.0.2`), so communication crosses an actual isolated IP interface boundary.
+The v0.6 integration builds CCSDSPack and SpWKit as independent installed packages and verifies byte-exact PUS-C TC/TM exchange over SpWKit.
 
-## Capture-tool verification
+The two-node Compose test requires PASS from both peers and keeps EOP separate from CCSDS packet bytes.
 
-The VSPW-TP Lua dissector is not trusted merely because its source resembles the protocol table. `tools/wireshark/validate_dissector.py` constructs a deterministic capture using the documented v1 framing and invokes the actual tshark Lua engine. This catches Lua API mistakes, field-width problems, heuristic registration issues, and display-filter regressions without making Wireshark a library dependency.
+CCSDSPack is currently pinned to a deterministic snapshot of `CCSDSPack/develop`. Final v0.6 acceptance requires rerunning the same evidence against the user-approved immutable CCSDSPack 2.x release baseline.
+
+## Linux virtual device
+
+VSPD/`vspwd` verification covers:
+
+- protocol golden/malformed frames;
+- seqpacket behavior;
+- daemon lifecycle and cleanup;
+- public DEVICE backend contract;
+- readiness;
+- peer loss/restart;
+- statistics;
+- management/monitoring;
+- DEVICE↔VSPW-TP bridge behavior;
+- installed C/C++ process pairs.
+
+## CUSE
+
+The early `cuse-feasibility.md` work is retained as a historical design record. v0.5 subsequently ships production `spwcuse` and CI includes a live `/dev/cuse` character-device contract where the runner exposes CUSE.
+
+The contract checks packet-record behavior, DATA/EOP/EEP/time codes, zero-length packets, non-consuming short reads, non-blocking empty reads, poll/readiness and endpoint ownership.
+
+CUSE/libfuse remains outside the public `libspwkit` ABI.
+
+## Driver / DMA
+
+v0.6 host/reference-driver tests verify:
+
+- required callback/capability consistency;
+- lifecycle and copied DATA mapping;
+- zero-copy DMA acquire/submit/reclaim/release;
+- pointer/ownership transitions;
+- cache hook ordering;
+- stale/foreign token rejection;
+- bounded wrapper slots;
+- no-heap/freestanding driver use.
+
+These are software driver-contract tests, not proof of a particular MCU/FPGA controller.
+
+## HardRT and Cortex-M
+
+HardRT release `0.4.0` is the validated external RTOS baseline.
+
+- POSIX integration executes installed HardRT and SpWKit together.
+- Cortex-M7 integration cross-builds/links HardRT plus no-heap SpWKit for ARMv7E-M/Thumb with hosted backends disabled.
+
+The Cortex-M7 result is compile/link/ABI evidence. It does not claim execution on STM32H755.
+
+## STM32H755 (#119)
+
+The planned board test will add actual MCU DMA/cache ownership evidence after its architecture is agreed. GitHub cross-build results alone cannot close this runtime requirement.
+
+The board test will not be described as SpaceWire PHY/electrical HIL unless actual matching SpaceWire hardware exists and is exercised.
+
+## Physical HIL
+
+The HIL workflow remains explicit/manual and must not be satisfied by hosted simulation, QEMU, Docker, CUSE, or generic MCU DMA. Physical SpaceWire claims require real controller/PHY/link evidence with the required harness.
+
+## Installed-package verification
+
+Consumers are configured as independent projects using exported targets only:
+
+```cmake
+find_package(SpWKit 0.5 CONFIG REQUIRED)
+target_link_libraries(c_app PRIVATE spwkit::spwkit)
+```
+
+Optional C++:
+
+```cmake
+find_package(SpWKit 0.5 CONFIG REQUIRED)
+target_link_libraries(cpp_app PRIVATE spwkit::cpp)
+```
+
+Source builds from `develop` report version `0.6.0`; stable consumer examples intentionally request the compatible v0.5 line.
 
 ## Determinism rules
 
 - no test depends on execution order or persistent runner state;
-- bounded resources have explicit advertised limits;
-- randomized tests must report or configure their seed;
-- finite timeout tests use bounded waits and do not claim timing conformance from CI wall-clock timing;
-- packet tests include binary data and exact boundary sizes;
-- failures should report the operation/result clearly.
+- bounded resources have explicit limits;
+- randomized behavior reports/configures its seed;
+- finite timeout tests use bounded waits rather than claiming real-time conformance from CI wall-clock timing;
+- packet tests use binary data and exact boundaries;
+- dependency snapshots/tags used as evidence are explicit and fail closed if unexpectedly changed.
 
-## No-heap verification
+## Compliance evidence
 
-The no-heap profile builds with `SPWKIT_ENABLE_HEAP=OFF`.
-
-Two complementary fixtures are retained:
-
-- a **pure-C** behavioral test verifies `spw_port_open()` is unavailable while caller-owned `spw_port_open_in_place()` still performs packet I/O correctly;
-- the deeper C++ development fixture retains allocation counters around the mandatory in-place lifecycle.
-
-The process-local simulator and POSIX UDP backend are hosted runtime backends, not the bare-metal allocation reference.
-
-## Installed-package verification
-
-Host CI installs SpWKit to a temporary prefix and separately configures C and optional C++ consumers. D2D independently configures the distributed C peer against the installed package.
-
-C consumer:
-
-```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
-target_link_libraries(app PRIVATE spwkit::spwkit)
-```
-
-Optional C++ wrapper consumer:
-
-```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
-target_link_libraries(app PRIVATE spwkit::cpp)
-```
-
-These gates catch broken exports, stale target names, missing installed headers and accidental dependencies on source-private paths.
-
-## v0.4 device verification
-
-The v0.4 Linux virtual-device/service boundary has executable evidence for:
-
-- VSPD golden/malformed protocol vectors and Linux seqpacket behavior;
-- raw daemon process lifecycle, edge cases and restart;
-- public C device applications and the optional C++ wrapper through the same backend;
-- backend-neutral non-consuming packet/time-code readiness;
-- shared contract packet, EOP/EEP, zero-length, no-truncation, timeout, statistics and recovery behavior;
-- `spwctl` non-owning management and `spwmon` bounded passive observation;
-- installed-package C/C++ device consumers and mixed-language process pairs;
-- VSPW-TP/UDP bridging with DATA/time codes, remote peer loss and fresh-process recovery under GCC and Clang;
-- ASan+UBSan on the public device/daemon path;
-- CUSE record/libfuse3 feasibility without a false hosted-kernel claim.
-
-The broader release matrix additionally retains simulator, VSPW-TP D2D/network-namespace, static/shared package, freestanding, cross-platform host and Wireshark/tshark evidence.
-
-Release tags must execute the release-critical CI workflows; physical HIL remains manual and outside the v0.4 claim.
-
-## ECSS evidence
-
-Automated tests are engineering evidence, not automatic ECSS certification. Applicable ECSS requirements should eventually map to implementation component, test identifier, verification method, result/evidence and software/hardware version.
-
-Electrical, Data-Strobe, exact timing and physical interoperability requirements remain outside the packet-level software simulator and require HDL/electrical/HIL verification.
+Automated tests are engineering evidence, not automatic ECSS certification. Electrical, Data-Strobe, exact timing and physical interoperability requirements remain outside packet-level software simulation and require corresponding hardware verification.

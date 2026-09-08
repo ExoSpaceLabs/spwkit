@@ -1,143 +1,82 @@
-# Hosted platform support policy
+# Platform support
 
-SpWKit separates **public API/source portability** from **hosted backend runtime availability**. A platform may compile and install the portable C API without every backend being implemented on that host.
+Platform support is split into **source/API visibility**, **runtime implementation**, and **verification evidence**. A public backend ID/configuration may be installed on a platform even when selecting that backend returns `SPW_ERR_UNSUPPORTED`.
 
-## Current hosted support matrix
+## Stable v0.5 hosted matrix
 
-| Host | C11 core / loopback | Local simulator | VSPW-TP/UDP runtime | Linux device / `vspwd` | Current validation level |
-|---|---|---|---|---|---|
-| Linux | supported | supported | **supported** | **supported** | full GCC/Clang host CI, pure-C static/shared consumers, simulator, D2D, VSPD/device/service/tools/bridge integration |
-| macOS | supported | supported | **supported** | not implemented | host CI and UDP shared contract |
-| Windows | supported | supported | **not implemented yet** | not implemented | MSVC build/test/install consumers; unsupported backend selection is verified |
-| other CMake `UNIX` hosts | build path enabled | build path enabled where applicable | best effort / not release-validated | not release-validated | no release-support claim without dedicated evidence |
+| Capability | Linux | macOS | Windows |
+|---|---:|---:|---:|
+| C11 runtime / loopback | yes | yes | yes |
+| process-local simulator | yes | yes | yes |
+| VSPW-TP / UDP | POSIX | POSIX | native Winsock |
+| Linux DEVICE / VSPD | yes | no | no |
+| `vspwd` / tools | yes | no | no |
+| CUSE `/dev/vspwX` | yes | no | no |
+| optional C++17 wrapper | yes | yes | yes |
 
-Linux is the primary distributed and virtual-device host. macOS is a supported second POSIX UDP host. Native Windows/Winsock UDP remains #42; the production Linux CUSE presenter remains #78. Neither is required for the v0.4 package boundary.
+The public UDP configuration/wire contract is identical across POSIX and Windows. Winsock types remain private.
 
-## C and C++ language support
+## Stable v0.5 architecture packages
 
-The runtime itself is C11 on every supported host. `spwkit::spwkit` must not require a C++ compiler or runtime. Linux CI additionally configures the complete simulator + UDP runtime with `CXX=/bin/false`, executes pure-C behavioral tests, and validates static/shared installed C consumers.
-
-The optional `spwkit::cpp` target is a C++17 header-only convenience layer and contains no backend implementation.
-
-## Windows UDP behavior
-
-A valid UDP backend configuration on a Windows build is recognized as a known backend configuration, but the hosted implementation is absent. Backend discovery/open therefore fails deterministically with:
+Release `v0.5.0` publishes Debian packages for:
 
 ```text
-SPW_ERR_UNSUPPORTED
+amd64
+arm64
+armhf
+riscv64
 ```
 
-The library does not reinterpret Windows UDP selection as an invalid config and does not expose Winsock types in public headers.
-
-```c
-spw_udp_config_t udp = SPW_UDP_CONFIG_INITIALIZER(42000, 42001, 42);
-spw_port_config_t port = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
-port.backend_config = &udp;
-port.backend_config_size = sizeof(udp);
-
-spw_port_workspace_requirements_t requirements;
-spw_result_t result = spw_port_workspace_requirements(&port, &requirements);
-
-if (result == SPW_ERR_UNSUPPORTED) {
-    /* The selected backend is not available in this installed build. */
-}
-```
-
-The same result is used on a POSIX host when SpWKit itself is configured with `SPWKIT_BUILD_UDP=OFF`.
-
-## Build-time UDP option
-
-`SPWKIT_BUILD_UDP` remains `ON` by default.
-
-On a CMake `UNIX` host:
+The matching GHCR image supports:
 
 ```text
-SPWKIT_BUILD_UDP=ON  -> compile/link the POSIX UDP backend
-SPWKIT_BUILD_UDP=OFF -> keep public UDP API, runtime selection unsupported
+linux/amd64
+linux/arm64
+linux/arm/v7
+linux/riscv64
 ```
 
-On a non-`UNIX` host such as Windows:
+Cross/QEMU package execution is architecture evidence, not physical target/HIL evidence.
 
-```text
-SPWKIT_BUILD_UDP=ON  -> install public UDP API, print POSIX-only status, runtime unsupported
-SPWKIT_BUILD_UDP=OFF -> install public UDP API, runtime unsupported
+## Embedded / RTOS evidence
+
+HardRT release `0.4.0` is the current validated external RTOS integration baseline.
+
+- HardRT POSIX integration executes two task-owned SpWKit ports against installed packages.
+- Cortex-M7/ARMv7E-M integration cross-builds and links no-heap SpWKit with the HardRT Cortex-M port.
+- The Cortex-M7 job is compile/link/ABI evidence, not STM32H755 runtime or SpaceWire PHY evidence.
+
+## v0.6 portable driver backend
+
+`develop` includes `SPW_BACKEND_DRIVER`, driver ABI v2 DMA/zero-copy ownership mapping and a deterministic host reference driver.
+
+```mermaid
+flowchart LR
+    API[Portable public API] --> REF[Host reference driver<br/>validated]
+    API --> MCU[MCU/RTOS driver<br/>implementation-specific]
+    API --> FPGA[Future FPGA/vendor driver]
 ```
 
-The option controls inclusion of an implementation, not existence of the public backend identifier/type definitions.
+The driver contract itself is portable. Runtime support depends entirely on the driver implementation supplied by the consuming platform.
 
-## Installed-package metadata
+STM32H755 DMA/cache runtime validation remains pending #119. Future physical FPGA/SpaceWire support remains outside current runtime claims.
 
-The generated `SpWKitConfig.cmake` exports:
+## Build profiles
 
-```cmake
-SpWKit_UDP_RUNTIME_SUPPORTED
-SpWKit_UDP_RUNTIME_SCOPE
-SpWKit_SIMULATOR_RUNTIME_SUPPORTED
-SpWKit_DEVICE_RUNTIME_SUPPORTED
-SpWKit_DEVICE_RUNTIME_SCOPE
-SpWKit_CPP_WRAPPER_AVAILABLE
-```
+Common build profiles include:
 
-`SpWKit_UDP_RUNTIME_SCOPE` is currently `POSIX`. `SpWKit_UDP_RUNTIME_SUPPORTED` reports whether that **particular installed library build** contains the UDP runtime backend.
+- full hosted C runtime;
+- optional C++17 wrapper/tests/examples;
+- C-only static/shared runtime with `CXX=/bin/false`;
+- no-heap/freestanding core;
+- Linux virtual-device/service/tools/CUSE profile;
+- driver/reference-driver profile;
+- Cortex-M7/HardRT cross profile.
 
-A pure-C CMake consumer can gate a hosted UDP example without probing native socket APIs:
+## Unsupported behavior
 
-```cmake
-project(my_app LANGUAGES C)
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+Portable applications should not infer backend availability solely from the host OS or from a header enum. Query package metadata where appropriate, inspect capabilities after open, and handle `SPW_ERR_UNSUPPORTED` for optional/disabled paths.
 
-if(SpWKit_UDP_RUNTIME_SUPPORTED)
-    add_executable(my_distributed_app main.c)
-    target_link_libraries(my_distributed_app PRIVATE spwkit::spwkit)
-endif()
-```
+## HIL boundary
 
-The metadata is descriptive convenience for build systems. Runtime/backend-neutral application code should still handle `SPW_ERR_UNSUPPORTED` because a backend can be unavailable for build/configuration reasons.
-
-The installed-package CI consumer validates the metadata against `spw_port_workspace_requirements()` on every host matrix entry. Windows therefore verifies the unsupported UDP runtime path through the installed package, not merely by compiling `udp.h`.
-
-## Linux virtual-device support
-
-v0.4 adds the Linux `SPW_BACKEND_DEVICE` runtime and pure-C `vspwd` service beneath the same public `spw_port_*` API. The installed package reports `SpWKit_DEVICE_RUNTIME_SUPPORTED` and `SpWKit_DEVICE_RUNTIME_SCOPE=Linux` so applications can gate hosted examples without exposing Unix socket types.
-
-The unprivileged reference path uses private VSPD over `AF_UNIX`/`SOCK_SEQPACKET`. `spwctl` and `spwmon` are optional installed service tools. `vspwd` can also reserve one of its two reference ports as a VSPW-TP/UDP bridge endpoint while the opposite port remains a normal public device endpoint.
-
-CUSE feasibility has been validated separately with libfuse3 and a private packet-record prototype. The production event-driven `/dev/vspwX` presenter remains #78 and is not claimed as part of v0.4.
-
-## Why Winsock remains separate
-
-Adding Winsock requires a private socket portability layer for:
-
-- socket lifetime and invalid-handle representation;
-- polling/readiness and timeout conversion;
-- address/bind/send/receive calls;
-- Winsock startup/cleanup ownership;
-- error translation/interrupted-operation behavior;
-- Windows process-level D2D coverage.
-
-Those changes should not alter VSPW-TP or the public C ABI, but they are meaningful implementation/maintenance scope. They remain isolated in #42 so Linux virtual-device development does not entangle the released wire contract with a platform port.
-
-## Public ABI boundary
-
-The following remain private on every platform:
-
-- POSIX file descriptors;
-- `sockaddr*`, `pollfd`, `errno`;
-- Unix-domain-socket structures;
-- CUSE/FUSE handles;
-- Winsock `SOCKET`, `WSADATA`, `WSAPOLLFD`, WSA error values;
-- native address structures;
-- event/select handles.
-
-Public configuration contains only portable descriptive values. Backend implementation details never become mandatory common API types.
-
-## Release interpretation
-
-For current hosted support:
-
-- Linux is the primary fully exercised distributed and virtual-device/service platform;
-- macOS is a supported POSIX UDP host with host/shared-contract coverage;
-- Windows is supported for the portable C runtime, simulator and package, but not yet for the UDP runtime backend;
-- no claim is made for unvalidated UNIX/POSIX systems merely because CMake's `UNIX` condition enables implementation source.
-
-Future releases may broaden the runtime matrix without changing application-facing SpaceWire semantics.
+Physical SpaceWire hardware, Data-Strobe/LVDS interoperability and board/controller-specific timing require dedicated HIL/electrical evidence. Hosted simulation, Docker, CUSE, QEMU or STM32 memory-to-memory DMA do not substitute for that evidence.

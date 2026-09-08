@@ -968,7 +968,8 @@ static const spw_backend_factory_t DEVICE_FACTORY = {
     alignof(device_context_t),
     device_construct,
     device_destroy,
-    &DEVICE_OPS};
+    &DEVICE_OPS,
+    NULL};
 
 const spw_backend_factory_t* spw_device_backend_factory(void) {
     return &DEVICE_FACTORY;

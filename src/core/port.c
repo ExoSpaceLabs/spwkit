@@ -2,10 +2,12 @@
 
 #include <spwkit/buffer.h>
 #include <spwkit/device.h>
+#include <spwkit/driver.h>
 #include <spwkit/port.h>
 #include <spwkit/simulator.h>
 #include <spwkit/udp.h>
 
+#include "backends/driver/driver_backend.h"
 #include "backends/loopback/loopback_backend.h"
 #ifdef SPWKIT_HAS_DEVICE
 #include "backends/device/device_backend.h"
@@ -57,19 +59,44 @@ static void* backend_address(void* workspace, size_t backend_alignment) {
     return bytes + align_up(sizeof(spw_port_t), backend_alignment);
 }
 
-static spw_port_workspace_requirements_t requirements_for(
-    const spw_backend_factory_t* factory) {
+static bool is_power_of_two(size_t value) {
+    return value != 0u && (value & (value - 1u)) == 0u;
+}
+
+static spw_result_t requirements_for(
+    const spw_port_config_t* config,
+    const spw_backend_factory_t* factory,
+    spw_port_workspace_requirements_t* out_requirements) {
     const size_t port_alignment = alignof(spw_port_t);
-    const size_t required_alignment =
-        factory->context_alignment > port_alignment
-            ? factory->context_alignment
-            : port_alignment;
-    const size_t context_offset =
-        align_up(sizeof(spw_port_t), factory->context_alignment);
-    spw_port_workspace_requirements_t requirements;
-    requirements.size = context_offset + factory->context_size;
-    requirements.alignment = required_alignment;
-    return requirements;
+    size_t context_size = factory->context_size;
+    size_t context_offset;
+    size_t required_alignment;
+    spw_result_t result;
+
+    if (factory->context_alignment == 0u ||
+        !is_power_of_two(factory->context_alignment)) {
+        return SPW_ERR_BACKEND;
+    }
+    if (factory->context_size_for_config != NULL) {
+        result = factory->context_size_for_config(config, &context_size);
+        if (result != SPW_OK) {
+            return result;
+        }
+    }
+    if (context_size == 0u) {
+        return SPW_ERR_BACKEND;
+    }
+
+    required_alignment = factory->context_alignment > port_alignment
+                             ? factory->context_alignment
+                             : port_alignment;
+    context_offset = align_up(sizeof(spw_port_t), factory->context_alignment);
+    if (context_size > SIZE_MAX - context_offset) {
+        return SPW_ERR_RESOURCE_EXHAUSTED;
+    }
+    out_requirements->size = context_offset + context_size;
+    out_requirements->alignment = required_alignment;
+    return SPW_OK;
 }
 
 static spw_result_t validate_common_config(const spw_port_config_t* config) {
@@ -112,6 +139,61 @@ static spw_result_t validate_device_config(const spw_port_config_t* config) {
     }
     if (endpoint_length == 0u || endpoint_length >= SPW_DEVICE_ENDPOINT_CAPACITY) {
         return SPW_ERR_INVALID_ARGUMENT;
+    }
+    return SPW_OK;
+}
+
+static spw_result_t validate_driver_config(const spw_port_config_t* config) {
+    const spw_driver_config_t* driver;
+    const spw_driver_ops_t* ops;
+    if (config->backend_config == NULL ||
+        config->backend_config_size < sizeof(spw_driver_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    driver = (const spw_driver_config_t*)config->backend_config;
+    if (driver->struct_size < sizeof(spw_driver_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (driver->version != SPW_DRIVER_CONFIG_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (driver->reserved != 0u || driver->ops == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    ops = driver->ops;
+    if (ops->struct_size < sizeof(spw_driver_ops_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (ops->version != SPW_DRIVER_OPS_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (ops->start == NULL || ops->stop == NULL || ops->reset == NULL ||
+        ops->get_link_state == NULL || ops->get_capabilities == NULL ||
+        ops->send == NULL || ops->receive == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    {
+        const bool any_dma = ops->acquire_tx_buffer != NULL ||
+                             ops->submit_tx_buffer != NULL ||
+                             ops->reclaim_tx_buffer != NULL ||
+                             ops->release_tx_buffer != NULL ||
+                             ops->acquire_rx_buffer != NULL ||
+                             ops->release_rx_buffer != NULL;
+        const bool all_dma = ops->acquire_tx_buffer != NULL &&
+                             ops->submit_tx_buffer != NULL &&
+                             ops->reclaim_tx_buffer != NULL &&
+                             ops->release_tx_buffer != NULL &&
+                             ops->acquire_rx_buffer != NULL &&
+                             ops->release_rx_buffer != NULL;
+        if (any_dma != all_dma) {
+            return SPW_ERR_INVALID_ARGUMENT;
+        }
+        if ((driver->tx_buffer_slots > SPW_DRIVER_MAX_BUFFER_SLOTS ||
+             driver->rx_buffer_slots > SPW_DRIVER_MAX_BUFFER_SLOTS) ||
+            ((driver->tx_buffer_slots != 0u ||
+              driver->rx_buffer_slots != 0u) && !all_dma)) {
+            return SPW_ERR_INVALID_ARGUMENT;
+        }
     }
     return SPW_OK;
 }
@@ -248,6 +330,21 @@ static spw_result_t select_factory(
         return SPW_ERR_UNSUPPORTED;
 #endif
 
+    case SPW_BACKEND_DRIVER: {
+        const spw_driver_config_t* driver;
+        result = validate_driver_config(config);
+        if (result != SPW_OK) {
+            return result;
+        }
+        driver = (const spw_driver_config_t*)config->backend_config;
+        *out_factory = spw_driver_backend_factory(
+            driver->ops->wait != NULL,
+            driver->ops->acquire_tx_buffer != NULL &&
+                driver->tx_buffer_slots != 0u &&
+                driver->rx_buffer_slots != 0u);
+        return SPW_OK;
+    }
+
     default:
         return SPW_ERR_UNSUPPORTED;
     }
@@ -315,8 +412,7 @@ spw_result_t spw_port_workspace_requirements(
         return SPW_ERR_BACKEND;
     }
 
-    *out_requirements = requirements_for(factory);
-    return SPW_OK;
+    return requirements_for(config, factory, out_requirements);
 }
 
 spw_result_t spw_port_open_in_place(const spw_port_config_t* config,
@@ -338,7 +434,10 @@ spw_result_t spw_port_open_in_place(const spw_port_config_t* config,
     if (result != SPW_OK) {
         return result;
     }
-    requirements = requirements_for(factory);
+    result = requirements_for(config, factory, &requirements);
+    if (result != SPW_OK) {
+        return result;
+    }
 
     if (workspace == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;

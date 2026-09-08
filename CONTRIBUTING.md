@@ -28,7 +28,7 @@ Use the repository test categories consistently:
 - `hil` for physical FPGA/SpaceWire hardware;
 - `compliance` for requirement-linked verification evidence.
 
-The current D2D workflow runs a real localhost VSPW-TP/UDP integration test. A future Docker/network-namespace topology may add stronger host/process isolation, but is not a prerequisite for the label itself.
+The current D2D workflow includes independent processes, Linux network namespaces, and Docker Compose node isolation. Integration-specific Compose fixtures may add stronger deployment-shaped evidence, but the `d2d` label is about independent logical peers rather than any single orchestration mechanism.
 
 Do not weaken or bypass a test because a backend behaves differently. If the difference represents a legitimate optional capability, express it through the capability model and make test applicability explicit.
 

@@ -1,16 +1,20 @@
 # CUSE `/dev/vspwX` feasibility
 
+> **Historical v0.4 design record.** This document records the feasibility decision that preceded the production implementation. v0.5 subsequently shipped `spwcuse`, a packet-record-oriented CUSE presenter with live `/dev/cuse` CI coverage. For current behavior, build instructions, record semantics and ownership rules, see [cuse.md](cuse.md).
+
 ## Decision
 
 CUSE is technically suitable for creating an optional Linux character-device presentation for virtual SpaceWire ports, but **SpWKit must not expose a virtual SpaceWire port as an unframed byte stream**.
 
-The v0.4 decision is therefore:
+The v0.4 decision was therefore:
 
 - CUSE/libfuse3 is a viable userspace mechanism for `/dev/vspwX`;
 - no kernel module is justified at this stage;
-- a future character device must be packet-record oriented so SpaceWire DATA boundaries, EOP/EEP and time codes survive the file API;
-- the record format remains private/draft in v0.4 and is not installed as public ABI yet;
-- the full presenter is deferred until its blocking-read, `poll()` and ownership model are implemented around an explicit event loop/broker rather than undocumented concurrent calls into `spw_port_*`.
+- a character device must be packet-record oriented so SpaceWire DATA boundaries, EOP/EEP and time codes survive the file API;
+- the record format was private/draft in v0.4 and was not yet installed as public ABI;
+- the full presenter was deferred until its blocking-read, `poll()` and ownership model were implemented around an explicit event loop/broker rather than undocumented concurrent calls into `spw_port_*`.
+
+Those constraints directly informed the v0.5 production `spwcuse` implementation.
 
 ## Why CUSE is mechanically viable
 
@@ -32,7 +36,7 @@ sudo build-cuse-probe/spwcuse_probe --serve spwkit-cuse-probe
 ls -l /dev/spwkit-cuse-probe
 ```
 
-Its data callbacks intentionally return `EOPNOTSUPP`. It exists to validate the CUSE plumbing, not to smuggle an unfinished device ABI into the release.
+Its data callbacks intentionally return `EOPNOTSUPP`. It exists to validate the CUSE plumbing, not to smuggle an unfinished device ABI into the historical v0.4 release.
 
 ## Why a raw byte stream is rejected
 
@@ -49,7 +53,7 @@ Therefore `/dev/vspwX` must carry explicit records.
 
 ## Draft private record format
 
-The v0.4 feasibility prototype uses a fixed 16-byte big-endian header followed by a payload.
+The v0.4 feasibility prototype used a fixed 16-byte big-endian header followed by a payload.
 
 ```text
 offset size field
@@ -83,11 +87,11 @@ For `TIME_CODE`:
 - byte 1 contains the two control bits (`0..3`);
 - flags are zero.
 
-The codec lives under `src/cuse/` and is deliberately not installed. Its purpose is to force the design through deterministic golden/malformed tests before deciding whether this should become a stable native-device ABI.
+The codec lives under `src/cuse/` and was deliberately not installed during the feasibility stage. Its purpose was to force the design through deterministic golden/malformed tests before promotion to the production presenter.
 
-## Required read/write behavior for a production presenter
+## Required read/write behavior identified by the study
 
-A production CUSE implementation should treat each successful character-device operation as one complete record:
+The feasibility work required each successful character-device operation to represent one complete record:
 
 - `write()` accepts exactly one complete record; partial/multiple records in a single call are rejected;
 - `read()` returns one complete record;
@@ -96,46 +100,27 @@ A production CUSE implementation should treat each successful character-device o
 - packet/time-code readiness remains non-consuming until the successful `read()`;
 - link/lifecycle/statistics control should use explicit ioctls only if/when a stable ioctl ABI is designed.
 
-This preserves the same logical semantics as `spw_port_receive()` and `spw_port_wait()` instead of making the character device a second, incompatible interpretation of SpaceWire.
+The production v0.5 implementation follows the packet-record/non-consuming readiness principles; see [cuse.md](cuse.md) for the current contract.
 
 ## Ownership and concurrency
 
-A thin CUSE wrapper that simply calls the current `SPW_BACKEND_DEVICE` from arbitrary CUSE callback threads is rejected for now.
+The study rejected a thin CUSE wrapper that simply called one `SPW_BACKEND_DEVICE` port from arbitrary CUSE callback threads.
 
 Reasons:
 
 1. CUSE may issue simultaneous direct-I/O operations.
-2. SpWKit does not currently promise that one `spw_port_t` is safe for concurrent operations from unrelated host threads.
-3. A single-threaded CUSE loop combined with an infinite blocking SpaceWire read would starve writes and control operations.
+2. SpWKit does not promise that one `spw_port_t` is safe for arbitrary concurrent calls.
+3. A single-threaded CUSE loop combined with an infinite blocking SpaceWire read would starve writes/control operations.
 4. The VSPD Unix socket is already pollable internally, while `spw_port_wait()` intentionally hides native descriptors from applications.
 
-The production architecture should therefore use one explicit owner/event loop for the virtual port, integrating CUSE request completion with VSPD/daemon readiness. Two viable directions are:
+The design therefore required explicit presenter ownership/event handling rather than accidental thread safety.
 
-```text
-CUSE callbacks -> presenter broker/event loop -> VSPD -> vspwd
-```
+## CI boundary at the time
 
-or, after daemon refactoring:
+The v0.4 feasibility workflow validated pure-C record-codec tests, libfuse3 discovery, standalone probe compilation with `CXX=/bin/false`, and API-check execution. GitHub-hosted `/dev/cuse` availability was not assumed.
 
-```text
-CUSE presentation integrated beside VSPD clients inside vspwd
-```
-
-The first direction keeps CUSE as an optional process. The second can avoid an extra local hop but couples libfuse to the Linux daemon build. Both preserve `libspwkit` as FUSE-free.
-
-## CI boundary
-
-The CUSE workflow always validates:
-
-- pure-C record codec tests under GCC and Clang;
-- `libfuse3` discovery through `pkg-config`;
-- compilation/linking of the standalone CUSE probe with `CXX=/bin/false`;
-- `spwcuse_probe --api-check`.
-
-GitHub-hosted runners are not treated as proof that the host kernel exposes `/dev/cuse`. The workflow reports whether the device exists but does not turn a hosted-runner kernel feature into a release requirement.
-
-Real `/dev/vspwX` behavior should eventually be exercised on a runner/container/VM where `/dev/cuse` is explicitly provided.
+v0.5 later added production live-CUSE testing on runners/environments where `/dev/cuse` is explicitly available.
 
 ## v0.4 conclusion
 
-The CUSE investigation is positive: **userspace character devices are feasible and a kernel module is unnecessary for the simulator path**. The full native-device presenter should be a later implementation slice with a deliberately reviewed record/ioctl ABI and asynchronous event-loop ownership.
+The v0.4 investigation was positive: **userspace character devices are feasible and a kernel module is unnecessary for the simulator path**. That conclusion was acted on in v0.5 with `spwcuse`; this file remains as the design-history record rather than a statement of current implementation status.

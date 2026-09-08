@@ -1037,7 +1037,8 @@ static const spw_backend_factory_t SIMULATOR_FACTORY = {
     alignof(spw_simulator_backend_t),
     simulator_construct,
     simulator_destroy,
-    &SIMULATOR_OPS
+    &SIMULATOR_OPS,
+    NULL
 };
 
 const spw_backend_factory_t* spw_simulator_backend_factory(void) {

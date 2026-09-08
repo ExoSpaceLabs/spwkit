@@ -1,168 +1,117 @@
 # Backend contract
 
-This document defines the internal backend boundary used by `libspwkit`.
+This document defines the internal boundary used by `libspwkit` to implement one public SpaceWire-facing contract across different transports and hardware adapters.
 
-Applications do not use backend objects directly. Public SpaceWire operations enter through the SpWKit C API and are translated by the library to the selected backend.
+Applications do not use backend objects directly.
 
-```text
-Application
-    |
-    v
-libspwkit public C API
-    |
-    v
-+-----------------------------+
-| C backend vtable + context  |
-+--------------+--------------+
-               |
-       +-------+--------+-------------------+----------------+
-       |                |                   |                |
-       v                v                   v                v
-   loopback          simulator          UDP/VSPW-TP      future device/HW
+```mermaid
+flowchart TB
+    APP[Application] --> API[spw_port_* / spw_buffer_*]
+    API --> DISPATCH[C backend dispatch + opaque context]
+    DISPATCH --> LOOP[Loopback]
+    DISPATCH --> SIM[Simulator]
+    DISPATCH --> UDP[VSPW-TP / UDP]
+    DISPATCH --> DEV[Linux DEVICE / VSPD]
+    DISPATCH --> DRIVER[Portable driver backend]
 ```
 
-## Mandatory backend operations
+## Mandatory operations
 
-The internal C backend contract covers:
+The internal contract covers:
 
-- construction/destruction of caller-owned backend context;
-- link start;
-- link stop;
-- reset;
+- construction/destruction of backend context;
+- link start/stop/reset;
 - link-state query;
 - capability query;
 - copied packet send/receive;
-- time-code send/receive;
-- common statistics query/reset.
+- common timeout/result behavior.
 
-Optional ownership-oriented hooks cover zero-copy TX/RX when a backend advertises `SPW_CAP_ZERO_COPY`.
+Time codes, statistics, readiness, fault diagnostics and zero-copy ownership are capability-gated. A backend that advertises one of those capabilities must implement the matching observable contract.
 
-Backend polymorphism is implemented by a C function-pointer table plus opaque backend context. Backend-specific configuration/validation is handled by the port factory/configuration layer. No C++ class hierarchy is required by the runtime.
+Backend polymorphism is a C function-pointer table plus opaque context. No C++ class hierarchy is required by the runtime.
 
 ## Invariants
 
-Every backend must preserve the software-visible SpWKit contract:
+Every backend must preserve these application-visible rules:
 
-- packet boundaries are never merged or exposed as transport fragments;
-- EOP and EEP are preserved;
-- receives never silently truncate packets;
-- optional functions are reflected accurately by capabilities;
-- link states map into the common SpaceWire state model;
-- common statistics use documented meanings across backends;
-- backend implementation types do not leak into common operation signatures;
-- failed ownership-transfer calls do not steal application-owned zero-copy buffers.
+- complete packet boundaries are never exposed as internal transport fragments;
+- EOP and EEP remain distinguishable;
+- receive never silently truncates a packet;
+- an undersized receive leaves the complete packet available for retry;
+- optional behavior matches advertised capabilities;
+- link state maps into the common SpaceWire-oriented state model;
+- common statistics retain documented meanings;
+- implementation-native types do not leak into common operation signatures;
+- failed ownership-transfer calls do not steal application-owned buffers.
 
 ## Allocation policy
 
-The backend interface itself does not require heap allocation.
+The backend interface does not require heap allocation. `spw_port_open_in_place()` constructs the port and selected backend inside caller-owned storage sized by `spw_port_workspace_requirements()`.
 
-Backends may have different implementation strategies, but portable and embedded paths must be able to use caller-owned or statically allocated storage where their platform contract requires it. The loopback path intentionally uses fixed-capacity storage and remains the no-heap reference path.
+Hosted backends may use operating-system services internally, but those services must not change common application ownership semantics. Embedded/driver paths can use static memory, polling, interrupts, RTOS primitives or hardware queues underneath the same contract.
 
-Hosted backends such as the process-local simulator and POSIX UDP transport may use platform services internally, but must not change common application ownership semantics.
+## Loopback
 
-## Loopback backend
+Loopback is the deterministic mandatory-contract reference path. It validates dispatch, packet/error semantics, bounded queues, EOP/EEP, time codes and statistics without claiming to be a SpaceWire network simulator.
 
-The deterministic loopback backend is used for contract development and portable-core verification.
+## Process-local simulator
 
-Its current limits are:
+The simulator provides equal A/B peers paired by `link_id` and adds:
 
-```text
-maximum packet size: 4096 bytes
-packet queue depth:  8
-time-code depth:     8
+- peer lifecycle and reconnect behavior;
+- bounded independent packet/time-code queues;
+- finite/infinite waits using private host synchronization;
+- zero-copy ownership emulation using fixed aligned host-memory buffers.
+
+It is the deterministic behavioral reference for software-visible virtual SpaceWire semantics, not a Data-Strobe/LVDS simulator.
+
+## Distributed UDP
+
+The UDP backend maps the common contract onto VSPW-TP datagrams. The transport runtime is POSIX on Unix-like hosts and native Winsock on Windows; the wire/public semantics are identical.
+
+It provides bounded fragmentation/reassembly, EOP/EEP, time codes, ACK/retry/deduplication, session/liveness, virtual timing and deterministic fault injection. Transport fragments never surface through `spw_port_receive()`.
+
+## Linux DEVICE / VSPD
+
+`SPW_BACKEND_DEVICE` maps the same contract onto the private VSPD protocol and `vspwd` service.
+
+```mermaid
+flowchart LR
+    API[spw_port_*] --> DEV[DEVICE backend]
+    DEV --> VSPD[VSPD / SOCK_SEQPACKET]
+    VSPD --> D[vspwd]
 ```
 
-```text
-send(packet)
-    |
-    v
-bounded local packet queue
-    |
-    v
-receive(packet)
+Unix sockets and daemon framing stay private. v0.5 additionally ships `spwcuse`, which uses the public DEVICE backend internally to present `/dev/vspwX`; CUSE types remain outside `libspwkit`.
+
+## Portable driver backend
+
+`SPW_BACKEND_DRIVER` is the v0.6 boundary for vendor, MCU, RTOS and future FPGA drivers. SpWKit calls a user-supplied `spw_driver_ops_t` over a caller-owned driver context.
+
+Driver ABI v2 maps driver-owned DMA buffers onto the existing public zero-copy ownership lifecycle. CPU-visible data views and opaque tokens may cross the driver callback boundary; physical addresses and native descriptors do not enter the public application ABI.
+
+```mermaid
+flowchart LR
+    API[Public ownership API] --> WRAP[SpWKit buffer wrapper slots]
+    WRAP --> OPS[Driver DMA callbacks]
+    OPS --> HW[Vendor / MCU / FPGA implementation]
 ```
-
-It is not a SpaceWire network simulator and does not reproduce exchange-level timing. Its purpose is to validate backend dispatch, ownership/error semantics, packet boundaries, EOP/EEP handling, bounded resources, time codes, statistics and reset behavior deterministically.
-
-For loopback:
-
-- `start()` moves directly to `SPW_LINK_RUN`;
-- `stop()` moves to `SPW_LINK_READY`;
-- `reset()` clears pending queues and moves to `SPW_LINK_ERROR_RESET`.
-
-## Process-local simulator backend
-
-The simulator is an equal-peer local virtual link. It adds:
-
-- A/B endpoint pairing by `link_id`;
-- `CONNECTING`/`RUN` peer lifecycle behavior;
-- peer stop/reset/close/reopen recovery;
-- independent bounded packet/time-code queues;
-- finite and infinite waits using private hosted synchronization;
-- zero-copy ownership emulation with fixed host-memory buffers.
-
-The simulator runtime is C. The hosted synchronization shim uses native platform primitives privately and does not enter the portable core ABI.
-
-## Distributed UDP backend
-
-The VSPW-TP/UDP backend implements the same internal contract while translating copied packet/time-code operations into versioned VSPW-TP datagrams.
-
-It provides:
-
-- C11 POSIX IPv4 UDP transport;
-- bounded packet fragmentation/reassembly;
-- EOP/EEP preservation across fragments;
-- time-code transfer;
-- logical-message ACK/retransmission and duplicate suppression;
-- session/KEEPALIVE peer liveness and restart recovery;
-- bounded arbitrary-order fragment reassembly;
-- deterministic virtual rate/latency;
-- deterministic transport fault injection;
-- explicit SpaceWire-side EEP injection;
-- separate fault-domain diagnostics;
-- a 1 MiB backend packet/reassembly limit;
-- a default 1200-byte fragment payload.
-
-Transport fragments are never surfaced through `spw_port_receive()`.
-
-## Linux virtual-device backend direction
-
-v0.4 adds a Linux virtual-device/userspace-service path beneath the same C vtable/context contract. The application must not gain a daemon-specific API.
-
-The intended layering is:
-
-```text
-spw_port_* API
-     |
-Linux device backend
-     |
-private Unix/device protocol
-     |
-   vspwd
-```
-
-Unix-domain sockets, `poll()` descriptors, CUSE handles and future kernel interfaces stay private to that implementation. The backend must eventually pass the same observable contract as other ports for every capability it advertises.
 
 ## Receive capacity
 
-When the next complete packet is larger than caller-provided receive capacity:
+If the next complete packet exceeds caller receive capacity:
 
-- `SPW_ERR_BUFFER_TOO_SMALL` is returned;
-- the required payload length is reported;
-- the packet terminator is reported;
-- caller payload storage is not partially modified;
-- the complete packet remains available for a later receive with adequate storage.
-
-This behavior is part of the shared application-visible contract.
+- return `SPW_ERR_BUFFER_TOO_SMALL`;
+- report required complete length and terminator;
+- do not partially modify caller storage;
+- retain the complete packet for a later adequate receive.
 
 ## Timeouts
 
-Timeout behavior is expressed in the common microsecond timeout type.
-
-Different backends may wait using condition variables, socket polling, RTOS primitives, interrupts, hardware queues or polling loops. The backend mechanism is not part of the public API.
+Timeouts use the common microsecond type. Backend implementations may wait through condition variables, sockets, RTOS events, interrupts, hardware queues or polling loops. Those mechanisms are not public API concerns.
 
 ## Testing
 
-The shared contract suite exercises loopback, the local simulator and the distributed UDP backend. Distributed extensions verify peer loss/restart through public APIs, while codec/D2D tests verify fragmentation, arbitrary ordering, retry/deduplication, timing, deterministic faults, installed-package process isolation and Linux network-namespace operation.
+Every backend reuses the shared public backend contract for each capability it advertises. Additional tests may verify implementation-specific concerns such as VSPW-TP framing, VSPD protocol behavior, CUSE record presentation or DMA ownership, but they do not replace the common contract.
 
-Pure-C CI separately proves that core and simulator behavior execute with no C++ compiler. v0.4 device work must add its integration fixtures without weakening those existing gates.
+Current CI exercises loopback, simulator, POSIX/Winsock UDP, Linux DEVICE/VSPD, the portable reference driver, no-heap profiles and installed C/C++ consumers. Physical STM32/FPGA/HIL evidence remains a separate claim.
