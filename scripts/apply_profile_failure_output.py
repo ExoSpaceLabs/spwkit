@@ -66,8 +66,12 @@ for old, new in replacements:
         raise SystemExit(f'command pattern not found: {old!r}')
     s = s.replace(old, new, 1)
 
-while '> /dev/null\n' in s:
-    s = s.replace('    > /dev/null\n', '', 1)
-    s = s.replace('  > /dev/null\n', '', 1)
+# Remove the old campaign-level stdout discard together with the preceding
+# line continuation. Leaving the continuation behind would accidentally join
+# the next shell statement to the child command.
+s = s.replace(' \\\n    > /dev/null\n', '\n')
+s = s.replace(' \\\n  > /dev/null\n', '\n')
+if '> /dev/null' in s:
+    raise SystemExit('unhandled stdout discard remains in campaign')
 
 p.write_text(s)
