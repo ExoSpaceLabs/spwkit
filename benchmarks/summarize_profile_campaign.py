@@ -37,6 +37,8 @@ def coverage_entries(root: Path):
     loopback_rx = measured("backends/loopback_rx.jsonl")
     simulator_tx = measured("backends/simulator_tx.jsonl")
     simulator_rx = measured("backends/simulator_rx.jsonl")
+    udp_tx = measured("comparison/udp_tx.jsonl")
+    udp_rx = measured("comparison/udp_rx.jsonl")
 
     def backend_entry(backend, direction, is_measured, issue):
         return {
@@ -45,6 +47,15 @@ def coverage_entries(root: Path):
             "direction": direction,
             "status": "measured" if is_measured else "not-implemented-benchmark",
             "reason": "complete public API operation" if is_measured else f"tracked by #{issue}",
+        }
+
+    def udp_entry(direction, is_measured):
+        return {
+            "backend": "udp",
+            "path": "vspw-tp",
+            "direction": direction,
+            "status": "measured" if is_measured else "not-implemented-benchmark",
+            "reason": "same-process direct UDP socket comparison" if is_measured else "tracked by #164",
         }
 
     entries = [
@@ -68,8 +79,8 @@ def coverage_entries(root: Path):
         backend_entry("loopback", "rx", loopback_rx, 163),
         backend_entry("simulator", "tx", simulator_tx, 163),
         backend_entry("simulator", "rx", simulator_rx, 163),
-        {"backend": "udp", "path": "vspw-tp", "direction": "tx", "status": "not-implemented-benchmark", "reason": "tracked by #164"},
-        {"backend": "udp", "path": "vspw-tp", "direction": "rx", "status": "not-implemented-benchmark", "reason": "tracked by #164"},
+        udp_entry("tx", udp_tx),
+        udp_entry("rx", udp_rx),
         {
             "backend": "device",
             "path": "vspd",
@@ -148,16 +159,10 @@ def render_summary(root: Path, campaign, coverage):
     lines.append(f"Build      : {campaign['build_type']} / clean serial cases")
     lines.append("")
 
-    append_comparison(
-        lines,
-        "DRIVER copied TX: direct/provider vs SpWKit",
-        root / "comparison" / "tx_api_native.jsonl",
-    )
-    append_comparison(
-        lines,
-        "DRIVER copied RX: direct/provider vs SpWKit",
-        root / "comparison" / "rx_native_api.jsonl",
-    )
+    append_comparison(lines, "DRIVER copied TX: direct/provider vs SpWKit", root / "comparison" / "tx_api_native.jsonl")
+    append_comparison(lines, "DRIVER copied RX: direct/provider vs SpWKit", root / "comparison" / "rx_native_api.jsonl")
+    append_comparison(lines, "UDP VSPW-TP TX: direct socket vs SpWKit", root / "comparison" / "udp_tx.jsonl")
+    append_comparison(lines, "UDP VSPW-TP RX: direct socket vs SpWKit", root / "comparison" / "udp_rx.jsonl")
 
     case_files = sorted((root / "cases").glob("*.jsonl"))
     if case_files:
