@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import math
 import platform
 from pathlib import Path
 
@@ -17,12 +18,24 @@ def load_jsonl(path: Path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def fmt(value, digits=3):
+def rounded_tick(value):
+    """Round a counter-tick statistic to the nearest representable tick."""
+    numeric = float(value)
+    if numeric >= 0:
+        return math.floor(numeric + 0.5)
+    return math.ceil(numeric - 0.5)
+
+
+def fmt_ticks(value):
     if value is None:
         return "n/a"
-    if isinstance(value, int):
-        return str(value)
-    return f"{value:.{digits}f}"
+    return str(rounded_tick(value))
+
+
+def fmt_percent(value):
+    if value is None:
+        return "n/a"
+    return f"{float(value):.1f}"
 
 
 def coverage_entries(root: Path):
@@ -141,11 +154,11 @@ def append_comparison(lines, title, comparison_path: Path):
         p95_delta = spwkit["p95"] - native["p95"]
         lines.append(
             f"{row['payload_bytes']:>6} B   "
-            f"{fmt(native['median']):>10}   "
-            f"{fmt(spwkit['median']):>10}   "
-            f"{fmt(delta['median_ticks']):>5}   "
-            f"{fmt(delta['median_percent']):>7}   "
-            f"{fmt(p95_delta):>9}"
+            f"{fmt_ticks(native['median']):>10}   "
+            f"{fmt_ticks(spwkit['median']):>10}   "
+            f"{fmt_ticks(delta['median_ticks']):>5}   "
+            f"{fmt_percent(delta['median_percent']):>7}   "
+            f"{fmt_ticks(p95_delta):>9}"
         )
     lines.append("")
 
@@ -164,12 +177,12 @@ def append_zero_copy(lines, comparison_path: Path):
         delta = row["delta"]
         lines.append(
             f"{row['payload_bytes']:>6} B   "
-            f"{fmt(copied['median']):>10}   "
-            f"{fmt(zero_copy['median']):>6}   "
-            f"{fmt(delta['median_ticks']):>7}   "
-            f"{fmt(delta['median_percent']):>7}   "
-            f"{fmt(ownership['acquire']['median']):>7}   "
-            f"{fmt(ownership['submit']['median']):>6}"
+            f"{fmt_ticks(copied['median']):>10}   "
+            f"{fmt_ticks(zero_copy['median']):>6}   "
+            f"{fmt_ticks(delta['median_ticks']):>7}   "
+            f"{fmt_percent(delta['median_percent']):>7}   "
+            f"{fmt_ticks(ownership['acquire']['median']):>7}   "
+            f"{fmt_ticks(ownership['submit']['median']):>6}"
         )
     lines.append("")
 
@@ -188,12 +201,12 @@ def append_zero_copy_rx(lines, comparison_path: Path):
         delta = row["delta"]
         lines.append(
             f"{row['payload_bytes']:>6} B   "
-            f"{fmt(copied['median']):>10}   "
-            f"{fmt(zero_copy['median']):>6}   "
-            f"{fmt(delta['median_ticks']):>7}   "
-            f"{fmt(delta['median_percent']):>7}   "
-            f"{fmt(ownership['acquire']['median']):>7}   "
-            f"{fmt(ownership['release']['median']):>7}"
+            f"{fmt_ticks(copied['median']):>10}   "
+            f"{fmt_ticks(zero_copy['median']):>6}   "
+            f"{fmt_ticks(delta['median_ticks']):>7}   "
+            f"{fmt_percent(delta['median_percent']):>7}   "
+            f"{fmt_ticks(ownership['acquire']['median']):>7}   "
+            f"{fmt_ticks(ownership['release']['median']):>7}"
         )
     lines.append("")
 
@@ -209,10 +222,10 @@ def append_backend(lines, title, backend_path: Path):
         stats = row["statistics"]
         lines.append(
             f"{row['payload_bytes']:>6} B   "
-            f"{fmt(stats['median']):>8}   "
-            f"{fmt(stats['mean']):>8}   "
-            f"{fmt(stats['p95']):>8}   "
-            f"{fmt(stats['p99']):>8}"
+            f"{fmt_ticks(stats['median']):>8}   "
+            f"{fmt_ticks(stats['mean']):>8}   "
+            f"{fmt_ticks(stats['p95']):>8}   "
+            f"{fmt_ticks(stats['p99']):>8}"
         )
     lines.append("")
 
@@ -226,6 +239,8 @@ def render_summary(root: Path, campaign, coverage):
     lines.append(f"UTC        : {campaign['timestamp_utc']}")
     lines.append(f"Commit     : {campaign['git_short_sha']} ({campaign['git_sha']})")
     lines.append(f"Build      : {campaign['build_type']} / clean serial cases")
+    lines.append("Units      : architectural counter ticks")
+    lines.append("Display    : tick values rounded to nearest integer; JSON retains full precision")
     lines.append("")
 
     append_comparison(lines, "DRIVER copied TX: direct/provider vs SpWKit", root / "comparison" / "tx_api_native.jsonl")
@@ -237,7 +252,11 @@ def render_summary(root: Path, campaign, coverage):
     append_comparison(lines, "DEVICE VSPD TX: direct VSPD vs SpWKit", root / "comparison" / "device_tx.jsonl")
     append_comparison(lines, "DEVICE VSPD RX: direct VSPD vs SpWKit", root / "comparison" / "device_rx.jsonl")
 
-    case_files = sorted((root / "cases").glob("*.jsonl"))
+    case_files = [
+        root / "cases" / f"{case_name}.jsonl"
+        for case_name in campaign.get("cases", [])
+        if (root / "cases" / f"{case_name}.jsonl").exists()
+    ]
     if case_files:
         lines.append("DRIVER copied TX: paired layer ranges")
         lines.append("------------------------------------------------")
@@ -248,9 +267,9 @@ def render_summary(root: Path, campaign, coverage):
                 lines.append(
                     f"{case_file.stem:<24} "
                     f"{row['payload_bytes']:>6} B   "
-                    f"{fmt(stats['median']):>6}   "
-                    f"{fmt(stats['p95']):>4}   "
-                    f"{fmt(stats['p99']):>4}"
+                    f"{fmt_ticks(stats['median']):>6}   "
+                    f"{fmt_ticks(stats['p95']):>4}   "
+                    f"{fmt_ticks(stats['p99']):>4}"
                 )
         lines.append("")
 
@@ -267,6 +286,15 @@ def render_summary(root: Path, campaign, coverage):
     for entry in coverage["entries"]:
         label = f"{entry['backend']}/{entry['path']}/{entry['direction']}"
         lines.append(f"  {label:<30} {entry['status']:<26} {entry['reason']}")
+    lines.append("")
+
+    lines.append("Result artifacts")
+    lines.append("----------------")
+    lines.append("  summary.txt                    ordered human-readable result")
+    lines.append("  comparison/*.jsonl             exact comparison data")
+    lines.append("  cases/*.jsonl                  exact paired-range data")
+    lines.append("  calibration/*.json             exact counter-floor calibration")
+    lines.append("  coverage.json / campaign.json  campaign metadata and coverage")
     lines.append("")
 
     if campaign["result_type"] == "github-hosted":

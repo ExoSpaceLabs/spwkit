@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Child benchmark runners emit machine-readable calibration JSON on stderr.
+# Keep those records in their artifact files, but do not spray JSON blobs into
+# the human-facing campaign console. Other diagnostics and errors still pass.
+exec 3>&2
+exec 2> >(grep -vE 'counter floor: \{.*\}$' >&3)
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=benchmarks/profile_cases.sh
 source "$ROOT_DIR/benchmarks/profile_cases.sh"
@@ -330,7 +336,10 @@ metadata = {
 (out / 'campaign.json').write_text(json.dumps(metadata, indent=2) + '\n')
 PY
 
-printf '\n' >&2
+printf '\n==================== PROFILING RESULTS ====================\n' >&2
 python3 "$ROOT_DIR/benchmarks/summarize_profile_campaign.py" "$output_dir" >&2
-printf 'Campaign complete: %s\n' "$output_dir" >&2
+printf '===========================================================\n' >&2
+printf 'Human-readable summary : %s/summary.txt\n' "$output_dir" >&2
+printf 'Machine-readable data  : %s/*.json, %s/*.jsonl\n' "$output_dir" "$output_dir" >&2
+printf 'Campaign complete      : %s\n' "$output_dir" >&2
 printf '%s\n' "$output_dir"
