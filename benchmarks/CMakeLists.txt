@@ -62,3 +62,6 @@ spwkit_configure_profile_executable(
 spwkit_configure_profile_executable(
     spwkit_profile_counter_floor
     profile_counter_floor.c)
+spwkit_configure_profile_executable(
+    spwkit_profile_native_comparison
+    profile_native_comparison.c)
