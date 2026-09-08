@@ -1,0 +1,108 @@
+name: Zero-copy RX bootstrap
+
+on:
+  push:
+    branches: [work/zero-copy-rx-benchmark]
+    paths:
+      - scripts/apply_zero_copy_rx_campaign.py
+      - benchmarks/profile_zero_copy_receive_comparison.c
+      - benchmarks/run_zero_copy_receive_comparison.sh
+      - .github/workflows/zero-copy-rx-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: work/zero-copy-rx-benchmark
+          fetch-depth: 0
+
+      - name: Apply RX profiling and campaign integration
+        run: python3 scripts/apply_zero_copy_rx_campaign.py
+
+      - name: Validate representative RX zero-copy probe pairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          pairs=(
+            "SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_ENTRY:SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_BOUNDARY"
+            "SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_RETURN:SPW_PROFILE_ID_RX_ZC_ACQUIRE_SYNC_RETURN"
+            "SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_ENTRY:SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_RETURN"
+            "SPW_PROFILE_ID_RX_ZC_RELEASE_PROVIDER_ENTRY:SPW_PROFILE_ID_RX_ZC_RELEASE_PROVIDER_RETURN"
+            "SPW_PROFILE_ID_RX_ZC_RELEASE_API_ENTRY:SPW_PROFILE_ID_RX_ZC_RELEASE_API_RETURN"
+          )
+          index=0
+          for pair in "${pairs[@]}"; do
+            IFS=: read -r start end <<<"$pair"
+            build="build-rx-probe-${index}"
+            cmake -S . -B "$build" \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START="$start" \
+              -DSPWKIT_PROFILE_END="$end" \
+              -DSPWKIT_BUILD_CPP_TESTS=OFF \
+              -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+            cmake --build "$build" --target spwkit_profile_probe_smoke --parallel 2
+            ctest --test-dir "$build" -R '^profiling_pair_smoke$' --output-on-failure
+            index=$((index + 1))
+          done
+
+      - name: Reject cross RX zero-copy operation pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cmake -S . -B build-invalid-rx-zc \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_ENTRY \
+              -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_RX_ZC_RELEASE_API_RETURN; then
+            echo 'cross-operation RX zero-copy profiling probes were incorrectly accepted' >&2
+            exit 1
+          fi
+
+      - name: Validate standalone copied-vs-zero-copy RX comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          benchmarks/run_zero_copy_receive_comparison.sh \
+            --warmup 16 \
+            --iterations 64 \
+            --payloads "0 64 1024 4096" \
+            --settle-seconds 0 \
+            --build-dir build/rx-zero-copy-standalone \
+            --output build/rx-zero-copy.jsonl \
+            --calibration-output build/rx-zero-copy-calibration.json \
+            > /dev/null
+          test "$(wc -l < build/rx-zero-copy.jsonl)" -eq 4
+
+      - name: Validate complete 12/12 hosted campaign contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build/rx-campaign-results
+          result_dir="$(benchmarks/run_profile_campaign.sh \
+            --warmup 8 \
+            --iterations 32 \
+            --payloads "0 64 1024 4096" \
+            --settle-seconds 0 \
+            --type github-hosted \
+            --build-root build/rx-campaign \
+            --output-root build/rx-campaign-results | tail -n 1)"
+          python3 benchmarks/validate_profile_campaign.py \
+            "$result_dir" \
+            --expected-type github-hosted \
+            --expected-measured 12
+          grep -q 'Measured: 12/12' "$result_dir/summary.txt"
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CMakeLists.txt src tests benchmarks
+          git commit -m "test(spwkit): complete zero-copy RX benchmark coverage"
+          git push origin HEAD:work/zero-copy-rx-benchmark
