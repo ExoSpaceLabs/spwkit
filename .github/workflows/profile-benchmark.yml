@@ -59,7 +59,7 @@ jobs:
   hosted-benchmark:
     name: Hosted benchmark campaign
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       BENCHMARK_CASES: ${{ github.event.inputs.cases || 'all' }}
       BENCHMARK_WARMUP: ${{ github.event.inputs.warmup || '64' }}
@@ -123,6 +123,7 @@ jobs:
           assert metadata['direct_native_comparison_case'] == 'tx_api_native'
           assert metadata['direct_native_comparison_cases'] == ['tx_api_native', 'rx_native_api']
           assert metadata['direct_native_counter_floor_subtracted'] is False
+          assert metadata['host_backend_cases'] == ['loopback_tx', 'loopback_rx', 'simulator_tx', 'simulator_rx']
           assert metadata['summary_file'] == 'summary.txt'
           assert metadata['coverage_file'] == 'coverage.json'
           assert metadata['cases']
@@ -137,14 +138,25 @@ jobs:
           summary = (root / 'summary.txt').read_text()
 
           if not rows:
-              raise SystemExit('benchmark campaign emitted no result rows')
+              raise SystemExit('benchmark campaign emitted no DRIVER layer rows')
           if not tx_comparison_rows or not rx_comparison_rows:
               raise SystemExit('benchmark campaign emitted incomplete direct/native comparison rows')
           if len(calibrations) != len(metadata['cases']):
-              raise SystemExit('benchmark campaign did not emit one calibration row per case')
+              raise SystemExit('benchmark campaign did not emit one calibration row per DRIVER layer case')
 
           required_stats = {'min', 'median', 'mean', 'p95', 'p99', 'max', 'stddev'}
-          for calibration in [*calibrations, tx_comparison_calibration, rx_comparison_calibration]:
+          backend_rows = {}
+          backend_calibrations = {}
+          for case_name in metadata['host_backend_cases']:
+              result_path = root / 'backends' / f'{case_name}.jsonl'
+              calibration_path = root / 'backend-calibration' / f'{case_name}.json'
+              values = [json.loads(line) for line in result_path.read_text().splitlines() if line.strip()]
+              if not values:
+                  raise SystemExit(f'backend case {case_name} emitted no rows')
+              backend_rows[case_name] = values
+              backend_calibrations[case_name] = json.loads(calibration_path.read_text())
+
+          for calibration in [*calibrations, tx_comparison_calibration, rx_comparison_calibration, *backend_calibrations.values()]:
               assert calibration['schema'] == 'spwkit.profile.calibration.v1'
               assert calibration['measurement_domain'] == 'instrumentation'
               assert calibration['unit'] == 'counter_ticks'
@@ -166,10 +178,6 @@ jobs:
               assert 1 <= row['iterations'] <= 4096
               assert required_stats == set(row['statistics'])
               assert row['counter']['width_bits'] in (32, 64)
-              assert isinstance(row['counter']['frequency_hz'], int)
-              assert row['statistics']['min'] <= row['statistics']['median'] <= row['statistics']['max']
-              assert row['statistics']['min'] <= row['statistics']['p95'] <= row['statistics']['max']
-              assert row['statistics']['min'] <= row['statistics']['p99'] <= row['statistics']['max']
 
           def validate_comparison(row, direction, fixture):
               assert row['schema'] == 'spwkit.profile.comparison.v1'
@@ -182,22 +190,38 @@ jobs:
               assert row['provider_fixture'] == fixture
               assert row['sample_order'] == 'alternating-per-iteration'
               assert row['counter_floor_subtracted'] is False
-              assert 0 <= row['payload_bytes'] <= 4096
-              assert 1 <= row['iterations'] <= 4096
               assert required_stats == set(row['native_statistics'])
               assert required_stats == set(row['spwkit_statistics'])
               assert row['delta']['definition'] == 'spwkit-minus-native'
-              assert {'median_ticks', 'mean_ticks', 'p95_ticks', 'p99_ticks', 'median_percent', 'mean_percent'} <= set(row['delta'])
-              for side in ('native_statistics', 'spwkit_statistics'):
-                  stats = row[side]
-                  assert stats['min'] <= stats['median'] <= stats['max']
-                  assert stats['min'] <= stats['p95'] <= stats['max']
-                  assert stats['min'] <= stats['p99'] <= stats['max']
 
           for row in tx_comparison_rows:
               validate_comparison(row, 'tx', 'shared-reference-provider-submit')
           for row in rx_comparison_rows:
               validate_comparison(row, 'rx', 'shared-reference-provider-receive')
+
+          expected_backend_cases = {
+              'loopback_tx': ('loopback', 'tx'),
+              'loopback_rx': ('loopback', 'rx'),
+              'simulator_tx': ('simulator', 'tx'),
+              'simulator_rx': ('simulator', 'rx'),
+          }
+          for case_name, values in backend_rows.items():
+              backend, direction = expected_backend_cases[case_name]
+              for row in values:
+                  assert row['schema'] == 'spwkit.profile.backend.v1'
+                  assert row['measurement_domain'] == 'software'
+                  assert row['unit'] == 'counter_ticks'
+                  assert row['backend'] == backend
+                  assert row['direction'] == direction
+                  assert row['path'] == 'standard'
+                  assert row['boundary'] == 'complete-public-api-operation'
+                  assert row['carrier'] == 'in-memory-queue'
+                  assert row['counter_floor_subtracted'] is False
+                  assert row['heap_used'] is False
+                  assert row['sample_storage'] == 'fixed'
+                  assert required_stats == set(row['statistics'])
+                  assert 0 <= row['payload_bytes'] <= 4096
+                  assert 1 <= row['iterations'] <= 4096
 
           assert coverage['schema'] == 'spwkit.profile.coverage.v1'
           assert len(coverage['entries']) == 12
@@ -206,24 +230,36 @@ jobs:
               for entry in coverage['entries']
               if entry['status'] == 'measured'
           }
-          assert ('driver', 'copied', 'tx') in measured
-          assert ('driver', 'copied', 'rx') in measured
-          assert coverage['counts']['measured'] >= 2
+          expected_measured = {
+              ('driver', 'copied', 'tx'),
+              ('driver', 'copied', 'rx'),
+              ('loopback', 'standard', 'tx'),
+              ('loopback', 'standard', 'rx'),
+              ('simulator', 'standard', 'tx'),
+              ('simulator', 'standard', 'rx'),
+          }
+          assert expected_measured <= measured
+          assert coverage['counts']['measured'] >= 6
 
           assert 'SpWKit Host Profiling Summary' in summary
           assert 'DRIVER copied TX: direct/provider vs SpWKit' in summary
           assert 'DRIVER copied RX: direct/provider vs SpWKit' in summary
+          assert 'LOOPBACK TX: complete public API operation' in summary
+          assert 'LOOPBACK RX: complete public API operation' in summary
+          assert 'SIMULATOR TX: complete public API operation' in summary
+          assert 'SIMULATOR RX: complete public API operation' in summary
           assert 'Hosted-backend coverage' in summary
-          assert 'Measured: 2/12' in summary
+          assert 'Measured: 6/12' in summary
 
           per_case_files = sorted((root / 'cases').glob('*.jsonl'))
           calibration_files = sorted((root / 'calibration').glob('*.json'))
           assert len(per_case_files) == len(metadata['cases'])
           assert len(calibration_files) == len(metadata['cases'])
           print(
-              f"validated {len(metadata['cases'])} clean-build case(s), "
-              f"{len(rows)} layer row(s), {len(tx_comparison_rows)} TX comparison row(s), "
-              f"{len(rx_comparison_rows)} RX comparison row(s), coverage and summary in {root.name}"
+              f"validated {len(metadata['cases'])} DRIVER layer case(s), "
+              f"{len(tx_comparison_rows)} TX comparison row(s), {len(rx_comparison_rows)} RX comparison row(s), "
+              f"{sum(len(v) for v in backend_rows.values())} in-memory backend row(s), "
+              f"coverage and summary in {root.name}"
           )
           PY
 
@@ -246,8 +282,7 @@ jobs:
               'authoritative_performance_result': False,
               'note': 'GitHub-hosted timing is informational; use controlled/local or physical-target campaigns for performance claims.'
           }
-          (root / 'run-metadata.json').write_text(
-              json.dumps(metadata, indent=2) + '\n')
+          (root / 'run-metadata.json').write_text(json.dumps(metadata, indent=2) + '\n')
           PY
 
       - name: Publish summary

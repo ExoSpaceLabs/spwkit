@@ -8,6 +8,8 @@ set(SPWKIT_BENCHMARK_PROFILE_END "SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY" CACHE STR
     "End profiling probe for the hosted benchmark")
 set(SPWKIT_BENCHMARK_COUNTER_HZ "0" CACHE STRING
     "Optional architectural counter frequency override in Hz; 0 means unknown/platform-reported")
+option(SPWKIT_BENCHMARK_BUILD_SIMULATOR
+    "Build the process-local simulator for host backend benchmark cases" OFF)
 
 set(SPWKIT_ENABLE_PROFILING ON CACHE BOOL "" FORCE)
 set(SPWKIT_PROFILE_START "${SPWKIT_BENCHMARK_PROFILE_START}" CACHE STRING "" FORCE)
@@ -17,7 +19,7 @@ set(SPWKIT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_CPP_TESTS OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_CPP_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SPWKIT_BUILD_SIMULATOR OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_SIMULATOR ${SPWKIT_BENCHMARK_BUILD_SIMULATOR} CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_UDP OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_DEVICE OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_VSPWD OFF CACHE BOOL "" FORCE)
@@ -68,3 +70,6 @@ spwkit_configure_profile_executable(
 spwkit_configure_profile_executable(
     spwkit_profile_native_receive_comparison
     profile_native_receive_comparison.c)
+spwkit_configure_profile_executable(
+    spwkit_profile_host_backend
+    profile_host_backend.c)

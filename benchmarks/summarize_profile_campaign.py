@@ -33,6 +33,20 @@ def coverage_entries(root: Path):
 
     tx_driver = measured("comparison/tx_api_native.jsonl")
     rx_driver = measured("comparison/rx_native_api.jsonl")
+    loopback_tx = measured("backends/loopback_tx.jsonl")
+    loopback_rx = measured("backends/loopback_rx.jsonl")
+    simulator_tx = measured("backends/simulator_tx.jsonl")
+    simulator_rx = measured("backends/simulator_rx.jsonl")
+
+    def backend_entry(backend, direction, is_measured, issue):
+        return {
+            "backend": backend,
+            "path": "standard",
+            "direction": direction,
+            "status": "measured" if is_measured else "not-implemented-benchmark",
+            "reason": "complete public API operation" if is_measured else f"tracked by #{issue}",
+        }
+
     entries = [
         {
             "backend": "driver",
@@ -50,10 +64,10 @@ def coverage_entries(root: Path):
         },
         {"backend": "driver", "path": "zero-copy", "direction": "tx", "status": "not-implemented-benchmark", "reason": "tracked by #138/#159/#160"},
         {"backend": "driver", "path": "zero-copy", "direction": "rx", "status": "not-implemented-benchmark", "reason": "tracked by #138"},
-        {"backend": "loopback", "path": "standard", "direction": "tx", "status": "not-implemented-benchmark", "reason": "tracked by #163"},
-        {"backend": "loopback", "path": "standard", "direction": "rx", "status": "not-implemented-benchmark", "reason": "tracked by #163"},
-        {"backend": "simulator", "path": "standard", "direction": "tx", "status": "not-implemented-benchmark", "reason": "tracked by #163"},
-        {"backend": "simulator", "path": "standard", "direction": "rx", "status": "not-implemented-benchmark", "reason": "tracked by #163"},
+        backend_entry("loopback", "tx", loopback_tx, 163),
+        backend_entry("loopback", "rx", loopback_rx, 163),
+        backend_entry("simulator", "tx", simulator_tx, 163),
+        backend_entry("simulator", "rx", simulator_rx, 163),
         {"backend": "udp", "path": "vspw-tp", "direction": "tx", "status": "not-implemented-benchmark", "reason": "tracked by #164"},
         {"backend": "udp", "path": "vspw-tp", "direction": "rx", "status": "not-implemented-benchmark", "reason": "tracked by #164"},
         {
@@ -104,6 +118,25 @@ def append_comparison(lines, title, comparison_path: Path):
     lines.append("")
 
 
+def append_backend(lines, title, backend_path: Path):
+    rows = load_jsonl(backend_path)
+    if not rows:
+        return
+    lines.append(title)
+    lines.append("-----------------------------------------------")
+    lines.append("Payload     Median       Mean        p95        p99")
+    for row in rows:
+        stats = row["statistics"]
+        lines.append(
+            f"{row['payload_bytes']:>6} B   "
+            f"{fmt(stats['median']):>8}   "
+            f"{fmt(stats['mean']):>8}   "
+            f"{fmt(stats['p95']):>8}   "
+            f"{fmt(stats['p99']):>8}"
+        )
+    lines.append("")
+
+
 def render_summary(root: Path, campaign, coverage):
     lines = []
     lines.append("SpWKit Host Profiling Summary")
@@ -142,6 +175,11 @@ def render_summary(root: Path, campaign, coverage):
                     f"{fmt(stats['p99']):>4}"
                 )
         lines.append("")
+
+    append_backend(lines, "LOOPBACK TX: complete public API operation", root / "backends" / "loopback_tx.jsonl")
+    append_backend(lines, "LOOPBACK RX: complete public API operation", root / "backends" / "loopback_rx.jsonl")
+    append_backend(lines, "SIMULATOR TX: complete public API operation", root / "backends" / "simulator_tx.jsonl")
+    append_backend(lines, "SIMULATOR RX: complete public API operation", root / "backends" / "simulator_rx.jsonl")
 
     lines.append("Hosted-backend coverage")
     lines.append("-----------------------")
