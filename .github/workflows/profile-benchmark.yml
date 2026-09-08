@@ -3,16 +3,11 @@ name: Profile benchmark
 on:
   workflow_dispatch:
     inputs:
-      range:
-        description: Profiling range
+      cases:
+        description: 'Profiling cases: all or space/comma-separated names'
         required: true
-        default: tx_api_native
-        type: choice
-        options:
-          - tx_api_backend
-          - tx_backend_provider
-          - tx_provider_native
-          - tx_api_native
+        default: all
+        type: string
       warmup:
         description: Warmup iterations per payload
         required: true
@@ -33,12 +28,18 @@ on:
         required: true
         default: '0'
         type: string
+      settle_seconds:
+        description: Seconds to settle after each clean build before timing
+        required: true
+        default: '1'
+        type: string
   pull_request:
     branches: [develop, main]
     paths:
       - 'include/**'
       - 'src/**'
       - 'benchmarks/**'
+      - 'scripts/stm32h755_board_test.sh'
       - 'CMakeLists.txt'
       - '.github/workflows/profile-benchmark.yml'
   push:
@@ -47,6 +48,7 @@ on:
       - 'include/**'
       - 'src/**'
       - 'benchmarks/**'
+      - 'scripts/stm32h755_board_test.sh'
       - 'CMakeLists.txt'
       - '.github/workflows/profile-benchmark.yml'
 
@@ -55,34 +57,36 @@ permissions:
 
 jobs:
   hosted-benchmark:
-    name: Hosted benchmark mechanics
+    name: Hosted benchmark campaign
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      BENCHMARK_RANGE: ${{ github.event.inputs.range || 'tx_api_native' }}
+      BENCHMARK_CASES: ${{ github.event.inputs.cases || 'all' }}
       BENCHMARK_WARMUP: ${{ github.event.inputs.warmup || '64' }}
       BENCHMARK_ITERATIONS: ${{ github.event.inputs.iterations || '256' }}
       BENCHMARK_PAYLOADS: ${{ github.event.inputs.payloads || '0 64 1024 4096' }}
       BENCHMARK_COUNTER_HZ: ${{ github.event.inputs.counter_hz || '0' }}
+      BENCHMARK_SETTLE_SECONDS: ${{ github.event.inputs.settle_seconds || '0' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Run hosted benchmark sweep
+      - name: Run clean serial benchmark campaign
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p benchmark-results
-          benchmarks/run_profile_benchmark.sh \
-            --range "${BENCHMARK_RANGE}" \
+          benchmarks/run_profile_campaign.sh \
+            --cases "${BENCHMARK_CASES}" \
             --warmup "${BENCHMARK_WARMUP}" \
             --iterations "${BENCHMARK_ITERATIONS}" \
             --payloads "${BENCHMARK_PAYLOADS}" \
             --counter-hz "${BENCHMARK_COUNTER_HZ}" \
-            --output benchmark-results/results.jsonl
+            --settle-seconds "${BENCHMARK_SETTLE_SECONDS}" \
+            --build-root build/profile-campaign \
+            --output-dir benchmark-results
 
-      - name: Validate machine-readable results
+      - name: Validate machine-readable campaign
         shell: bash
         run: |
           set -euo pipefail
@@ -90,10 +94,17 @@ jobs:
           import json
           from pathlib import Path
 
-          path = Path('benchmark-results/results.jsonl')
-          rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+          root = Path('benchmark-results')
+          metadata = json.loads((root / 'campaign.json').read_text())
+          assert metadata['schema'] == 'spwkit.profile.campaign.v1'
+          assert metadata['build_type'] == 'Release'
+          assert metadata['clean_rebuild_per_case'] is True
+          assert metadata['serial_execution'] is True
+          assert metadata['cases']
+
+          rows = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines() if line.strip()]
           if not rows:
-              raise SystemExit('benchmark emitted no result rows')
+              raise SystemExit('benchmark campaign emitted no result rows')
 
           required_stats = {'min', 'median', 'mean', 'p95', 'p99', 'max', 'stddev'}
           for row in rows:
@@ -113,10 +124,13 @@ jobs:
               assert row['statistics']['min'] <= row['statistics']['median'] <= row['statistics']['max']
               assert row['statistics']['min'] <= row['statistics']['p95'] <= row['statistics']['max']
               assert row['statistics']['min'] <= row['statistics']['p99'] <= row['statistics']['max']
-          print(f'validated {len(rows)} benchmark result row(s)')
+
+          per_case_files = sorted((root / 'cases').glob('*.jsonl'))
+          assert len(per_case_files) == len(metadata['cases'])
+          print(f"validated {len(metadata['cases'])} clean-build case(s), {len(rows)} result row(s)")
           PY
 
-      - name: Record run metadata
+      - name: Record runner metadata
         shell: bash
         run: |
           python3 - <<'PY'
@@ -130,13 +144,8 @@ jobs:
               'git_ref': os.environ['GITHUB_REF'],
               'github_event': os.environ['GITHUB_EVENT_NAME'],
               'runner': 'github-hosted/ubuntu-24.04',
-              'range': os.environ['BENCHMARK_RANGE'],
-              'warmup': int(os.environ['BENCHMARK_WARMUP']),
-              'iterations': int(os.environ['BENCHMARK_ITERATIONS']),
-              'payloads': os.environ['BENCHMARK_PAYLOADS'],
-              'counter_hz_override': int(os.environ['BENCHMARK_COUNTER_HZ']),
               'authoritative_performance_result': False,
-              'note': 'GitHub-hosted timing is informational; use controlled/local or physical-target runs for performance claims.'
+              'note': 'GitHub-hosted timing is informational; use controlled/local or physical-target campaigns for performance claims.'
           }
           Path('benchmark-results/run-metadata.json').write_text(
               json.dumps(metadata, indent=2) + '\n')
@@ -149,16 +158,25 @@ jobs:
           import json
           from pathlib import Path
 
-          rows = [json.loads(line) for line in Path('benchmark-results/results.jsonl').read_text().splitlines() if line.strip()]
-          print('### SpWKit hosted profiling benchmark')
+          root = Path('benchmark-results')
+          campaign = json.loads((root / 'campaign.json').read_text())
+          print('### SpWKit hosted profiling campaign')
           print()
-          print('GitHub-hosted timing is **informational only**. The workflow validates benchmark mechanics and provides convenient snapshots; controlled/local or physical-target runs are required for performance claims.')
+          print('Each profiling configuration was configured and built from a clean directory and executed serially.')
+          print('GitHub-hosted timing is **informational only**; controlled/local or physical-target runs are required for performance claims.')
           print()
-          print('| Payload (B) | Mean ticks | Median | p95 | p99 | Min | Max |')
-          print('|---:|---:|---:|---:|---:|---:|---:|')
-          for row in rows:
-              s = row['statistics']
-              print(f"| {row['payload_bytes']} | {s['mean']:.3f} | {s['median']:.3f} | {s['p95']} | {s['p99']} | {s['min']} | {s['max']} |")
+          print(f"Cases: `{', '.join(campaign['cases'])}`")
+          print()
+          print('| Case | Payload (B) | Mean ticks | Median | p95 | p99 | Min | Max |')
+          print('|---|---:|---:|---:|---:|---:|---:|---:|')
+          for case_file in sorted((root / 'cases').glob('*.jsonl')):
+              case_name = case_file.stem
+              for line in case_file.read_text().splitlines():
+                  if not line.strip():
+                      continue
+                  row = json.loads(line)
+                  s = row['statistics']
+                  print(f"| {case_name} | {row['payload_bytes']} | {s['mean']:.3f} | {s['median']:.3f} | {s['p95']} | {s['p99']} | {s['min']} | {s['max']} |")
           PY
 
       - name: Upload benchmark results

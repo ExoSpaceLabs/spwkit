@@ -6,7 +6,9 @@ STM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR:-}"
 OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-/usr/share/openocd/scripts}"
 BUILD_ROOT="${SPWKIT_STM32_BUILD_ROOT:-$ROOT_DIR/build}"
 DEBUG_TIMEOUT=60
-CLEAN=0
+# Official board evidence is clean-by-default. Reuse is available only as an
+# explicit diagnostic convenience and is not the reproducible evidence path.
+CLEAN=1
 SKIP_BUILD=0
 GDB_BIN=""
 OPENOCD_PID=""
@@ -18,17 +20,20 @@ Usage:
   scripts/stm32h755_board_test.sh /path/to/STM32CubeH7 [options]
   scripts/stm32h755_board_test.sh --stm32h7-root /path/to/STM32CubeH7 [options]
 
-Builds SpWKit and the STM32H755 DMA/cache evidence firmware, flashes the
-NUCLEO-H755ZI-Q CM7 image through ST-LINK/OpenOCD, runs the firmware, and
-checks g_stm32h755_spwkit_evidence through GDB.
+Builds SpWKit and the STM32H755 DMA/cache evidence firmware from a clean tree
+by default, flashes the NUCLEO-H755ZI-Q CM7 image through ST-LINK/OpenOCD,
+runs the firmware, and checks g_stm32h755_spwkit_evidence through GDB.
 
 Options:
   --stm32h7-root DIR     STM32CubeH7 checkout root.
   --build-root DIR       Build root (default: <repo>/build).
   --openocd-scripts DIR  OpenOCD scripts directory (default: /usr/share/openocd/scripts).
   --debug-timeout SEC    GDB session timeout (default: 60).
-  --clean                Remove the STM32 build/install directories first.
+  --clean                Explicitly request the default clean rebuild.
+  --reuse-build          Reconfigure/build without deleting existing build trees.
+                         Diagnostic convenience only; not reproducible evidence.
   --no-build             Reuse an existing firmware ELF and only flash/test it.
+                         Diagnostic convenience only; implies no clean.
   -h, --help             Show this help.
 USAGE
 }
@@ -40,7 +45,8 @@ while [[ $# -gt 0 ]]; do
     --openocd-scripts) OPENOCD_SCRIPTS="$2"; shift 2 ;;
     --debug-timeout) DEBUG_TIMEOUT="$2"; shift 2 ;;
     --clean) CLEAN=1; shift ;;
-    --no-build) SKIP_BUILD=1; shift ;;
+    --reuse-build) CLEAN=0; shift ;;
+    --no-build) SKIP_BUILD=1; CLEAN=0; shift ;;
     -h|--help) usage; exit 0 ;;
     --*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     *)
@@ -50,6 +56,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if (( SKIP_BUILD != 0 && CLEAN != 0 )); then
+  echo "--no-build cannot be combined with --clean" >&2
+  exit 2
+fi
 
 [[ "$DEBUG_TIMEOUT" =~ ^[0-9]+$ ]] && (( DEBUG_TIMEOUT > 0 )) || {
   echo "--debug-timeout must be a positive integer" >&2
@@ -116,7 +127,10 @@ cleanup_openocd() {
 trap cleanup_openocd EXIT INT TERM
 
 if (( CLEAN != 0 )); then
+  echo "[board] removing prior STM32 build/install trees"
   rm -rf -- "$SPWKIT_BUILD" "$INSTALL_DIR" "$FIRMWARE_BUILD"
+else
+  echo "[board] WARNING: reusing build state; this run is diagnostic, not reproducible clean-build evidence" >&2
 fi
 
 if (( SKIP_BUILD == 0 )); then
