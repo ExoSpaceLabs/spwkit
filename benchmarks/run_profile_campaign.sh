@@ -11,8 +11,9 @@ iterations="1024"
 payloads="0 1 8 64 256 1024 4096"
 counter_hz="0"
 settle_seconds="1"
+result_type="host"
 build_root="$ROOT_DIR/build/profile-campaign"
-output_dir="$ROOT_DIR/build/profile-results"
+output_root="$ROOT_DIR/build/profile-results"
 
 usage() {
   cat <<'EOF'
@@ -22,6 +23,9 @@ Runs profiling configurations strictly one at a time. Every case receives a
 fresh build directory and therefore a fresh CMake configure/build before its
 counter-floor calibration and payload sweep.
 
+Results are stored under:
+  <output-root>/<type>-<UTC timestamp>-<short git commit>/
+
 Options:
   --cases "LIST"        all, or space/comma-separated case names (default: all)
   --warmup N            warmup iterations per payload (default: 256)
@@ -29,8 +33,10 @@ Options:
   --payloads "LIST"     payload sizes in bytes (default: 0 1 8 64 256 1024 4096)
   --counter-hz N        optional architectural counter frequency override
   --settle-seconds N    pause after each clean build before timing (default: 1)
-  --build-root PATH     disposable root for per-case build trees
-  --output-dir PATH     campaign result directory
+  --type NAME           result target/type, e.g. host, github-hosted, stm32h755
+                        (default: host)
+  --build-root PATH     disposable parent for per-campaign/per-case build trees
+  --output-root PATH    parent directory for uniquely named result folders
   --list-cases          print supported cases and exit
   -h, --help            show this help
 EOF
@@ -44,8 +50,9 @@ while [[ $# -gt 0 ]]; do
     --payloads) payloads="$2"; shift 2 ;;
     --counter-hz) counter_hz="$2"; shift 2 ;;
     --settle-seconds) settle_seconds="$2"; shift 2 ;;
+    --type) result_type="$2"; shift 2 ;;
     --build-root) build_root="$2"; shift 2 ;;
-    --output-dir) output_dir="$2"; shift 2 ;;
+    --output-root) output_root="$2"; shift 2 ;;
     --list-cases) spw_profile_case_list; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -58,6 +65,10 @@ if ! [[ "$warmup" =~ ^[0-9]+$ && "$iterations" =~ ^[0-9]+$ && "$counter_hz" =~ ^
 fi
 if (( iterations < 1 || iterations > 4096 )); then
   echo "iterations must be in the range 1..4096" >&2
+  exit 2
+fi
+if ! [[ "$result_type" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "type must contain only letters, digits, '.', '_' or '-' and start with an alphanumeric character" >&2
   exit 2
 fi
 
@@ -80,14 +91,30 @@ for case_name in "${selected_cases[@]}"; do
   fi
 done
 
-# A campaign itself also starts from a clean state. Per-case runners repeat the
-# deletion defensively before configuring their own tree.
-rm -rf -- "$build_root" "$output_dir"
-mkdir -p "$build_root" "$output_dir/cases" "$output_dir/calibration"
+git_sha="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf unknown)"
+git_short_sha="$(git -C "$ROOT_DIR" rev-parse --short=8 HEAD 2>/dev/null || printf unknown)"
+timestamp_utc="$(date -u +%Y%m%dT%H%M%SZ)"
+result_dir_name="${result_type}-${timestamp_utc}-${git_short_sha}"
+output_dir="$output_root/$result_dir_name"
+campaign_build_root="$build_root/$result_dir_name"
+
+# Every campaign gets isolated build and result directories. Existing results
+# are never silently overwritten, even if two runs somehow resolve to the same
+# second and commit.
+rm -rf -- "$campaign_build_root"
+if [[ -e "$output_dir" ]]; then
+  echo "result directory already exists: $output_dir" >&2
+  exit 1
+fi
+mkdir -p "$campaign_build_root" "$output_dir/cases" "$output_dir/calibration"
 : > "$output_dir/results.jsonl"
 : > "$output_dir/calibration.jsonl"
 
 printf 'SpWKit profiling campaign\n' >&2
+printf '  type: %s\n' "$result_type" >&2
+printf '  timestamp UTC: %s\n' "$timestamp_utc" >&2
+printf '  commit: %s (%s)\n' "$git_sha" "$git_short_sha" >&2
+printf '  result directory: %s\n' "$output_dir" >&2
 printf '  cases: %s\n' "${selected_cases[*]}" >&2
 printf '  build profile: Release\n' >&2
 printf '  clean rebuild per case: yes\n' >&2
@@ -97,7 +124,7 @@ printf '  counter-floor calibration per case: yes\n' >&2
 case_index=0
 for case_name in "${selected_cases[@]}"; do
   case_index=$((case_index + 1))
-  case_build="$build_root/$case_name"
+  case_build="$campaign_build_root/$case_name"
   case_output="$output_dir/cases/$case_name.jsonl"
   calibration_output="$output_dir/calibration/$case_name.json"
   printf '\n[campaign %d/%d] %s\n' "$case_index" "${#selected_cases[@]}" "$case_name" >&2
@@ -124,7 +151,11 @@ export SPWKIT_CAMPAIGN_PAYLOADS="$payloads"
 export SPWKIT_CAMPAIGN_COUNTER_HZ="$counter_hz"
 export SPWKIT_CAMPAIGN_SETTLE_SECONDS="$settle_seconds"
 export SPWKIT_CAMPAIGN_OUTPUT_DIR="$output_dir"
-export SPWKIT_CAMPAIGN_GIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf unknown)"
+export SPWKIT_CAMPAIGN_RESULT_TYPE="$result_type"
+export SPWKIT_CAMPAIGN_TIMESTAMP_UTC="$timestamp_utc"
+export SPWKIT_CAMPAIGN_GIT_SHA="$git_sha"
+export SPWKIT_CAMPAIGN_GIT_SHORT_SHA="$git_short_sha"
+export SPWKIT_CAMPAIGN_RESULT_DIR_NAME="$result_dir_name"
 
 python3 - <<'PY'
 import json
@@ -134,7 +165,11 @@ from pathlib import Path
 out = Path(os.environ['SPWKIT_CAMPAIGN_OUTPUT_DIR'])
 metadata = {
     'schema': 'spwkit.profile.campaign.v1',
+    'result_type': os.environ['SPWKIT_CAMPAIGN_RESULT_TYPE'],
+    'timestamp_utc': os.environ['SPWKIT_CAMPAIGN_TIMESTAMP_UTC'],
     'git_sha': os.environ['SPWKIT_CAMPAIGN_GIT_SHA'],
+    'git_short_sha': os.environ['SPWKIT_CAMPAIGN_GIT_SHORT_SHA'],
+    'result_directory_name': os.environ['SPWKIT_CAMPAIGN_RESULT_DIR_NAME'],
     'build_type': 'Release',
     'clean_rebuild_per_case': True,
     'serial_execution': True,
@@ -150,3 +185,4 @@ metadata = {
 PY
 
 printf '\nCampaign complete: %s\n' "$output_dir" >&2
+printf '%s\n' "$output_dir"
