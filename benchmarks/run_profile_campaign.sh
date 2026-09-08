@@ -21,8 +21,8 @@ Usage: benchmarks/run_profile_campaign.sh [options]
 
 Runs profiling configurations strictly one at a time. Every measurement case
 receives a fresh build directory and therefore a fresh CMake configure/build.
-The campaign currently includes paired DRIVER layers, direct/native DRIVER TX
-and RX comparisons, and LOOPBACK/SIMULATOR TX/RX complete public API timings.
+The campaign includes paired DRIVER layers, direct/native DRIVER TX/RX,
+LOOPBACK/SIMULATOR TX/RX, and VSPW-TP/UDP TX/RX against raw UDP sockets.
 
 Child benchmarks write machine-readable JSON into the result set but the
 campaign terminal output stays human-readable and ends with a consolidated
@@ -128,6 +128,7 @@ printf '  clean rebuild per measurement configuration: yes\n' >&2
 printf '  serial execution: yes\n' >&2
 printf '  direct/native comparison: DRIVER copied TX + RX\n' >&2
 printf '  in-memory backends: LOOPBACK + SIMULATOR TX/RX\n' >&2
+printf '  UDP backend: VSPW-TP TX/RX vs direct loopback UDP socket\n' >&2
 
 case_index=0
 for case_name in "${selected_cases[@]}"; do
@@ -207,6 +208,23 @@ for backend_case in "${host_backend_cases[@]}"; do
     > /dev/null
 done
 
+for direction in tx rx; do
+  udp_output="$output_dir/comparison/udp_${direction}.jsonl"
+  udp_calibration="$output_dir/comparison/udp_${direction}_calibration.json"
+  printf '\n[campaign UDP comparison] %s\n' "$direction" >&2
+  bash "$ROOT_DIR/benchmarks/run_udp_comparison.sh" \
+    --direction "$direction" \
+    --warmup "$warmup" \
+    --iterations "$iterations" \
+    --payloads "$payloads" \
+    --counter-hz "$counter_hz" \
+    --settle-seconds "$settle_seconds" \
+    --build-dir "$campaign_build_root/udp_$direction" \
+    --output "$udp_output" \
+    --calibration-output "$udp_calibration" \
+    > /dev/null
+done
+
 export SPWKIT_CAMPAIGN_CASES="${selected_cases[*]}"
 export SPWKIT_CAMPAIGN_WARMUP="$warmup"
 export SPWKIT_CAMPAIGN_ITERATIONS="$iterations"
@@ -240,6 +258,7 @@ metadata = {
     'direct_native_comparison': True,
     'direct_native_comparison_case': 'tx_api_native',
     'direct_native_comparison_cases': ['tx_api_native', 'rx_native_api'],
+    'udp_comparison_cases': ['udp_tx', 'udp_rx'],
     'direct_native_counter_floor_subtracted': False,
     'host_backend_cases': ['loopback_tx', 'loopback_rx', 'simulator_tx', 'simulator_rx'],
     'summary_file': 'summary.txt',
