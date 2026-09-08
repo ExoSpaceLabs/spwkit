@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Child benchmark runners emit machine-readable calibration JSON on stderr.
-# Keep those records in their artifact files, but do not spray JSON blobs into
-# the human-facing campaign console. Other diagnostics and errors still pass.
-exec 3>&2
-exec 2> >(grep -vE 'counter floor: \{.*\}$' >&3)
-
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=benchmarks/profile_cases.sh
 source "$ROOT_DIR/benchmarks/profile_cases.sh"
@@ -120,9 +114,29 @@ mkdir -p "$campaign_build_root" \
          "$output_dir/calibration" \
          "$output_dir/comparison" \
          "$output_dir/backends" \
-         "$output_dir/backend-calibration"
+         "$output_dir/backend-calibration" \
+         "$output_dir/logs"
 : > "$output_dir/results.jsonl"
 : > "$output_dir/calibration.jsonl"
+
+run_campaign_step() {
+  local label="$1"
+  local log_file="$2"
+  shift 2
+
+  if "$@" >"$log_file" 2>&1; then
+    return 0
+  else
+    local status=$?
+    printf '\nERROR: profiling campaign step failed: %s (exit %d)\n' "$label" "$status" >&2
+    printf 'Child log: %s\n' "$log_file" >&2
+    printf '%s\n' '---------------- child log ----------------' >&2
+    cat "$log_file" >&2 || true
+    printf '%s\n' '-------------- end child log --------------' >&2
+    printf 'Partial results preserved at: %s\n' "$output_dir" >&2
+    return "$status"
+  fi
+}
 
 printf 'SpWKit profiling campaign\n' >&2
 printf '  type: %s\n' "$result_type" >&2
@@ -149,7 +163,8 @@ for case_name in "${selected_cases[@]}"; do
   calibration_output="$output_dir/calibration/$case_name.json"
   printf '\n[campaign DRIVER layer %d/%d] %s\n' "$case_index" "${#selected_cases[@]}" "$case_name" >&2
 
-  "$ROOT_DIR/benchmarks/run_profile_benchmark.sh" \
+  run_campaign_step "DRIVER layer $case_name" "$output_dir/logs/driver-layer-$case_name.log" \
+    "$ROOT_DIR/benchmarks/run_profile_benchmark.sh" \
     --range "$case_name" \
     --warmup "$warmup" \
     --iterations "$iterations" \
@@ -158,8 +173,7 @@ for case_name in "${selected_cases[@]}"; do
     --settle-seconds "$settle_seconds" \
     --build-dir "$case_build" \
     --output "$case_output" \
-    --calibration-output "$calibration_output" \
-    > /dev/null
+    --calibration-output "$calibration_output"
 
   cat "$case_output" >> "$output_dir/results.jsonl"
   cat "$calibration_output" >> "$output_dir/calibration.jsonl"
@@ -168,7 +182,8 @@ done
 tx_comparison_output="$output_dir/comparison/tx_api_native.jsonl"
 tx_comparison_calibration="$output_dir/comparison/calibration.json"
 printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER TX\n' >&2
-"$ROOT_DIR/benchmarks/run_native_comparison.sh" \
+run_campaign_step "DRIVER copied TX native comparison" "$output_dir/logs/native-tx-comparison.log" \
+  "$ROOT_DIR/benchmarks/run_native_comparison.sh" \
   --warmup "$warmup" \
   --iterations "$iterations" \
   --payloads "$payloads" \
@@ -176,13 +191,13 @@ printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER TX\n' >&2
   --settle-seconds "$settle_seconds" \
   --build-dir "$campaign_build_root/native-tx-comparison" \
   --output "$tx_comparison_output" \
-  --calibration-output "$tx_comparison_calibration" \
-  > /dev/null
+  --calibration-output "$tx_comparison_calibration"
 
 zero_copy_comparison_output="$output_dir/comparison/driver_tx_copy_zero_copy.jsonl"
 zero_copy_comparison_calibration="$output_dir/comparison/driver_tx_copy_zero_copy_calibration.json"
 printf '\n[campaign comparison] DRIVER copied vs zero-copy TX\n' >&2
-bash "$ROOT_DIR/benchmarks/run_zero_copy_comparison.sh" \
+run_campaign_step "DRIVER copied vs zero-copy TX" "$output_dir/logs/zero-copy-tx.log" \
+  bash "$ROOT_DIR/benchmarks/run_zero_copy_comparison.sh" \
   --warmup "$warmup" \
   --iterations "$iterations" \
   --payloads "$payloads" \
@@ -190,13 +205,13 @@ bash "$ROOT_DIR/benchmarks/run_zero_copy_comparison.sh" \
   --settle-seconds "$settle_seconds" \
   --build-dir "$campaign_build_root/driver-tx-copy-zero-copy" \
   --output "$zero_copy_comparison_output" \
-  --calibration-output "$zero_copy_comparison_calibration" \
-  > /dev/null
+  --calibration-output "$zero_copy_comparison_calibration"
 
 rx_comparison_output="$output_dir/comparison/rx_native_api.jsonl"
 rx_comparison_calibration="$output_dir/comparison/rx_calibration.json"
 printf '\n[campaign comparison] direct/native vs SpWKit copied DRIVER RX\n' >&2
-bash "$ROOT_DIR/benchmarks/run_native_receive_comparison.sh" \
+run_campaign_step "DRIVER copied RX native comparison" "$output_dir/logs/native-rx-comparison.log" \
+  bash "$ROOT_DIR/benchmarks/run_native_receive_comparison.sh" \
   --warmup "$warmup" \
   --iterations "$iterations" \
   --payloads "$payloads" \
@@ -204,13 +219,13 @@ bash "$ROOT_DIR/benchmarks/run_native_receive_comparison.sh" \
   --settle-seconds "$settle_seconds" \
   --build-dir "$campaign_build_root/native-rx-comparison" \
   --output "$rx_comparison_output" \
-  --calibration-output "$rx_comparison_calibration" \
-  > /dev/null
+  --calibration-output "$rx_comparison_calibration"
 
 zero_copy_rx_output="$output_dir/comparison/driver_rx_copy_zero_copy.jsonl"
 zero_copy_rx_calibration="$output_dir/comparison/driver_rx_copy_zero_copy_calibration.json"
 printf '\n[campaign comparison] DRIVER copied vs zero-copy RX\n' >&2
-bash "$ROOT_DIR/benchmarks/run_zero_copy_receive_comparison.sh" \
+run_campaign_step "DRIVER copied vs zero-copy RX" "$output_dir/logs/zero-copy-rx.log" \
+  bash "$ROOT_DIR/benchmarks/run_zero_copy_receive_comparison.sh" \
   --warmup "$warmup" \
   --iterations "$iterations" \
   --payloads "$payloads" \
@@ -218,8 +233,7 @@ bash "$ROOT_DIR/benchmarks/run_zero_copy_receive_comparison.sh" \
   --settle-seconds "$settle_seconds" \
   --build-dir "$campaign_build_root/driver-rx-copy-zero-copy" \
   --output "$zero_copy_rx_output" \
-  --calibration-output "$zero_copy_rx_calibration" \
-  > /dev/null
+  --calibration-output "$zero_copy_rx_calibration"
 
 host_backend_cases=(
   "loopback tx"
@@ -233,7 +247,8 @@ for backend_case in "${host_backend_cases[@]}"; do
   backend_output="$output_dir/backends/${case_name}.jsonl"
   backend_calibration="$output_dir/backend-calibration/${case_name}.json"
   printf '\n[campaign backend] %s/%s\n' "$backend" "$direction" >&2
-  bash "$ROOT_DIR/benchmarks/run_host_backend_benchmark.sh" \
+  run_campaign_step "$backend/$direction backend" "$output_dir/logs/${case_name}.log" \
+    bash "$ROOT_DIR/benchmarks/run_host_backend_benchmark.sh" \
     --backend "$backend" \
     --direction "$direction" \
     --warmup "$warmup" \
@@ -243,15 +258,15 @@ for backend_case in "${host_backend_cases[@]}"; do
     --settle-seconds "$settle_seconds" \
     --build-dir "$campaign_build_root/$case_name" \
     --output "$backend_output" \
-    --calibration-output "$backend_calibration" \
-    > /dev/null
+    --calibration-output "$backend_calibration"
 done
 
 for direction in tx rx; do
   udp_output="$output_dir/comparison/udp_${direction}.jsonl"
   udp_calibration="$output_dir/comparison/udp_${direction}_calibration.json"
   printf '\n[campaign UDP comparison] %s\n' "$direction" >&2
-  bash "$ROOT_DIR/benchmarks/run_udp_comparison.sh" \
+  run_campaign_step "UDP $direction comparison" "$output_dir/logs/udp_${direction}.log" \
+    bash "$ROOT_DIR/benchmarks/run_udp_comparison.sh" \
     --direction "$direction" \
     --warmup "$warmup" \
     --iterations "$iterations" \
@@ -260,8 +275,7 @@ for direction in tx rx; do
     --settle-seconds "$settle_seconds" \
     --build-dir "$campaign_build_root/udp_$direction" \
     --output "$udp_output" \
-    --calibration-output "$udp_calibration" \
-    > /dev/null
+    --calibration-output "$udp_calibration"
 done
 
 device_comparison_cases=()
@@ -270,7 +284,8 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     device_output="$output_dir/comparison/device_${direction}.jsonl"
     device_calibration="$output_dir/comparison/device_${direction}_calibration.json"
     printf '\n[campaign DEVICE comparison] %s\n' "$direction" >&2
-    bash "$ROOT_DIR/benchmarks/run_device_comparison.sh" \
+    run_campaign_step "DEVICE $direction comparison" "$output_dir/logs/device_${direction}.log" \
+      bash "$ROOT_DIR/benchmarks/run_device_comparison.sh" \
       --direction "$direction" \
       --warmup "$warmup" \
       --iterations "$iterations" \
@@ -279,8 +294,7 @@ if [[ "$(uname -s)" == "Linux" ]]; then
       --settle-seconds "$settle_seconds" \
       --build-dir "$campaign_build_root/device_$direction" \
       --output "$device_output" \
-      --calibration-output "$device_calibration" \
-      > /dev/null
+      --calibration-output "$device_calibration"
     device_comparison_cases+=("device_$direction")
   done
 fi
