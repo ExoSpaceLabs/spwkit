@@ -24,6 +24,71 @@ option(SPWKIT_BUILD_TOOLS "Build SpWKit command-line tools" OFF)
 option(SPWKIT_BUILD_CUSE "Build/install the Linux CUSE /dev/vspwX presenter" OFF)
 option(SPWKIT_ENABLE_HEAP "Enable heap-backed spw_port_open convenience API" ON)
 option(SPWKIT_ENABLE_CPP "Enable/install the optional C++17 convenience wrapper" OFF)
+option(SPWKIT_ENABLE_PROFILING "Enable compile-time paired profiling probes" OFF)
+set(SPWKIT_PROFILE_START "" CACHE STRING "Start probe ID used when SPWKIT_ENABLE_PROFILING=ON")
+set(SPWKIT_PROFILE_END "" CACHE STRING "End probe ID used when SPWKIT_ENABLE_PROFILING=ON")
+
+set(_spwkit_tx_profile_probes
+    SPW_PROFILE_ID_TX_API_ENTRY
+    SPW_PROFILE_ID_TX_BACKEND_ENTRY
+    SPW_PROFILE_ID_TX_PROVIDER_ENTRY
+    SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+)
+set(_spwkit_rx_profile_probes
+    SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+    SPW_PROFILE_ID_RX_PROVIDER_RETURN
+    SPW_PROFILE_ID_RX_BACKEND_RETURN
+    SPW_PROFILE_ID_RX_API_RETURN
+)
+set(_spwkit_all_profile_probes
+    ${_spwkit_tx_profile_probes}
+    ${_spwkit_rx_profile_probes}
+)
+set_property(CACHE SPWKIT_PROFILE_START PROPERTY STRINGS ${_spwkit_all_profile_probes})
+set_property(CACHE SPWKIT_PROFILE_END PROPERTY STRINGS ${_spwkit_all_profile_probes})
+
+if(SPWKIT_ENABLE_PROFILING)
+    if("${SPWKIT_PROFILE_START}" STREQUAL "" OR "${SPWKIT_PROFILE_END}" STREQUAL "")
+        message(FATAL_ERROR
+            "SPWKIT_ENABLE_PROFILING requires both SPWKIT_PROFILE_START and SPWKIT_PROFILE_END")
+    endif()
+    if("${SPWKIT_PROFILE_START}" STREQUAL "${SPWKIT_PROFILE_END}")
+        message(FATAL_ERROR "Profiling start and end probes must be different")
+    endif()
+
+    list(FIND _spwkit_all_profile_probes "${SPWKIT_PROFILE_START}" _spwkit_profile_start_index)
+    list(FIND _spwkit_all_profile_probes "${SPWKIT_PROFILE_END}" _spwkit_profile_end_index)
+    if(_spwkit_profile_start_index EQUAL -1)
+        message(FATAL_ERROR "Unknown SPWKIT_PROFILE_START=${SPWKIT_PROFILE_START}")
+    endif()
+    if(_spwkit_profile_end_index EQUAL -1)
+        message(FATAL_ERROR "Unknown SPWKIT_PROFILE_END=${SPWKIT_PROFILE_END}")
+    endif()
+
+    list(FIND _spwkit_tx_profile_probes "${SPWKIT_PROFILE_START}" _spwkit_tx_start_index)
+    list(FIND _spwkit_tx_profile_probes "${SPWKIT_PROFILE_END}" _spwkit_tx_end_index)
+    list(FIND _spwkit_rx_profile_probes "${SPWKIT_PROFILE_START}" _spwkit_rx_start_index)
+    list(FIND _spwkit_rx_profile_probes "${SPWKIT_PROFILE_END}" _spwkit_rx_end_index)
+
+    set(_spwkit_profile_same_domain OFF)
+    if(NOT _spwkit_tx_start_index EQUAL -1 AND NOT _spwkit_tx_end_index EQUAL -1)
+        set(_spwkit_profile_same_domain ON)
+        if(_spwkit_tx_end_index LESS_EQUAL _spwkit_tx_start_index)
+            message(FATAL_ERROR "TX profiling end probe must follow the start probe")
+        endif()
+    elseif(NOT _spwkit_rx_start_index EQUAL -1 AND NOT _spwkit_rx_end_index EQUAL -1)
+        set(_spwkit_profile_same_domain ON)
+        if(_spwkit_rx_end_index LESS_EQUAL _spwkit_rx_start_index)
+            message(FATAL_ERROR "RX profiling end probe must follow the start probe")
+        endif()
+    endif()
+    if(NOT _spwkit_profile_same_domain)
+        message(FATAL_ERROR "Profiling start/end probes must belong to the same TX or RX domain")
+    endif()
+
+    message(STATUS
+        "SpWKit profiling: ${SPWKIT_PROFILE_START} -> ${SPWKIT_PROFILE_END}")
+endif()
 
 if(SPWKIT_BUILD_UDP AND (UNIX OR WIN32))
     set(SPWKIT_UDP_RUNTIME_SUPPORTED ON)
@@ -107,6 +172,7 @@ endfunction()
 
 set(SPWKIT_SOURCES
     src/core/port.c
+    src/profiling/profile.c
     src/backends/driver/driver_backend.c
     src/backends/loopback/loopback_backend.c
     src/backends/device/vspw_device_protocol.c
@@ -187,6 +253,16 @@ if(SPWKIT_ENABLE_HEAP)
     target_compile_definitions(spwkit PRIVATE SPWKIT_ENABLE_HEAP=1)
 else()
     target_compile_definitions(spwkit PRIVATE SPWKIT_ENABLE_HEAP=0)
+endif()
+
+if(SPWKIT_ENABLE_PROFILING)
+    target_compile_definitions(spwkit PRIVATE
+        SPWKIT_ENABLE_PROFILING=1
+        SPWKIT_PROFILE_START=${SPWKIT_PROFILE_START}
+        SPWKIT_PROFILE_END=${SPWKIT_PROFILE_END}
+    )
+else()
+    target_compile_definitions(spwkit PRIVATE SPWKIT_ENABLE_PROFILING=0)
 endif()
 
 set_target_properties(spwkit PROPERTIES
@@ -307,6 +383,25 @@ if(SPWKIT_BUILD_TESTS)
     add_subdirectory(tests)
     if(SPWKIT_BUILD_VSPWD)
         add_subdirectory(tests/device)
+    endif()
+
+    if(SPWKIT_ENABLE_PROFILING)
+        add_executable(spwkit_profile_probe_smoke tests/profile_probe_smoke.c)
+        target_link_libraries(spwkit_profile_probe_smoke PRIVATE spwkit::spwkit)
+        target_include_directories(spwkit_profile_probe_smoke PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_compile_definitions(spwkit_profile_probe_smoke PRIVATE
+            SPWKIT_ENABLE_PROFILING=1
+            SPWKIT_PROFILE_START=${SPWKIT_PROFILE_START}
+            SPWKIT_PROFILE_END=${SPWKIT_PROFILE_END}
+        )
+        target_compile_features(spwkit_profile_probe_smoke PRIVATE c_std_11)
+        set_target_properties(spwkit_profile_probe_smoke PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS OFF)
+        add_test(NAME profiling_pair_smoke COMMAND spwkit_profile_probe_smoke)
+        set_tests_properties(profiling_pair_smoke PROPERTIES LABELS "profiling;unit;c")
     endif()
 endif()
 
