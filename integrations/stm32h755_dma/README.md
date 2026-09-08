@@ -81,7 +81,7 @@ CI verifies that this ELF links and contains the public debugger evidence symbol
 The firmware runs entirely from reset and exercises:
 
 - `spw_port_open_in_place` with caller-owned workspace;
-- start/stop/close lifecycle through the public driver backend;
+- start/reset/close lifecycle through the public driver backend;
 - copied send/receive with EEP preservation;
 - zero-copy TX acquire/submit/reclaim/release;
 - zero-copy RX acquire/release;
@@ -89,7 +89,8 @@ The firmware runs entirely from reset and exercises:
 - D-cache clean before device ownership;
 - D-cache invalidate before CPU ownership;
 - DMA-visible buffers in D2 SRAM;
-- statistics and ownership/completion accounting.
+- statistics and ownership/completion accounting;
+- reset-time stale-buffer invalidation through the public API: `acquire -> reset -> stale view == SPW_ERR_INVALID_STATE`.
 
 The DMA test uses the public SpWKit API. It does not bypass the driver backend to make the evidence easier.
 
@@ -104,14 +105,15 @@ volatile stm32_evidence_t g_stm32h755_spwkit_evidence;
 Successful completion is:
 
 ```text
-magic            = 0x53505736   # "SPW6"
-phase            = 0x0000600d
-result           = 0x00000000
-sync_to_device   > 0
-sync_from_device > 0
-dma_transfers    >= 2
-tx_packets       >= 2
-rx_packets       >= 2
+magic                   = 0x53505736   # "SPW6"
+phase                   = 0x0000700d
+result                  = 0x00000000
+sync_to_device          > 0
+sync_from_device        > 0
+dma_transfers           >= 2
+tx_packets              >= 2
+rx_packets              >= 2
+reset_stale_invalidated = 1
 ```
 
 Failure uses:
@@ -121,7 +123,7 @@ result >= 0x100
 phase = 0xdead0000 | result
 ```
 
-The result value identifies the failing contract phase in `firmware.c`.
+The result value identifies the failing contract phase in `firmware.c`. Phase 7 covers stale-buffer invalidation across `spw_port_reset()`.
 
 ## Flash and run the board test
 
@@ -170,7 +172,7 @@ When run on the board, record in issue #119:
 - ST-LINK/OpenOCD/GDB versions;
 - SpWKit commit SHA;
 - compiler version;
-- the complete `g_stm32h755_spwkit_evidence` values;
+- the complete `g_stm32h755_spwkit_evidence` values, including `reset_stale_invalidated`;
 - pass/fail and any observed errata.
 
-A successful run closes the MCU DMA/cache evidence requirement. It must **not** be described as SpaceWire electrical or physical-link HIL; that remains a separate future evidence layer described in `docs/hardware-acceptance.md`.
+A successful run closes the MCU DMA/cache evidence requirement only when the phase-7 stale-buffer invalidation field also passes. It must **not** be described as SpaceWire electrical or physical-link HIL; that remains a separate future evidence layer described in `docs/hardware-acceptance.md`.

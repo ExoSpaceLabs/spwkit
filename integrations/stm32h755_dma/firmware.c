@@ -64,6 +64,7 @@ typedef struct stm32_evidence {
     volatile uint32_t dma_transfers;
     volatile uint32_t tx_packets;
     volatile uint32_t rx_packets;
+    volatile uint32_t reset_stale_invalidated;
 } stm32_evidence_t;
 
 /* Public debugger/HIL evidence symbol. result=0 means the firmware completed
@@ -72,7 +73,7 @@ volatile stm32_evidence_t g_stm32h755_spwkit_evidence = {
     STM32_EVIDENCE_MAGIC,
     0u,
     UINT32_C(0xffffffff),
-    0u, 0u, 0u, 0u, 0u
+    0u, 0u, 0u, 0u, 0u, 0u
 };
 
 static alignas(max_align_t) uint8_t g_workspace[STM32_WORKSPACE_BYTES];
@@ -586,9 +587,11 @@ static int run_contract(void) {
     spw_buffer_t* tx_buffer = NULL;
     spw_buffer_t* rx_buffer = NULL;
     spw_buffer_t* reclaimed = NULL;
+    spw_buffer_t* stale = NULL;
     spw_buffer_view_t tx_view = {0};
     spw_buffer_view_t rx_view = {0};
     spw_buffer_view_t reclaimed_view = {0};
+    spw_buffer_view_t stale_view = {0};
     spw_statistics_t statistics = {0};
     uint8_t* submitted_pointer = NULL;
 
@@ -661,8 +664,22 @@ static int run_contract(void) {
         return 0x601;
     }
 
+    g_stm32h755_spwkit_evidence.phase = 7u;
+    if (spw_port_acquire_tx_buffer(port, 8u, SPW_TIMEOUT_IMMEDIATE, &stale) != SPW_OK ||
+        stale == NULL ||
+        spw_buffer_get_view(stale, &stale_view) != SPW_OK) {
+        return 0x701;
+    }
+    if (spw_port_reset(port) != SPW_OK) {
+        return 0x702;
+    }
+    if (spw_buffer_get_view(stale, &stale_view) != SPW_ERR_INVALID_STATE) {
+        return 0x703;
+    }
+    g_stm32h755_spwkit_evidence.reset_stale_invalidated = 1u;
+
     if (spw_port_close(port) != SPW_OK) {
-        return 0x602;
+        return 0x704;
     }
 
     g_stm32h755_spwkit_evidence.sync_to_device = g_driver.sync_to_device;
@@ -696,7 +713,7 @@ void Reset_Handler(void) {
 
     result = run_contract();
     g_stm32h755_spwkit_evidence.result = (uint32_t)result;
-    g_stm32h755_spwkit_evidence.phase = result == 0 ? 0x600du : 0xdead0000u | (uint32_t)result;
+    g_stm32h755_spwkit_evidence.phase = result == 0 ? 0x700du : 0xdead0000u | (uint32_t)result;
     __DSB();
 
     for (;;) {

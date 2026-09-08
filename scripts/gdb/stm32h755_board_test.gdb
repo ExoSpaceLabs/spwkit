@@ -24,6 +24,7 @@ set $sync_from=(unsigned int)g_stm32h755_spwkit_evidence.sync_from_device
 set $dma=(unsigned int)g_stm32h755_spwkit_evidence.dma_transfers
 set $tx=(unsigned int)g_stm32h755_spwkit_evidence.tx_packets
 set $rx=(unsigned int)g_stm32h755_spwkit_evidence.rx_packets
+set $reset_stale=(unsigned int)g_stm32h755_spwkit_evidence.reset_stale_invalidated
 
 printf "magic=0x%08x\n", $magic
 printf "phase=0x%08x\n", $phase
@@ -33,8 +34,9 @@ printf "sync_from_device=%u\n", $sync_from
 printf "dma_transfers=%u\n", $dma
 printf "tx_packets=%u\n", $tx
 printf "rx_packets=%u\n", $rx
+printf "reset_stale_invalidated=%u\n", $reset_stale
 
-if $magic == 0x53505736 && $phase == 0x0000600d && $result == 0 && $sync_to > 0 && $sync_from > 0 && $dma >= 2 && $tx >= 2 && $rx >= 2
+if $magic == 0x53505736 && $phase == 0x0000700d && $result == 0 && $sync_to > 0 && $sync_from > 0 && $dma >= 2 && $tx >= 2 && $rx >= 2 && $reset_stale == 1
   printf "RESULT: PASS\n"
 else
   printf "RESULT: FAIL\n"
