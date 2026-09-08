@@ -103,7 +103,7 @@ jobs:
           python3 benchmarks/validate_profile_campaign.py \
             "${BENCHMARK_RESULT_DIR}" \
             --expected-type github-hosted \
-            --expected-measured 10
+            --expected-measured 11
 
       - name: Record runner metadata
         shell: bash
