@@ -19,11 +19,10 @@ usage() {
   cat <<'EOF'
 Usage: benchmarks/run_profile_campaign.sh [options]
 
-Runs profiling configurations strictly one at a time. Every case receives a
-fresh build directory and therefore a fresh CMake configure/build before its
-counter-floor calibration and payload sweep. After the layer cases, the
-campaign performs separate clean direct/native-versus-SpWKit TX and RX DRIVER
-comparison builds.
+Runs profiling configurations strictly one at a time. Every measurement case
+receives a fresh build directory and therefore a fresh CMake configure/build.
+The campaign currently includes paired DRIVER layers, direct/native DRIVER TX
+and RX comparisons, and LOOPBACK/SIMULATOR TX/RX complete public API timings.
 
 Child benchmarks write machine-readable JSON into the result set but the
 campaign terminal output stays human-readable and ends with a consolidated
@@ -33,7 +32,7 @@ Results are stored under:
   <output-root>/<type>-<UTC timestamp>-<short git commit>/
 
 Options:
-  --cases "LIST"        all, or space/comma-separated case names (default: all)
+  --cases "LIST"        all, or space/comma-separated DRIVER layer case names
   --warmup N            warmup iterations per payload (default: 256)
   --iterations N        measured iterations per payload (default: 1024)
   --payloads "LIST"     payload sizes in bytes (default: 0 1 8 64 256 1024 4096)
@@ -43,7 +42,7 @@ Options:
                         (default: host)
   --build-root PATH     disposable parent for per-campaign/per-case build trees
   --output-root PATH    parent directory for uniquely named result folders
-  --list-cases          print supported cases and exit
+  --list-cases          print supported DRIVER layer cases and exit
   -h, --help            show this help
 EOF
 }
@@ -112,7 +111,9 @@ fi
 mkdir -p "$campaign_build_root" \
          "$output_dir/cases" \
          "$output_dir/calibration" \
-         "$output_dir/comparison"
+         "$output_dir/comparison" \
+         "$output_dir/backends" \
+         "$output_dir/backend-calibration"
 : > "$output_dir/results.jsonl"
 : > "$output_dir/calibration.jsonl"
 
@@ -121,12 +122,12 @@ printf '  type: %s\n' "$result_type" >&2
 printf '  timestamp UTC: %s\n' "$timestamp_utc" >&2
 printf '  commit: %s (%s)\n' "$git_sha" "$git_short_sha" >&2
 printf '  result directory: %s\n' "$output_dir" >&2
-printf '  cases: %s\n' "${selected_cases[*]}" >&2
+printf '  DRIVER layer cases: %s\n' "${selected_cases[*]}" >&2
 printf '  build profile: Release\n' >&2
-printf '  clean rebuild per case: yes\n' >&2
-printf '  serial cases: yes\n' >&2
-printf '  counter-floor calibration per case: yes\n' >&2
-printf '  direct/native comparison: DRIVER copied TX + RX (separate clean builds)\n' >&2
+printf '  clean rebuild per measurement configuration: yes\n' >&2
+printf '  serial execution: yes\n' >&2
+printf '  direct/native comparison: DRIVER copied TX + RX\n' >&2
+printf '  in-memory backends: LOOPBACK + SIMULATOR TX/RX\n' >&2
 
 case_index=0
 for case_name in "${selected_cases[@]}"; do
@@ -134,7 +135,7 @@ for case_name in "${selected_cases[@]}"; do
   case_build="$campaign_build_root/$case_name"
   case_output="$output_dir/cases/$case_name.jsonl"
   calibration_output="$output_dir/calibration/$case_name.json"
-  printf '\n[campaign %d/%d] %s\n' "$case_index" "${#selected_cases[@]}" "$case_name" >&2
+  printf '\n[campaign DRIVER layer %d/%d] %s\n' "$case_index" "${#selected_cases[@]}" "$case_name" >&2
 
   "$ROOT_DIR/benchmarks/run_profile_benchmark.sh" \
     --range "$case_name" \
@@ -180,6 +181,32 @@ bash "$ROOT_DIR/benchmarks/run_native_receive_comparison.sh" \
   --calibration-output "$rx_comparison_calibration" \
   > /dev/null
 
+host_backend_cases=(
+  "loopback tx"
+  "loopback rx"
+  "simulator tx"
+  "simulator rx"
+)
+for backend_case in "${host_backend_cases[@]}"; do
+  read -r backend direction <<< "$backend_case"
+  case_name="${backend}_${direction}"
+  backend_output="$output_dir/backends/${case_name}.jsonl"
+  backend_calibration="$output_dir/backend-calibration/${case_name}.json"
+  printf '\n[campaign backend] %s/%s\n' "$backend" "$direction" >&2
+  bash "$ROOT_DIR/benchmarks/run_host_backend_benchmark.sh" \
+    --backend "$backend" \
+    --direction "$direction" \
+    --warmup "$warmup" \
+    --iterations "$iterations" \
+    --payloads "$payloads" \
+    --counter-hz "$counter_hz" \
+    --settle-seconds "$settle_seconds" \
+    --build-dir "$campaign_build_root/$case_name" \
+    --output "$backend_output" \
+    --calibration-output "$backend_calibration" \
+    > /dev/null
+done
+
 export SPWKIT_CAMPAIGN_CASES="${selected_cases[*]}"
 export SPWKIT_CAMPAIGN_WARMUP="$warmup"
 export SPWKIT_CAMPAIGN_ITERATIONS="$iterations"
@@ -214,6 +241,7 @@ metadata = {
     'direct_native_comparison_case': 'tx_api_native',
     'direct_native_comparison_cases': ['tx_api_native', 'rx_native_api'],
     'direct_native_counter_floor_subtracted': False,
+    'host_backend_cases': ['loopback_tx', 'loopback_rx', 'simulator_tx', 'simulator_rx'],
     'summary_file': 'summary.txt',
     'coverage_file': 'coverage.json',
     'cases': os.environ['SPWKIT_CAMPAIGN_CASES'].split(),
