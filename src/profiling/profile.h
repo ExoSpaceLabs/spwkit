@@ -7,6 +7,10 @@
 #define SPWKIT_ENABLE_PROFILING 0
 #endif
 
+#ifndef SPWKIT_PROFILE_COUNTER_HZ
+#define SPWKIT_PROFILE_COUNTER_HZ 0
+#endif
+
 #define SPW_PROFILE_ID_TX_API_ENTRY 1
 #define SPW_PROFILE_ID_TX_BACKEND_ENTRY 2
 #define SPW_PROFILE_ID_TX_PROVIDER_ENTRY 3
@@ -25,9 +29,18 @@
 #error "SPWKIT_PROFILE_END must name one SPW_PROFILE_ID_* probe"
 #endif
 
+static inline uint64_t spw_profile_delta32(uint64_t start, uint64_t end) {
+    return (uint64_t)((uint32_t)end - (uint32_t)start);
+}
+
+static inline uint64_t spw_profile_delta64(uint64_t start, uint64_t end) {
+    return end - start;
+}
+
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
 #include <intrin.h>
 #include <emmintrin.h>
+#define SPW_PROFILE_COUNTER_WIDTH_BITS 64u
 static __forceinline uint64_t spw_profile_counter_read(void) {
     unsigned int aux = 0u;
     const uint64_t value = __rdtscp(&aux);
@@ -38,12 +51,17 @@ static __forceinline void spw_profile_counter_prepare(void) {
     _mm_lfence();
 }
 static __forceinline uint64_t spw_profile_counter_frequency_hz(void) {
+#if SPWKIT_PROFILE_COUNTER_HZ > 0
+    return (uint64_t)SPWKIT_PROFILE_COUNTER_HZ;
+#else
     return 0u;
+#endif
 }
 static __forceinline const char* spw_profile_counter_kind(void) {
     return "x86-rdtscp";
 }
 #elif (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+#define SPW_PROFILE_COUNTER_WIDTH_BITS 64u
 static __inline__ __attribute__((always_inline)) uint64_t spw_profile_counter_read(void) {
     uint32_t low = 0u;
     uint32_t high = 0u;
@@ -56,12 +74,17 @@ static __inline__ __attribute__((always_inline)) void spw_profile_counter_prepar
     __asm__ __volatile__("lfence" ::: "memory");
 }
 static __inline__ __attribute__((always_inline)) uint64_t spw_profile_counter_frequency_hz(void) {
+#if SPWKIT_PROFILE_COUNTER_HZ > 0
+    return (uint64_t)SPWKIT_PROFILE_COUNTER_HZ;
+#else
     return 0u;
+#endif
 }
 static __inline__ __attribute__((always_inline)) const char* spw_profile_counter_kind(void) {
     return "x86-rdtscp";
 }
 #elif defined(__aarch64__) && (defined(__GNUC__) || defined(__clang__))
+#define SPW_PROFILE_COUNTER_WIDTH_BITS 64u
 static __inline__ __attribute__((always_inline)) uint64_t spw_profile_counter_read(void) {
     uint64_t value = 0u;
     __asm__ __volatile__("isb\n\tmrs %0, cntvct_el0" : "=r"(value) :: "memory");
@@ -71,14 +94,19 @@ static __inline__ __attribute__((always_inline)) void spw_profile_counter_prepar
     __asm__ __volatile__("isb" ::: "memory");
 }
 static __inline__ __attribute__((always_inline)) uint64_t spw_profile_counter_frequency_hz(void) {
+#if SPWKIT_PROFILE_COUNTER_HZ > 0
+    return (uint64_t)SPWKIT_PROFILE_COUNTER_HZ;
+#else
     uint64_t value = 0u;
     __asm__ __volatile__("mrs %0, cntfrq_el0" : "=r"(value));
     return value;
+#endif
 }
 static __inline__ __attribute__((always_inline)) const char* spw_profile_counter_kind(void) {
     return "aarch64-cntvct";
 }
 #elif (defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)) && (defined(__GNUC__) || defined(__clang__))
+#define SPW_PROFILE_COUNTER_WIDTH_BITS 32u
 #define SPW_PROFILE_DEMCR (*(volatile uint32_t*)0xE000EDFCu)
 #define SPW_PROFILE_DWT_CTRL (*(volatile uint32_t*)0xE0001000u)
 #define SPW_PROFILE_DWT_CYCCNT (*(volatile uint32_t*)0xE0001004u)
@@ -95,7 +123,11 @@ static __inline__ __attribute__((always_inline)) void spw_profile_counter_prepar
     __asm__ __volatile__("" ::: "memory");
 }
 static __inline__ __attribute__((always_inline)) uint64_t spw_profile_counter_frequency_hz(void) {
+#if SPWKIT_PROFILE_COUNTER_HZ > 0
+    return (uint64_t)SPWKIT_PROFILE_COUNTER_HZ;
+#else
     return 0u;
+#endif
 }
 static __inline__ __attribute__((always_inline)) const char* spw_profile_counter_kind(void) {
     return "cortex-m-dwt-cyccnt";
@@ -103,6 +135,19 @@ static __inline__ __attribute__((always_inline)) const char* spw_profile_counter
 #else
 #error "SpWKit profiling has no cycle-counter backend for this architecture/compiler"
 #endif
+
+static inline uint32_t spw_profile_counter_width_bits(void) {
+    return SPW_PROFILE_COUNTER_WIDTH_BITS;
+}
+
+static inline uint64_t spw_profile_counter_delta(uint64_t start, uint64_t end) {
+#if SPW_PROFILE_COUNTER_WIDTH_BITS == 32u
+    /* Correct modulo-2^32 delta for one unambiguous DWT wrap interval. */
+    return spw_profile_delta32(start, end);
+#else
+    return spw_profile_delta64(start, end);
+#endif
+}
 
 typedef struct spw_profile_sample {
     uint64_t start;
@@ -126,7 +171,8 @@ const volatile spw_profile_sample_t* spw_profile_last_sample(void);
     do { \
         const uint64_t spw_profile_end_value_ = spw_profile_counter_read(); \
         spw_profile_state.end = spw_profile_end_value_; \
-        spw_profile_state.delta = spw_profile_end_value_ - spw_profile_state.start; \
+        spw_profile_state.delta = \
+            spw_profile_counter_delta(spw_profile_state.start, spw_profile_end_value_); \
         spw_profile_state.sequence += 1u; \
     } while (0)
 
