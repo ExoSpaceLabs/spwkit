@@ -1,0 +1,263 @@
+name: Release policy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-policy-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-pr:
+    name: Validate develop to main release boundary
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Require develop to main promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_BASE_REF" = "main"
+          if [[ "$GITHUB_HEAD_REF" != "develop" ]]; then
+            echo "main accepts release promotions only from develop; got ${GITHUB_HEAD_REF} -> ${GITHUB_BASE_REF}" >&2
+            exit 1
+          fi
+
+      - name: Validate next immutable release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin --tags --force
+
+          version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
+          api_major="$(sed -nE 's/^#define SPWKIT_API_VERSION_MAJOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_minor="$(sed -nE 's/^#define SPWKIT_API_VERSION_MINOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_patch="$(sed -nE 's/^#define SPWKIT_API_VERSION_PATCH ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_version="${api_major}.${api_minor}.${api_patch}"
+          minor="${api_major}.${api_minor}"
+
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$api_version" = "$version"
+
+          latest_tag="$(git tag --list 'v*' | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | sort -V | tail -n1)"
+          test -n "$latest_tag"
+          latest="${latest_tag#v}"
+
+          IFS=. read -r major minor_num patch <<< "$version"
+          IFS=. read -r old_major old_minor old_patch <<< "$latest"
+
+          next=false
+          if (( major == old_major && minor_num == old_minor && patch == old_patch + 1 )); then
+            next=true
+          elif (( major == old_major && minor_num == old_minor + 1 && patch == 0 )); then
+            next=true
+          elif (( major == old_major + 1 && minor_num == 0 && patch == 0 )); then
+            next=true
+          fi
+
+          if [[ "$next" != true ]]; then
+            echo "Release candidate v${version} is not the next allowed SemVer step after ${latest_tag}." >&2
+            echo "Allowed: v${old_major}.${old_minor}.$((old_patch + 1)), v${old_major}.$((old_minor + 1)).0, or v$((old_major + 1)).0.0" >&2
+            exit 1
+          fi
+
+          candidate_tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/${candidate_tag}" >/dev/null; then
+            echo "${candidate_tag} already exists and release tags are immutable." >&2
+            exit 1
+          fi
+
+          grep -Eq "^## ${candidate_tag} — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
+          ! grep -Eq "^## ${candidate_tag} — unreleased$" CHANGELOG.md
+          test -f "docs/releases/${candidate_tag}.md"
+          grep -q "### Stable: ${candidate_tag}" README.md
+          grep -q "## Stable release: ${candidate_tag}" docs/current-status.md
+
+          consumers=(
+            examples/installed/CMakeLists.txt
+            examples/installed_cpp/CMakeLists.txt
+            examples/distributed/CMakeLists.txt
+            examples/distributed_cpp/CMakeLists.txt
+            examples/installed_device/CMakeLists.txt
+            examples/installed_device_cpp/CMakeLists.txt
+            integrations/hardrt_posix/CMakeLists.txt
+            integrations/ccsdspack_v2/CMakeLists.txt
+          )
+          for consumer in "${consumers[@]}"; do
+            [[ -f "$consumer" ]] || continue
+            grep -q "find_package(SpWKit ${minor} CONFIG REQUIRED)" "$consumer"
+          done
+
+          git merge-base --is-ancestor "${latest_tag}^{commit}" HEAD
+          echo "Validated release promotion ${latest_tag} -> ${candidate_tag}."
+
+  main-boundary:
+    name: Classify main version and cut release tag
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Checkout exact main head
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate and classify main version
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags --force
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+
+          version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
+          api_major="$(sed -nE 's/^#define SPWKIT_API_VERSION_MAJOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_minor="$(sed -nE 's/^#define SPWKIT_API_VERSION_MINOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_patch="$(sed -nE 's/^#define SPWKIT_API_VERSION_PATCH ([0-9]+)u$/\1/p' include/spwkit/api.h)"
+          api_version="${api_major}.${api_minor}.${api_patch}"
+          minor="${api_major}.${api_minor}"
+
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$api_version" = "$version"
+
+          candidate_tag="v${version}"
+          grep -Eq "^## ${candidate_tag} — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
+          ! grep -Eq "^## ${candidate_tag} — unreleased$" CHANGELOG.md
+          test -f "docs/releases/${candidate_tag}.md"
+
+          consumers=(
+            examples/installed/CMakeLists.txt
+            examples/installed_cpp/CMakeLists.txt
+            examples/distributed/CMakeLists.txt
+            examples/distributed_cpp/CMakeLists.txt
+            examples/installed_device/CMakeLists.txt
+            examples/installed_device_cpp/CMakeLists.txt
+            integrations/hardrt_posix/CMakeLists.txt
+            integrations/ccsdspack_v2/CMakeLists.txt
+          )
+          for consumer in "${consumers[@]}"; do
+            [[ -f "$consumer" ]] || continue
+            grep -q "find_package(SpWKit ${minor} CONFIG REQUIRED)" "$consumer"
+          done
+
+          latest_tag="$(git tag --list 'v*' | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | sort -V | tail -n1)"
+          test -n "$latest_tag"
+          latest="${latest_tag#v}"
+
+          IFS=. read -r major minor_num patch <<< "$version"
+          IFS=. read -r old_major old_minor old_patch <<< "$latest"
+
+          if (( major < old_major || (major == old_major && minor_num < old_minor) || (major == old_major && minor_num == old_minor && patch < old_patch) )); then
+            echo "main declares ${candidate_tag}, which is lower than latest immutable release ${latest_tag}." >&2
+            exit 1
+          fi
+
+          if [[ "$candidate_tag" = "$latest_tag" ]]; then
+            tag_commit="$(git rev-parse "${candidate_tag}^{commit}")"
+            if [[ "$tag_commit" = "$GITHUB_SHA" ]]; then
+              echo "Main is still at the exact ${candidate_tag} release boundary."
+              echo "action=existing" >> "$GITHUB_OUTPUT"
+            else
+              echo "Main remains at ${candidate_tag}; no tag and no release will be created."
+              echo "action=noop" >> "$GITHUB_OUTPUT"
+            fi
+            echo "tag=${candidate_tag}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          next=false
+          if (( major == old_major && minor_num == old_minor && patch == old_patch + 1 )); then
+            next=true
+          elif (( major == old_major && minor_num == old_minor + 1 && patch == 0 )); then
+            next=true
+          elif (( major == old_major + 1 && minor_num == 0 && patch == 0 )); then
+            next=true
+          fi
+          if [[ "$next" != true ]]; then
+            echo "main attempts ${latest_tag} -> ${candidate_tag}, which is not one allowed SemVer step." >&2
+            exit 1
+          fi
+
+          git merge-base --is-ancestor "${latest_tag}^{commit}" HEAD
+
+          if git rev-parse -q --verify "refs/tags/${candidate_tag}" >/dev/null; then
+            existing="$(git rev-parse "${candidate_tag}^{commit}")"
+            if [[ "$existing" != "$GITHUB_SHA" ]]; then
+              echo "${candidate_tag} already exists at ${existing}; release tags are immutable." >&2
+              exit 1
+            fi
+            echo "${candidate_tag} already exists at this exact main head."
+            echo "action=existing" >> "$GITHUB_OUTPUT"
+            echo "tag=${candidate_tag}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          prs="$(gh api -H 'Accept: application/vnd.github+json' "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls")"
+          matches="$(jq --arg sha "$GITHUB_SHA" '[.[] | select(.base.ref == "main" and .head.ref == "develop" and .merged_at != null and .merge_commit_sha == $sha)] | length' <<< "$prs")"
+          if [[ "$matches" != "1" ]]; then
+            echo "A new release version on main must come from exactly one merged develop -> main PR associated with ${GITHUB_SHA}; found ${matches}." >&2
+            exit 1
+          fi
+
+          echo "action=release" >> "$GITHUB_OUTPUT"
+          echo "tag=${candidate_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Create immutable release tag
+        if: ${{ steps.release.outputs.action == 'release' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RELEASE_TAG}" \
+            -f sha="${GITHUB_SHA}" >/dev/null
+          echo "Created immutable ${RELEASE_TAG} at ${GITHUB_SHA}."
+
+      - name: Dispatch exact-tag release workflow
+        if: ${{ steps.release.outputs.action == 'release' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+            -f ref="${RELEASE_TAG}" >/dev/null
+          echo "Dispatched Release at ${RELEASE_TAG}."
+
+      - name: Recover dispatch after partial tag creation
+        if: ${{ steps.release.outputs.action == 'existing' && github.run_attempt > 1 }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; nothing to recover."
+            exit 0
+          fi
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+            -f ref="${RELEASE_TAG}" >/dev/null
+          echo "Recovered Release dispatch for existing immutable tag ${RELEASE_TAG}."
