@@ -17,9 +17,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: TX API to backend
+            start: SPW_PROFILE_ID_TX_API_ENTRY
+            end: SPW_PROFILE_ID_TX_BACKEND_ENTRY
+          - name: TX backend to provider
+            start: SPW_PROFILE_ID_TX_BACKEND_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_ENTRY
+          - name: TX provider to native boundary
+            start: SPW_PROFILE_ID_TX_PROVIDER_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
           - name: TX API to provider boundary
             start: SPW_PROFILE_ID_TX_API_ENTRY
             end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+          - name: RX native boundary to provider return
+            start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+            end: SPW_PROFILE_ID_RX_PROVIDER_RETURN
+          - name: RX provider return to backend return
+            start: SPW_PROFILE_ID_RX_PROVIDER_RETURN
+            end: SPW_PROFILE_ID_RX_BACKEND_RETURN
+          - name: RX backend return to API
+            start: SPW_PROFILE_ID_RX_BACKEND_RETURN
+            end: SPW_PROFILE_ID_RX_API_RETURN
           - name: RX provider boundary to API
             start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
             end: SPW_PROFILE_ID_RX_API_RETURN
