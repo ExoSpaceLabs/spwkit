@@ -13,6 +13,8 @@ typedef struct profile_driver {
     size_t length;
     spw_terminator_t terminator;
     int ready;
+    int tx_acquired;
+    int tx_submitted;
 } profile_driver_t;
 
 static spw_result_t profile_start(void* raw) {
@@ -31,6 +33,8 @@ static spw_result_t profile_reset(void* raw) {
     profile_driver_t* driver = (profile_driver_t*)raw;
     driver->state = SPW_LINK_ERROR_RESET;
     driver->ready = 0;
+    driver->tx_acquired = 0;
+    driver->tx_submitted = 0;
     return SPW_OK;
 }
 
@@ -98,6 +102,112 @@ static spw_result_t profile_receive(void* raw,
     return SPW_OK;
 }
 
+static void profile_fill_tx_descriptor(profile_driver_t* driver,
+                                       spw_driver_buffer_t* out_buffer) {
+    out_buffer->data = driver->payload;
+    out_buffer->length = driver->length;
+    out_buffer->capacity = sizeof(driver->payload);
+    out_buffer->terminator = driver->terminator;
+    out_buffer->token = 1u;
+}
+
+static spw_result_t profile_acquire_tx_buffer(
+    void* raw,
+    size_t min_capacity,
+    spw_timeout_us_t timeout_us,
+    spw_driver_buffer_t* out_buffer) {
+    profile_driver_t* driver = (profile_driver_t*)raw;
+    (void)timeout_us;
+    if (driver->state != SPW_LINK_RUN ||
+        min_capacity > sizeof(driver->payload) ||
+        driver->tx_acquired || driver->tx_submitted) {
+        return SPW_ERR_RESOURCE_EXHAUSTED;
+    }
+    driver->length = 0u;
+    driver->terminator = SPW_TERMINATOR_EOP;
+    driver->tx_acquired = 1;
+    profile_fill_tx_descriptor(driver, out_buffer);
+    return SPW_OK;
+}
+
+static spw_result_t profile_submit_tx_buffer(
+    void* raw,
+    const spw_driver_buffer_t* buffer,
+    spw_timeout_us_t timeout_us) {
+    profile_driver_t* driver = (profile_driver_t*)raw;
+    (void)timeout_us;
+
+    /* Provider-owned equivalent of the DMA/native submission boundary. */
+    SPW_PROFILE_TX_ZC_SUBMIT_PROVIDER_BOUNDARY();
+
+    if (!driver->tx_acquired || driver->tx_submitted || buffer->token != 1u ||
+        buffer->data != driver->payload || buffer->length > sizeof(driver->payload)) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    driver->length = buffer->length;
+    driver->terminator = buffer->terminator;
+    driver->tx_acquired = 0;
+    driver->tx_submitted = 1;
+    return SPW_OK;
+}
+
+static spw_result_t profile_reclaim_tx_buffer(
+    void* raw,
+    spw_timeout_us_t timeout_us,
+    spw_driver_buffer_t* out_buffer) {
+    profile_driver_t* driver = (profile_driver_t*)raw;
+    (void)timeout_us;
+
+    /* Provider-owned completion boundary before ownership is returned. */
+    SPW_PROFILE_TX_ZC_RECLAIM_PROVIDER_BOUNDARY();
+
+    if (!driver->tx_submitted || driver->tx_acquired) {
+        return SPW_ERR_TIMEOUT;
+    }
+    driver->tx_submitted = 0;
+    driver->tx_acquired = 1;
+    profile_fill_tx_descriptor(driver, out_buffer);
+    return SPW_OK;
+}
+
+static spw_result_t profile_release_tx_buffer(
+    void* raw,
+    const spw_driver_buffer_t* buffer) {
+    profile_driver_t* driver = (profile_driver_t*)raw;
+    if (!driver->tx_acquired || driver->tx_submitted || buffer->token != 1u) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    driver->tx_acquired = 0;
+    return SPW_OK;
+}
+
+static spw_result_t profile_acquire_rx_buffer(
+    void* raw,
+    spw_timeout_us_t timeout_us,
+    spw_driver_buffer_t* out_buffer) {
+    (void)raw;
+    (void)timeout_us;
+    (void)out_buffer;
+    return SPW_ERR_TIMEOUT;
+}
+
+static spw_result_t profile_release_rx_buffer(
+    void* raw,
+    const spw_driver_buffer_t* buffer) {
+    (void)raw;
+    (void)buffer;
+    return SPW_OK;
+}
+
+static spw_result_t profile_sync_buffer(
+    void* raw,
+    const spw_driver_buffer_t* buffer,
+    spw_driver_sync_direction_t direction) {
+    (void)raw;
+    (void)buffer;
+    return direction == SPW_DRIVER_SYNC_TO_DEVICE ? SPW_OK : SPW_ERR_UNSUPPORTED;
+}
+
 static const spw_driver_ops_t PROFILE_OPS = {
     .struct_size = sizeof(spw_driver_ops_t),
     .version = SPW_DRIVER_OPS_VERSION,
@@ -108,6 +218,13 @@ static const spw_driver_ops_t PROFILE_OPS = {
     .get_capabilities = profile_get_capabilities,
     .send = profile_send,
     .receive = profile_receive,
+    .acquire_tx_buffer = profile_acquire_tx_buffer,
+    .submit_tx_buffer = profile_submit_tx_buffer,
+    .reclaim_tx_buffer = profile_reclaim_tx_buffer,
+    .release_tx_buffer = profile_release_tx_buffer,
+    .acquire_rx_buffer = profile_acquire_rx_buffer,
+    .release_rx_buffer = profile_release_rx_buffer,
+    .sync_buffer = profile_sync_buffer,
 };
 
 static void require_one_sample(void) {
@@ -141,6 +258,31 @@ static void exercise_probe_mechanism(void) {
     SPW_PROFILE_RX_PROVIDER_RETURN();
     SPW_PROFILE_RX_BACKEND_RETURN();
     SPW_PROFILE_RX_API_RETURN();
+    SPW_PROFILE_TX_ZC_ACQUIRE_API_ENTRY();
+    SPW_PROFILE_TX_ZC_ACQUIRE_PROVIDER_ENTRY();
+    SPW_PROFILE_TX_ZC_ACQUIRE_PROVIDER_RETURN();
+    SPW_PROFILE_TX_ZC_ACQUIRE_API_RETURN();
+    SPW_PROFILE_TX_ZC_SUBMIT_API_ENTRY();
+    SPW_PROFILE_TX_ZC_SUBMIT_BACKEND_ENTRY();
+    SPW_PROFILE_TX_ZC_SUBMIT_SYNC_ENTRY();
+    SPW_PROFILE_TX_ZC_SUBMIT_SYNC_RETURN();
+    SPW_PROFILE_TX_ZC_SUBMIT_PROVIDER_ENTRY();
+    SPW_PROFILE_TX_ZC_SUBMIT_PROVIDER_BOUNDARY();
+    SPW_PROFILE_TX_ZC_SUBMIT_PROVIDER_RETURN();
+    SPW_PROFILE_TX_ZC_SUBMIT_BACKEND_RETURN();
+    SPW_PROFILE_TX_ZC_SUBMIT_API_RETURN();
+    SPW_PROFILE_TX_ZC_RECLAIM_API_ENTRY();
+    SPW_PROFILE_TX_ZC_RECLAIM_PROVIDER_ENTRY();
+    SPW_PROFILE_TX_ZC_RECLAIM_PROVIDER_BOUNDARY();
+    SPW_PROFILE_TX_ZC_RECLAIM_PROVIDER_RETURN();
+    SPW_PROFILE_TX_ZC_RECLAIM_BACKEND_RETURN();
+    SPW_PROFILE_TX_ZC_RECLAIM_API_RETURN();
+    SPW_PROFILE_TX_ZC_RELEASE_API_ENTRY();
+    SPW_PROFILE_TX_ZC_RELEASE_BACKEND_ENTRY();
+    SPW_PROFILE_TX_ZC_RELEASE_PROVIDER_ENTRY();
+    SPW_PROFILE_TX_ZC_RELEASE_PROVIDER_RETURN();
+    SPW_PROFILE_TX_ZC_RELEASE_BACKEND_RETURN();
+    SPW_PROFILE_TX_ZC_RELEASE_API_RETURN();
 
     require_one_sample();
 }
@@ -190,6 +332,83 @@ static void exercise_driver_boundary(void) {
     assert(spw_port_close(port) == SPW_OK);
 }
 
+
+static void exercise_zero_copy_boundaries(void) {
+    profile_driver_t driver;
+    spw_driver_config_t driver_config =
+        SPW_DRIVER_CONFIG_INITIALIZER(&PROFILE_OPS, &driver);
+    spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_DRIVER);
+    spw_port_t* port = NULL;
+    spw_buffer_t* buffer = NULL;
+    spw_buffer_view_t view;
+
+    memset(&driver, 0, sizeof(driver));
+    driver.state = SPW_LINK_READY;
+    driver_config.tx_buffer_slots = 1u;
+    driver_config.rx_buffer_slots = 1u;
+    config.backend_config = &driver_config;
+    config.backend_config_size = sizeof(driver_config);
+
+    assert(spw_port_open(&config, &port) == SPW_OK);
+    assert(spw_port_start(port) == SPW_OK);
+
+#if SPWKIT_PROFILE_START >= SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_ENTRY && \
+    SPWKIT_PROFILE_START <= SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_RETURN
+    spw_profile_reset();
+    assert(spw_port_acquire_tx_buffer(
+               port, 4u, SPW_TIMEOUT_IMMEDIATE, &buffer) == SPW_OK);
+    require_one_sample();
+#else
+    assert(spw_port_acquire_tx_buffer(
+               port, 4u, SPW_TIMEOUT_IMMEDIATE, &buffer) == SPW_OK);
+#endif
+
+    assert(spw_buffer_get_view(buffer, &view) == SPW_OK);
+    assert(view.capacity >= 4u);
+    view.data[0] = 0x11u;
+    view.data[1] = 0x22u;
+    view.data[2] = 0x33u;
+    view.data[3] = 0x44u;
+    assert(spw_buffer_set_packet(buffer, 4u, SPW_TERMINATOR_EOP) == SPW_OK);
+
+#if SPWKIT_PROFILE_START >= SPW_PROFILE_ID_TX_ZC_SUBMIT_API_ENTRY && \
+    SPWKIT_PROFILE_START <= SPW_PROFILE_ID_TX_ZC_SUBMIT_API_RETURN
+    spw_profile_reset();
+    assert(spw_port_submit_tx_buffer(
+               port, &buffer, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
+    require_one_sample();
+#else
+    assert(spw_port_submit_tx_buffer(
+               port, &buffer, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
+#endif
+    assert(buffer == NULL);
+
+#if SPWKIT_PROFILE_START >= SPW_PROFILE_ID_TX_ZC_RECLAIM_API_ENTRY && \
+    SPWKIT_PROFILE_START <= SPW_PROFILE_ID_TX_ZC_RECLAIM_API_RETURN
+    spw_profile_reset();
+    assert(spw_port_reclaim_tx_buffer(
+               port, SPW_TIMEOUT_IMMEDIATE, &buffer) == SPW_OK);
+    require_one_sample();
+#else
+    assert(spw_port_reclaim_tx_buffer(
+               port, SPW_TIMEOUT_IMMEDIATE, &buffer) == SPW_OK);
+#endif
+    assert(buffer != NULL);
+
+#if SPWKIT_PROFILE_START >= SPW_PROFILE_ID_TX_ZC_RELEASE_API_ENTRY && \
+    SPWKIT_PROFILE_START <= SPW_PROFILE_ID_TX_ZC_RELEASE_API_RETURN
+    spw_profile_reset();
+    assert(spw_port_release_tx_buffer(port, &buffer) == SPW_OK);
+    require_one_sample();
+#else
+    assert(spw_port_release_tx_buffer(port, &buffer) == SPW_OK);
+#endif
+    assert(buffer == NULL);
+
+    assert(spw_port_stop(port) == SPW_OK);
+    assert(spw_port_close(port) == SPW_OK);
+}
+
 int main(void) {
     spw_profile_prepare();
     assert(spw_profile_counter_kind() != NULL);
@@ -197,5 +416,6 @@ int main(void) {
     exercise_counter_metadata();
     exercise_probe_mechanism();
     exercise_driver_boundary();
+    exercise_zero_copy_boundaries();
     return 0;
 }
