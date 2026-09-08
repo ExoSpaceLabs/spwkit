@@ -169,8 +169,14 @@ jobs:
           fi
 
           if [[ "$candidate_tag" = "$latest_tag" ]]; then
-            echo "Main remains at ${candidate_tag}; no tag and no release will be created."
-            echo "action=noop" >> "$GITHUB_OUTPUT"
+            tag_commit="$(git rev-parse "${candidate_tag}^{commit}")"
+            if [[ "$tag_commit" = "$GITHUB_SHA" ]]; then
+              echo "Main is still at the exact ${candidate_tag} release boundary."
+              echo "action=existing" >> "$GITHUB_OUTPUT"
+            else
+              echo "Main remains at ${candidate_tag}; no tag and no release will be created."
+              echo "action=noop" >> "$GITHUB_OUTPUT"
+            fi
             echo "tag=${candidate_tag}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
