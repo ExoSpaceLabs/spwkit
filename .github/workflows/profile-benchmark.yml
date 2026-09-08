@@ -77,6 +77,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Match the common Linux user-stack limit that exposed the UDP
+          # benchmark fixture stack overflow on a controlled local host.
+          ulimit -s 8192
           rm -rf benchmark-results
           mkdir -p benchmark-results
           result_dir="$(benchmarks/run_profile_campaign.sh \
