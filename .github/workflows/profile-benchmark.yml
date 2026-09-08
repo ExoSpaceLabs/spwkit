@@ -59,7 +59,7 @@ jobs:
   hosted-benchmark:
     name: Hosted benchmark campaign
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     env:
       BENCHMARK_CASES: ${{ github.event.inputs.cases || 'all' }}
       BENCHMARK_WARMUP: ${{ github.event.inputs.warmup || '64' }}
@@ -103,7 +103,7 @@ jobs:
           python3 benchmarks/validate_profile_campaign.py \
             "${BENCHMARK_RESULT_DIR}" \
             --expected-type github-hosted \
-            --expected-measured 8
+            --expected-measured 10
 
       - name: Record runner metadata
         shell: bash
