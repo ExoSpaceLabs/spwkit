@@ -128,7 +128,7 @@ printf '  build profile: Release\n' >&2
 printf '  clean rebuild per measurement configuration: yes\n' >&2
 printf '  serial execution: yes\n' >&2
 printf '  direct/native comparison: DRIVER copied TX + RX\n' >&2
-printf '  copy-elimination comparison: DRIVER copied vs zero-copy TX\n' >&2
+printf '  copy-elimination comparison: DRIVER copied vs zero-copy TX/RX\n' >&2
 printf '  in-memory backends: LOOPBACK + SIMULATOR TX/RX\n' >&2
 printf '  UDP backend: VSPW-TP TX/RX vs direct loopback UDP socket\n' >&2
 if [[ "$(uname -s)" == "Linux" ]]; then
@@ -199,6 +199,20 @@ bash "$ROOT_DIR/benchmarks/run_native_receive_comparison.sh" \
   --build-dir "$campaign_build_root/native-rx-comparison" \
   --output "$rx_comparison_output" \
   --calibration-output "$rx_comparison_calibration" \
+  > /dev/null
+
+zero_copy_rx_output="$output_dir/comparison/driver_rx_copy_zero_copy.jsonl"
+zero_copy_rx_calibration="$output_dir/comparison/driver_rx_copy_zero_copy_calibration.json"
+printf '\n[campaign comparison] DRIVER copied vs zero-copy RX\n' >&2
+bash "$ROOT_DIR/benchmarks/run_zero_copy_receive_comparison.sh" \
+  --warmup "$warmup" \
+  --iterations "$iterations" \
+  --payloads "$payloads" \
+  --counter-hz "$counter_hz" \
+  --settle-seconds "$settle_seconds" \
+  --build-dir "$campaign_build_root/driver-rx-copy-zero-copy" \
+  --output "$zero_copy_rx_output" \
+  --calibration-output "$zero_copy_rx_calibration" \
   > /dev/null
 
 host_backend_cases=(
@@ -299,7 +313,7 @@ metadata = {
     'direct_native_comparison': True,
     'direct_native_comparison_case': 'tx_api_native',
     'direct_native_comparison_cases': ['tx_api_native', 'rx_native_api'],
-    'zero_copy_comparison_cases': ['driver_tx_copy_zero_copy'],
+    'zero_copy_comparison_cases': ['driver_tx_copy_zero_copy', 'driver_rx_copy_zero_copy'],
     'udp_comparison_cases': ['udp_tx', 'udp_rx'],
     'device_comparison_cases': os.environ['SPWKIT_CAMPAIGN_DEVICE_CASES'].split(),
     'direct_native_counter_floor_subtracted': False,

@@ -73,6 +73,25 @@ set(_spwkit_tx_zc_release_profile_probes
     SPW_PROFILE_ID_TX_ZC_RELEASE_BACKEND_RETURN
     SPW_PROFILE_ID_TX_ZC_RELEASE_API_RETURN
 )
+set(_spwkit_rx_zc_acquire_profile_probes
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_ENTRY
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_BACKEND_ENTRY
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_ENTRY
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_BOUNDARY
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_RETURN
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_SYNC_ENTRY
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_SYNC_RETURN
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_BACKEND_RETURN
+    SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_RETURN
+)
+set(_spwkit_rx_zc_release_profile_probes
+    SPW_PROFILE_ID_RX_ZC_RELEASE_API_ENTRY
+    SPW_PROFILE_ID_RX_ZC_RELEASE_BACKEND_ENTRY
+    SPW_PROFILE_ID_RX_ZC_RELEASE_PROVIDER_ENTRY
+    SPW_PROFILE_ID_RX_ZC_RELEASE_PROVIDER_RETURN
+    SPW_PROFILE_ID_RX_ZC_RELEASE_BACKEND_RETURN
+    SPW_PROFILE_ID_RX_ZC_RELEASE_API_RETURN
+)
 set(_spwkit_profile_domain_vars
     _spwkit_tx_profile_probes
     _spwkit_rx_profile_probes
@@ -80,6 +99,8 @@ set(_spwkit_profile_domain_vars
     _spwkit_tx_zc_submit_profile_probes
     _spwkit_tx_zc_reclaim_profile_probes
     _spwkit_tx_zc_release_profile_probes
+    _spwkit_rx_zc_acquire_profile_probes
+    _spwkit_rx_zc_release_profile_probes
 )
 set(_spwkit_all_profile_probes)
 foreach(_spwkit_profile_domain_var IN LISTS _spwkit_profile_domain_vars)

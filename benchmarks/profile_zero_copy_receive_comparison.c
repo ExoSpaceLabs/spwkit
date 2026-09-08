@@ -212,6 +212,7 @@ static spw_result_t acquire_rx_buffer(void* raw,
 
     /* Same data-ready point as copied_receive(), before ownership plumbing. */
     driver->data_ready_tick = spw_profile_counter_read();
+    SPW_PROFILE_RX_ZC_ACQUIRE_PROVIDER_BOUNDARY();
     fill_rx_descriptor(driver, out_buffer);
     driver->rx_acquired = 1;
     return SPW_OK;

@@ -462,16 +462,19 @@ static spw_result_t driver_acquire_rx_buffer(void* raw,
                                              spw_timeout_us_t timeout_us,
                                              spw_buffer_t** out_buffer) {
     spw_driver_backend_t* b = (spw_driver_backend_t*)raw;
-    spw_driver_buffer_slot_t* slot = find_free_slot(
-        b, b->tx_slot_count, b->rx_slot_count);
+    spw_driver_buffer_slot_t* slot;
     spw_driver_buffer_t descriptor;
     spw_result_t result;
+    SPW_PROFILE_RX_ZC_ACQUIRE_BACKEND_ENTRY();
+    slot = find_free_slot(b, b->tx_slot_count, b->rx_slot_count);
     if (slot == NULL) {
         return SPW_ERR_RESOURCE_EXHAUSTED;
     }
     memset(&descriptor, 0, sizeof(descriptor));
+    SPW_PROFILE_RX_ZC_ACQUIRE_PROVIDER_ENTRY();
     result = b->ops->acquire_rx_buffer(
         b->driver_context, timeout_us, &descriptor);
+    SPW_PROFILE_RX_ZC_ACQUIRE_PROVIDER_RETURN();
     if (result != SPW_OK) {
         return result;
     }
@@ -481,9 +484,11 @@ static spw_result_t driver_acquire_rx_buffer(void* raw,
         return SPW_ERR_BACKEND;
     }
     if (b->ops->sync_buffer != NULL) {
+        SPW_PROFILE_RX_ZC_ACQUIRE_SYNC_ENTRY();
         result = b->ops->sync_buffer(b->driver_context,
                                      &descriptor,
                                      SPW_DRIVER_SYNC_FROM_DEVICE);
+        SPW_PROFILE_RX_ZC_ACQUIRE_SYNC_RETURN();
         if (result != SPW_OK) {
             (void)b->ops->release_rx_buffer(b->driver_context, &descriptor);
             return result;
@@ -493,23 +498,29 @@ static spw_result_t driver_acquire_rx_buffer(void* raw,
     expose_slot(b, slot, SPW_BUFFER_DIRECTION_RX,
                 SPW_BUFFER_STATE_APPLICATION);
     *out_buffer = (spw_buffer_t*)&slot->buffer;
+    SPW_PROFILE_RX_ZC_ACQUIRE_BACKEND_RETURN();
     return SPW_OK;
 }
 
 static spw_result_t driver_release_rx_buffer(void* raw,
                                              spw_buffer_t* buffer) {
     spw_driver_backend_t* b = (spw_driver_backend_t*)raw;
-    spw_driver_buffer_slot_t* slot = find_slot_for_public_buffer(
-        b, buffer, SPW_BUFFER_DIRECTION_RX);
+    spw_driver_buffer_slot_t* slot;
     spw_result_t result;
+    SPW_PROFILE_RX_ZC_RELEASE_BACKEND_ENTRY();
+    slot = find_slot_for_public_buffer(
+        b, buffer, SPW_BUFFER_DIRECTION_RX);
     if (slot == NULL || slot->buffer.state != SPW_BUFFER_STATE_APPLICATION) {
         return SPW_ERR_INVALID_STATE;
     }
+    SPW_PROFILE_RX_ZC_RELEASE_PROVIDER_ENTRY();
     result = b->ops->release_rx_buffer(
         b->driver_context, &slot->driver_buffer);
+    SPW_PROFILE_RX_ZC_RELEASE_PROVIDER_RETURN();
     if (result == SPW_OK) {
         clear_slot(slot);
     }
+    SPW_PROFILE_RX_ZC_RELEASE_BACKEND_RETURN();
     return result;
 }
 

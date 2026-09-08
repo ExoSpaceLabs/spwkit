@@ -792,6 +792,7 @@ spw_result_t spw_port_release_tx_buffer(spw_port_t* port,
 spw_result_t spw_port_acquire_rx_buffer(spw_port_t* port,
                                         spw_timeout_us_t timeout_us,
                                         spw_buffer_t** out_buffer) {
+    spw_result_t result;
     if (validate_port(port) != SPW_OK || out_buffer == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
@@ -799,8 +800,11 @@ spw_result_t spw_port_acquire_rx_buffer(spw_port_t* port,
     if (port->ops->acquire_rx_buffer == NULL) {
         return SPW_ERR_UNSUPPORTED;
     }
-    return port->ops->acquire_rx_buffer(
+    SPW_PROFILE_RX_ZC_ACQUIRE_API_ENTRY();
+    result = port->ops->acquire_rx_buffer(
         port->backend_context, timeout_us, out_buffer);
+    SPW_PROFILE_RX_ZC_ACQUIRE_API_RETURN();
+    return result;
 }
 
 spw_result_t spw_port_release_rx_buffer(spw_port_t* port,
@@ -813,7 +817,9 @@ spw_result_t spw_port_release_rx_buffer(spw_port_t* port,
     if (port->ops->release_rx_buffer == NULL) {
         return SPW_ERR_UNSUPPORTED;
     }
+    SPW_PROFILE_RX_ZC_RELEASE_API_ENTRY();
     result = port->ops->release_rx_buffer(port->backend_context, *inout_buffer);
+    SPW_PROFILE_RX_ZC_RELEASE_API_RETURN();
     if (result == SPW_OK) {
         *inout_buffer = NULL;
     }
