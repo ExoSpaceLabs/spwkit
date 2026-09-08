@@ -52,9 +52,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f scripts/apply_zero_copy_profiling.py .github/workflows/zero-copy-bootstrap.yml
+          # The branch bootstrap is temporary. Keep it unchanged here because
+          # GITHUB_TOKEN cannot rewrite workflow files; it is removed after the
+          # implementation commit through the repository integration.
+          git checkout -- .github/workflows/profiling.yml
+          rm -rf build-bootstrap-*
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add CMakeLists.txt \
+            src/profiling/profile.h \
+            src/core/port.c \
+            src/backends/driver/driver_backend.c \
+            tests/profile_probe_smoke.c
           git commit -m "test(spwkit): instrument zero-copy profiling boundaries"
           git push origin HEAD:work/zero-copy-profiling
