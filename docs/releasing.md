@@ -4,6 +4,18 @@ SpWKit uses `develop` for integration and `main` for stable release boundaries. 
 
 The repository intentionally keeps only the long-lived `main` and `develop` branches after completed work. Temporary feature or release branches must be deleted after integration. Release history is preserved by immutable tags and GitHub Releases, not by permanent release branches.
 
+## Repository protection prerequisites
+
+`main` must be protected as the stable release line. Repository settings should enforce:
+
+- pull-request changes only; no routine direct pushes to `main`;
+- required successful `CI` and `Release policy` checks before merge;
+- no force pushes;
+- no branch deletion;
+- no bypass of the release checks where repository policy permits that restriction.
+
+The workflow also defends the release path after a push: a higher version on `main` is not tagged unless GitHub associates the exact commit with a merged `develop -> main` PR. This is a second safety layer, not a substitute for branch protection. A direct higher-version push can therefore make CI red, but it must never create a release.
+
 ## Version authority
 
 The package version is declared in `CMakeLists.txt` and must exactly match the public API version in `include/spwkit/api.h`.
