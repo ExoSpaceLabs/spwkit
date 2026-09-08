@@ -78,6 +78,9 @@ spwkit_configure_profile_executable(
     spwkit_profile_zero_copy_comparison
     profile_zero_copy_comparison.c)
 spwkit_configure_profile_executable(
+    spwkit_profile_zero_copy_receive_comparison
+    profile_zero_copy_receive_comparison.c)
+spwkit_configure_profile_executable(
     spwkit_profile_host_backend
     profile_host_backend.c)
 

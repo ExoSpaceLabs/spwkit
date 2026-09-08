@@ -15,6 +15,7 @@ typedef struct profile_driver {
     int ready;
     int tx_acquired;
     int tx_submitted;
+    int rx_acquired;
 } profile_driver_t;
 
 static spw_result_t profile_start(void* raw) {
@@ -35,6 +36,7 @@ static spw_result_t profile_reset(void* raw) {
     driver->ready = 0;
     driver->tx_acquired = 0;
     driver->tx_submitted = 0;
+    driver->rx_acquired = 0;
     return SPW_OK;
 }
 
@@ -185,17 +187,34 @@ static spw_result_t profile_acquire_rx_buffer(
     void* raw,
     spw_timeout_us_t timeout_us,
     spw_driver_buffer_t* out_buffer) {
-    (void)raw;
+    profile_driver_t* driver = (profile_driver_t*)raw;
     (void)timeout_us;
-    (void)out_buffer;
-    return SPW_ERR_TIMEOUT;
+    if (driver->state != SPW_LINK_RUN || driver->rx_acquired ||
+        out_buffer == NULL) {
+        return SPW_ERR_TIMEOUT;
+    }
+
+    /* Provider-owned DMA/native data-ready boundary. */
+    SPW_PROFILE_RX_ZC_ACQUIRE_PROVIDER_BOUNDARY();
+
+    out_buffer->data = driver->payload;
+    out_buffer->length = driver->length;
+    out_buffer->capacity = sizeof(driver->payload);
+    out_buffer->terminator = driver->terminator;
+    out_buffer->token = 2u;
+    driver->rx_acquired = 1;
+    return SPW_OK;
 }
 
 static spw_result_t profile_release_rx_buffer(
     void* raw,
     const spw_driver_buffer_t* buffer) {
-    (void)raw;
-    (void)buffer;
+    profile_driver_t* driver = (profile_driver_t*)raw;
+    if (!driver->rx_acquired || buffer == NULL || buffer->token != 2u ||
+        buffer->data != driver->payload) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    driver->rx_acquired = 0;
     return SPW_OK;
 }
 
@@ -205,7 +224,10 @@ static spw_result_t profile_sync_buffer(
     spw_driver_sync_direction_t direction) {
     (void)raw;
     (void)buffer;
-    return direction == SPW_DRIVER_SYNC_TO_DEVICE ? SPW_OK : SPW_ERR_UNSUPPORTED;
+    return (direction == SPW_DRIVER_SYNC_TO_DEVICE ||
+            direction == SPW_DRIVER_SYNC_FROM_DEVICE)
+               ? SPW_OK
+               : SPW_ERR_UNSUPPORTED;
 }
 
 static const spw_driver_ops_t PROFILE_OPS = {
@@ -283,6 +305,21 @@ static void exercise_probe_mechanism(void) {
     SPW_PROFILE_TX_ZC_RELEASE_PROVIDER_RETURN();
     SPW_PROFILE_TX_ZC_RELEASE_BACKEND_RETURN();
     SPW_PROFILE_TX_ZC_RELEASE_API_RETURN();
+    SPW_PROFILE_RX_ZC_ACQUIRE_API_ENTRY();
+    SPW_PROFILE_RX_ZC_ACQUIRE_BACKEND_ENTRY();
+    SPW_PROFILE_RX_ZC_ACQUIRE_PROVIDER_ENTRY();
+    SPW_PROFILE_RX_ZC_ACQUIRE_PROVIDER_BOUNDARY();
+    SPW_PROFILE_RX_ZC_ACQUIRE_PROVIDER_RETURN();
+    SPW_PROFILE_RX_ZC_ACQUIRE_SYNC_ENTRY();
+    SPW_PROFILE_RX_ZC_ACQUIRE_SYNC_RETURN();
+    SPW_PROFILE_RX_ZC_ACQUIRE_BACKEND_RETURN();
+    SPW_PROFILE_RX_ZC_ACQUIRE_API_RETURN();
+    SPW_PROFILE_RX_ZC_RELEASE_API_ENTRY();
+    SPW_PROFILE_RX_ZC_RELEASE_BACKEND_ENTRY();
+    SPW_PROFILE_RX_ZC_RELEASE_PROVIDER_ENTRY();
+    SPW_PROFILE_RX_ZC_RELEASE_PROVIDER_RETURN();
+    SPW_PROFILE_RX_ZC_RELEASE_BACKEND_RETURN();
+    SPW_PROFILE_RX_ZC_RELEASE_API_RETURN();
 
     require_one_sample();
 }
@@ -402,6 +439,31 @@ static void exercise_zero_copy_boundaries(void) {
     require_one_sample();
 #else
     assert(spw_port_release_tx_buffer(port, &buffer) == SPW_OK);
+#endif
+    assert(buffer == NULL);
+
+#if SPWKIT_PROFILE_START >= SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_ENTRY && \
+    SPWKIT_PROFILE_START <= SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_RETURN
+    spw_profile_reset();
+    assert(spw_port_acquire_rx_buffer(
+               port, SPW_TIMEOUT_IMMEDIATE, &buffer) == SPW_OK);
+    require_one_sample();
+#else
+    assert(spw_port_acquire_rx_buffer(
+               port, SPW_TIMEOUT_IMMEDIATE, &buffer) == SPW_OK);
+#endif
+    assert(buffer != NULL);
+    assert(spw_buffer_get_view(buffer, &view) == SPW_OK);
+    assert(view.length == 4u);
+    assert(view.data == driver.payload);
+
+#if SPWKIT_PROFILE_START >= SPW_PROFILE_ID_RX_ZC_RELEASE_API_ENTRY && \
+    SPWKIT_PROFILE_START <= SPW_PROFILE_ID_RX_ZC_RELEASE_API_RETURN
+    spw_profile_reset();
+    assert(spw_port_release_rx_buffer(port, &buffer) == SPW_OK);
+    require_one_sample();
+#else
+    assert(spw_port_release_rx_buffer(port, &buffer) == SPW_OK);
 #endif
     assert(buffer == NULL);
 

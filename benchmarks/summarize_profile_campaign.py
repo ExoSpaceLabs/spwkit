@@ -34,6 +34,7 @@ def coverage_entries(root: Path):
     tx_driver = measured("comparison/tx_api_native.jsonl")
     rx_driver = measured("comparison/rx_native_api.jsonl")
     zero_copy_tx = measured("comparison/driver_tx_copy_zero_copy.jsonl")
+    zero_copy_rx = measured("comparison/driver_rx_copy_zero_copy.jsonl")
     loopback_tx = measured("backends/loopback_tx.jsonl")
     loopback_rx = measured("backends/loopback_rx.jsonl")
     simulator_tx = measured("backends/simulator_tx.jsonl")
@@ -100,7 +101,13 @@ def coverage_entries(root: Path):
             "status": "measured" if zero_copy_tx else "not-implemented-benchmark",
             "reason": "provider-owned DMA-buffer copied-vs-zero-copy comparison" if zero_copy_tx else "tracked by #138/#160",
         },
-        {"backend": "driver", "path": "zero-copy", "direction": "rx", "status": "not-implemented-benchmark", "reason": "tracked by #138"},
+        {
+            "backend": "driver",
+            "path": "zero-copy",
+            "direction": "rx",
+            "status": "measured" if zero_copy_rx else "not-implemented-benchmark",
+            "reason": "provider-owned RX DMA-buffer copied-vs-zero-copy comparison" if zero_copy_rx else "tracked by #182",
+        },
         backend_entry("loopback", "tx", loopback_tx, 163),
         backend_entry("loopback", "rx", loopback_rx, 163),
         backend_entry("simulator", "tx", simulator_tx, 163),
@@ -167,6 +174,30 @@ def append_zero_copy(lines, comparison_path: Path):
     lines.append("")
 
 
+def append_zero_copy_rx(lines, comparison_path: Path):
+    rows = load_jsonl(comparison_path)
+    if not rows:
+        return
+    lines.append("DRIVER RX: copied vs zero-copy DMA-buffer visibility")
+    lines.append("----------------------------------------------------------------")
+    lines.append("Payload   Copied med   ZC med   ZC-Copy   Delta %   Acquire   Release")
+    for row in rows:
+        copied = row["copied_visibility_statistics"]
+        zero_copy = row["zero_copy_visibility_statistics"]
+        ownership = row["ownership_statistics"]
+        delta = row["delta"]
+        lines.append(
+            f"{row['payload_bytes']:>6} B   "
+            f"{fmt(copied['median']):>10}   "
+            f"{fmt(zero_copy['median']):>6}   "
+            f"{fmt(delta['median_ticks']):>7}   "
+            f"{fmt(delta['median_percent']):>7}   "
+            f"{fmt(ownership['acquire']['median']):>7}   "
+            f"{fmt(ownership['release']['median']):>7}"
+        )
+    lines.append("")
+
+
 def append_backend(lines, title, backend_path: Path):
     rows = load_jsonl(backend_path)
     if not rows:
@@ -200,6 +231,7 @@ def render_summary(root: Path, campaign, coverage):
     append_comparison(lines, "DRIVER copied TX: direct/provider vs SpWKit", root / "comparison" / "tx_api_native.jsonl")
     append_comparison(lines, "DRIVER copied RX: direct/provider vs SpWKit", root / "comparison" / "rx_native_api.jsonl")
     append_zero_copy(lines, root / "comparison" / "driver_tx_copy_zero_copy.jsonl")
+    append_zero_copy_rx(lines, root / "comparison" / "driver_rx_copy_zero_copy.jsonl")
     append_comparison(lines, "UDP VSPW-TP TX: direct socket vs SpWKit", root / "comparison" / "udp_tx.jsonl")
     append_comparison(lines, "UDP VSPW-TP RX: direct socket vs SpWKit", root / "comparison" / "udp_rx.jsonl")
     append_comparison(lines, "DEVICE VSPD TX: direct VSPD vs SpWKit", root / "comparison" / "device_tx.jsonl")
