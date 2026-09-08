@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 from pathlib import Path
 
 p = Path('benchmarks/run_profile_campaign.sh')
@@ -66,11 +67,11 @@ for old, new in replacements:
         raise SystemExit(f'command pattern not found: {old!r}')
     s = s.replace(old, new, 1)
 
-# Remove the old campaign-level stdout discard together with the preceding
-# line continuation. Leaving the continuation behind would accidentally join
-# the next shell statement to the child command.
-s = s.replace(' \\\n    > /dev/null\n', '\n')
-s = s.replace(' \\\n  > /dev/null\n', '\n')
+# Remove each old campaign-level stdout discard together with the preceding
+# shell continuation, so the next shell statement cannot be joined to it.
+s, removed = re.subn(r' \\\n[ \t]*> /dev/null\n', '\n', s)
+if removed != 8:
+    raise SystemExit(f'expected 8 stdout discards, removed {removed}')
 if '> /dev/null' in s:
     raise SystemExit('unhandled stdout discard remains in campaign')
 
