@@ -500,7 +500,10 @@ int main(int argc, char** argv) {
     size_t warmup_iterations = 64u;
     size_t iterations = 256u;
     size_t payload_size = 64u;
-    udp_fixture_t fixture;
+    /* Two 4 MiB workspaces make this fixture larger than a common 8 MiB
+     * Linux user stack. Keep it in static storage so the benchmark behaves
+     * the same on controlled hosts and GitHub runners. */
+    static udp_fixture_t fixture;
     udp_statistics_t native_statistics;
     udp_statistics_t spwkit_statistics;
     size_t i;
