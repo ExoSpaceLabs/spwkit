@@ -2,7 +2,7 @@
 
 Platform support is split into **source/API visibility**, **runtime implementation**, and **verification evidence**. A public backend ID/configuration may be installed on a platform even when selecting that backend returns `SPW_ERR_UNSUPPORTED`.
 
-## Stable v0.5 hosted matrix
+## Stable v0.6 hosted matrix
 
 | Capability | Linux | macOS | Windows |
 |---|---:|---:|---:|
@@ -12,13 +12,14 @@ Platform support is split into **source/API visibility**, **runtime implementati
 | Linux DEVICE / VSPD | yes | no | no |
 | `vspwd` / tools | yes | no | no |
 | CUSE `/dev/vspwX` | yes | no | no |
+| portable DRIVER API | yes | yes | yes |
 | optional C++17 wrapper | yes | yes | yes |
 
 The public UDP configuration/wire contract is identical across POSIX and Windows. Winsock types remain private.
 
-## Stable v0.5 architecture packages
+## Stable v0.6 architecture packages
 
-Release `v0.5.0` publishes Debian packages for:
+Release `v0.6.0` publishes Debian packages for:
 
 ```text
 amd64
@@ -44,22 +45,25 @@ HardRT release `0.4.0` is the current validated external RTOS integration baseli
 
 - HardRT POSIX integration executes two task-owned SpWKit ports against installed packages.
 - Cortex-M7/ARMv7E-M integration cross-builds and links no-heap SpWKit with the HardRT Cortex-M port.
-- The Cortex-M7 job is compile/link/ABI evidence, not STM32H755 runtime or SpaceWire PHY evidence.
+- That Cortex-M7 CI job is compile/link/ABI evidence.
+- Separate physical NUCLEO-H755ZI-Q qualification executes real DMA2 and explicit Cortex-M7 cache synchronization through the public DRIVER boundary.
+
+The physical STM32 result is MCU driver/DMA/cache evidence, not SpaceWire controller/PHY/electrical evidence.
 
 ## v0.6 portable driver backend
 
-`develop` includes `SPW_BACKEND_DRIVER`, driver ABI v2 DMA/zero-copy ownership mapping and a deterministic host reference driver.
+Stable `v0.6.0` includes `SPW_BACKEND_DRIVER`, driver ABI v2 DMA/zero-copy ownership mapping and a deterministic host reference driver.
 
 ```mermaid
 flowchart LR
     API[Portable public API] --> REF[Host reference driver<br/>validated]
-    API --> MCU[MCU/RTOS driver<br/>implementation-specific]
+    API --> MCU[MCU/RTOS driver<br/>STM32 evidence completed]
     API --> FPGA[Future FPGA/vendor driver]
 ```
 
 The driver contract itself is portable. Runtime support depends entirely on the driver implementation supplied by the consuming platform.
 
-STM32H755 DMA/cache runtime validation remains pending #119. Future physical FPGA/SpaceWire support remains outside current runtime claims.
+NUCLEO-H755ZI-Q DMA/cache runtime qualification has completed successfully. Future physical FPGA/SpaceWire support remains outside current runtime claims.
 
 ## Build profiles
 
@@ -71,7 +75,8 @@ Common build profiles include:
 - no-heap/freestanding core;
 - Linux virtual-device/service/tools/CUSE profile;
 - driver/reference-driver profile;
-- Cortex-M7/HardRT cross profile.
+- Cortex-M7/HardRT cross profile;
+- separate physical STM32H755 DMA/cache evidence firmware.
 
 ## Unsupported behavior
 

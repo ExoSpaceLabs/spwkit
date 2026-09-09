@@ -121,12 +121,16 @@ SPWKIT_BUILD_CUSE=ON
 
 `SPW_BACKEND_DRIVER` is configured with `spw_driver_config_t` from `<spwkit/driver.h>`.
 
-Conceptually:
+Use the installed initializer exactly as declared by the public header:
 
 ```c
-spw_driver_config_t driver = SPW_DRIVER_CONFIG_INITIALIZER;
-driver.ops = &my_driver_ops;
-driver.driver_context = &my_driver_context;
+spw_driver_ops_t my_driver_ops = SPW_DRIVER_OPS_INITIALIZER;
+/* Fill the required callbacks before opening the port. */
+
+my_driver_context_t my_driver_context = {0};
+
+spw_driver_config_t driver =
+    SPW_DRIVER_CONFIG_INITIALIZER(&my_driver_ops, &my_driver_context);
 
 spw_port_config_t config =
     SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_DRIVER);
@@ -134,7 +138,7 @@ config.backend_config = &driver;
 config.backend_config_size = sizeof(driver);
 ```
 
-Use the exact initializer/member names defined by the installed header for the selected SpWKit version; the driver structure is versioned so the callback contract can evolve explicitly.
+`SPW_DRIVER_CONFIG_INITIALIZER` requires the callback-table pointer and driver-context pointer. The resulting structure also carries the current driver configuration version and deterministic default slot counts.
 
 The callback table/context remain caller-owned until `spw_port_close()` returns. A driver may represent a host reference model, MCU peripheral, RTOS device, vendor SDK or future FPGA/DMA controller.
 
