@@ -1,8 +1,8 @@
 # Current project status
 
-## Stable release: v0.6.0
+## Stable release: v0.6.1
 
-`v0.6.0` is the current stable release. It completes the public software boundary for hardware-backed SpaceWire integrations while preserving the same application-facing `spw_port_*` API used by virtual and hosted backends.
+`v0.6.1` is the current stable release. It is the maintenance/performance consolidation of the v0.6 software contract and preserves the public application-facing `spw_port_*` and backend contract while incorporating the completed profiling infrastructure, accepted readiness/reassembly optimizations, and synchronized documentation.
 
 The stable v0.6 line includes:
 
@@ -20,20 +20,21 @@ The stable v0.6 line includes:
 - physical NUCLEO-H755ZI-Q Cortex-M7 DMA/cache qualification through the public driver boundary;
 - multi-architecture Debian and GHCR publication for `amd64`, `arm64`, `armhf`, and `riscv64` hosted targets.
 
-See [v0.6.0 release notes](releases/v0.6.0.md).
+See [v0.6.1 release notes](releases/v0.6.1.md).
 
-## v0.6.1 consolidation in progress
+## v0.6.1 profiling and performance consolidation
 
-Post-v0.6 work on `develop` is being consolidated as `v0.6.1`. This is a profiling/performance and documentation-hygiene release, not an intentional public-contract redesign.
+v0.6.1 records the post-v0.6 profiling/performance work without intentionally redesigning the public contract.
 
-Completed post-v0.6 work includes:
+Included work:
 
 - hosted and physical STM32 profiling/reference campaigns;
 - VSPW-TP reassembly optimization, reducing the isolated fragmented reassembly component by about **96-97%**;
 - controlled 4096-byte VSPW-TP RX paired overhead reduction from **60,281 to 25,032 TSC ticks** (**58.5%**);
 - POSIX UDP optimistic-ready I/O, removing unconditional poll-first work where `MSG_DONTWAIT` is available;
-- Linux DEVICE/VSPD optimistic-ready record I/O, saving roughly **813-850 TSC ticks** in the hosted paired readiness microbenchmark and reducing the raw ready-record operation by about **41-51%**;
-- finalized profiling host metadata and backend coverage classification from #171/#173.
+- Linux DEVICE/VSPD optimistic-ready record I/O, saving roughly **813-850 TSC ticks** in the hosted paired readiness microbenchmark and reducing the raw operation by about **41-51%**;
+- finalized profiling host/build/counter metadata and backend coverage classification from #171/#173;
+- synchronized release/evidence documentation from #208.
 
 Hosted timing results are reference/regression evidence for the named measurement environment. They are not physical SpaceWire controller, PHY, cable, or universal performance specifications.
 
@@ -58,7 +59,7 @@ This validates real STM32 DMA2 execution, Cortex-M7 cache clean/invalidate owner
 
 ## Profiling reference
 
-The profiling epic adds reproducible software/provider performance evidence on top of the v0.6 functional boundary:
+The profiling campaign provides reproducible software/provider performance evidence on top of the v0.6 functional boundary:
 
 - controlled i7-1355U hosted DRIVER/native differential and copied-vs-zero-copy crossover characterization;
 - complete hosted LOOPBACK, SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD boundary instrumentation;
@@ -69,7 +70,7 @@ The profiling epic adds reproducible software/provider performance evidence on t
 - POSIX UDP and Linux DEVICE/VSPD readiness-path optimization with equivalent-path comparator checks;
 - campaign metadata covering host/build/counter context and explicit backend coverage states (`measured`, `unsupported-platform`, `not-built`, `not-implemented-benchmark`).
 
-The canonical measurement contract and interpretation limits are documented in [`profiling.md`](profiling.md). The engineering motivation, accepted statistics, crossover conclusions, and measured before/after achievements are summarized in [`profiling-results.md`](profiling-results.md). Hosted x86 values are reported as invariant TSC ticks; Cortex-M7 values are DWT cycles. Neither virtual transport nor generic STM32 DMA evidence is presented as SpaceWire controller/PHY/link timing.
+The canonical measurement contract and interpretation limits are documented in [`profiling.md`](profiling.md). The accepted statistics and measured before/after achievements are summarized in [`profiling-results.md`](profiling-results.md). Hosted x86 values are reported as invariant TSC ticks; Cortex-M7 values are DWT cycles. Neither virtual transport nor generic STM32 DMA evidence is presented as SpaceWire controller/PHY/link timing.
 
 ## CCSDSPack integration baseline
 
@@ -102,6 +103,6 @@ v1.0.0  stable software contract
 
 See #209 and its tracked workstreams #210-#216 for the pre-v1 contract-hardening plan.
 
-## Development flow after v0.6
+## Development flow after v0.6.1
 
-`main` tracks stable releases and `develop` remains the integration branch for subsequent work. No post-v0.6 feature is considered delivered until it has its own implementation and evidence boundary.
+`main` tracks stable releases and `develop` remains the integration branch for subsequent work. No post-v0.6.1 feature is considered delivered until it has its own implementation and evidence boundary.

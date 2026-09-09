@@ -28,9 +28,9 @@ The runtime is C11. The optional C++17 layer is header-only and forwards to the 
 
 ## Project status
 
-### Stable: v0.6.0
+### Stable: v0.6.1
 
-`v0.6.0` completes the public hardware-driver software boundary while preserving all established virtual/hosted backends.
+`v0.6.1` is a maintenance and performance-consolidation release on the v0.6 software contract. It preserves the public application/backend API while completing profiling metadata, incorporating accepted transport/readiness optimizations, and synchronizing the post-v0.6 documentation.
 
 Highlights:
 
@@ -47,11 +47,14 @@ Highlights:
 - accepted CCSDSPack `v2.0.0` baseline at `c2f318c330c564429bcc565a8acbff22728b2851`;
 - CCSDSPack PUS-C TC/TM interoperability over installed-package UDP, Linux DEVICE/VSPD, and a two-node Docker Compose topology;
 - physical NUCLEO-H755ZI-Q Cortex-M7 DMA/cache/zero-copy qualification;
+- completed profiling host/build/counter metadata and explicit backend coverage classification;
+- controlled VSPW-TP 4096-byte RX paired overhead reduction from 60,281 to 25,032 invariant-TSC ticks (58.5%) after reassembly optimization;
+- POSIX UDP and Linux DEVICE/VSPD optimistic-ready I/O paths that remove avoidable poll-first work while preserving timeout/error semantics;
 - Debian/GHCR publication for `amd64`, `arm64`, `armhf`, and `riscv64` hosted targets.
 
-See the [v0.6.0 release notes](docs/releases/v0.6.0.md) and [current project status](docs/current-status.md).
+See the [v0.6.1 release notes](docs/releases/v0.6.1.md) and [current project status](docs/current-status.md).
 
-The v0.6 public boundary deliberately stops before proprietary FPGA/HDL implementation details and before physical SpaceWire PHY/electrical interoperability claims.
+The v0.6 public boundary deliberately stops before proprietary FPGA/HDL implementation details and before physical SpaceWire PHY/electrical interoperability claims. Hosted profiling values are reference evidence for their named environments, not physical SpaceWire performance specifications.
 
 ## Supported backends
 
@@ -271,7 +274,7 @@ Standalone installed-package examples live under `examples/installed*`, distribu
 
 ## Binary releases
 
-`v0.6.0` publishes Debian packages for:
+`v0.6.1` publishes Debian packages for:
 
 ```text
 amd64
