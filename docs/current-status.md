@@ -41,6 +41,18 @@ RESULT: PASS
 
 This validates real STM32 DMA2 execution, Cortex-M7 cache clean/invalidate ownership transitions, copied and zero-copy packet paths, and reset-time stale-buffer invalidation. It is MCU driver evidence, not physical SpaceWire electrical/PHY interoperability evidence.
 
+## Profiling reference
+
+The profiling epic adds reproducible software/provider performance evidence on top of the v0.6 functional boundary:
+
+- controlled i7-1355U hosted DRIVER/native differential and copied-vs-zero-copy crossover characterization;
+- complete hosted LOOPBACK, SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD boundary instrumentation;
+- NUCLEO-H755ZI-Q Cortex-M7 DWT measurements for copied and zero-copy DMA-provider paths;
+- matched STM32H755 direct/native DMA2 differential measurements;
+- controlled lifecycle/startup measurements kept separate from steady-state TX/RX data.
+
+The canonical measurement contract, accepted reference snapshots and interpretation limits are documented in [`profiling.md`](profiling.md). Hosted x86 values are reported as invariant TSC ticks; Cortex-M7 values are DWT cycles. Neither virtual transport nor generic STM32 DMA evidence is presented as SpaceWire controller/PHY/link timing.
+
 ## CCSDSPack integration baseline
 
 SpWKit v0.6 accepts the immutable external integration reference:
