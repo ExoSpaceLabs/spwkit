@@ -151,6 +151,15 @@ jobs:
             -DSPWKIT_BUILD_UDP=OFF \
             -DSPWKIT_BUILD_DEVICE=OFF
           cmake --build build/stm32-profile-spwkit --parallel 2
+
+          port_obj="build/stm32-profile-spwkit/CMakeFiles/spwkit.dir/src/core/port.c.obj"
+          test -s "${port_obj}"
+          if arm-none-eabi-readelf -r "${port_obj}" | grep -q 'GOT'; then
+            echo 'Bare-metal Cortex-M7 SpWKit unexpectedly contains GOT relocations' >&2
+            arm-none-eabi-readelf -r "${port_obj}" >&2
+            exit 1
+          fi
+
           cmake --install build/stm32-profile-spwkit
 
           cmake -S integrations/stm32h755_dma -B build/stm32h755-profile \
@@ -171,6 +180,11 @@ jobs:
           elf="build/stm32h755-profile/spwkit_stm32h755_profile.elf"
           test -s "${elf}"
           arm-none-eabi-nm -g "${elf}" | grep -q 'g_stm32h755_spwkit_profile'
+          if arm-none-eabi-readelf -SW "${elf}" | grep -Eq '[[:space:]]\.got(\.plt)?[[:space:]]'; then
+            echo 'STM32H755 profile image exposes a standalone GOT section' >&2
+            arm-none-eabi-readelf -SW "${elf}" >&2
+            exit 1
+          fi
           if arm-none-eabi-nm -u "${elf}" | grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free|printf|puts|write|read)$'; then
             echo 'Unexpected hosted runtime symbol in STM32H755 profile firmware' >&2
             arm-none-eabi-nm -u "${elf}" >&2
