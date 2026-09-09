@@ -1,0 +1,36 @@
+name: STM32 profile direct-state bootstrap
+
+on:
+  push:
+    branches: [test/stm32h755-physical-profiling]
+    paths:
+      - 'scripts/apply_stm32_profile_direct_state.py'
+      - '.github/workflows/stm32-profile-direct-state-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/stm32h755-physical-profiling
+          fetch-depth: 0
+
+      - name: Apply direct-state capture fix
+        run: python3 scripts/apply_stm32_profile_direct_state.py
+
+      - name: Validate patch
+        run: |
+          git diff --check
+          grep -q 'stm32_profile_last_sample_direct' integrations/stm32h755_dma/firmware.c
+
+      - name: Commit permanent fix
+        run: |
+          git config user.name 'Robert A Incze'
+          git config user.email '98164670+Inczert@users.noreply.github.com'
+          git add integrations/stm32h755_dma/firmware.c
+          git commit -m 'fix(spwkit): read STM32 profiling state directly'
+          git push origin HEAD:test/stm32h755-physical-profiling
