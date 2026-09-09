@@ -31,42 +31,16 @@ set $cache=(unsigned int)g_stm32h755_spwkit_profile.cache_valid
 
 printf "PROFILE_META magic=0x%08x version=%u phase=0x%08x result=0x%08x case_id=%u start_id=%u end_id=%u core_hz=%u warmup=%u iterations=%u rows=%u cache_valid=%u\n", $magic, $version, $phase, $result, $case, $start, $end, $hz, $warmup, $iterations, $rows, $cache
 
-set $i=0
-while $i < $iterations
-  printf "PROFILE_FLOOR index=%u cycles=%u\n", $i, (unsigned int)g_stm32h755_spwkit_profile.floor_samples[$i]
-  set $i=$i+1
-end
-
-set $r=0
-while $r < $rows
-  set $payload=(unsigned int)g_stm32h755_spwkit_profile.rows[$r].payload_bytes
-  set $i=0
-  while $i < $iterations
-    printf "PROFILE_SAMPLE row=%u payload=%u index=%u cycles=%u\n", $r, $payload, $i, (unsigned int)g_stm32h755_spwkit_profile.rows[$r].samples[$i]
-    set $i=$i+1
-  end
-  set $r=$r+1
-end
-
-if $cache == 1
-  set $r=0
-  while $r < $rows
-    set $payload=(unsigned int)g_stm32h755_spwkit_profile.cache_clean_rows[$r].payload_bytes
-    set $i=0
-    while $i < $iterations
-      printf "PROFILE_CACHE_CLEAN row=%u payload=%u index=%u cycles=%u\n", $r, $payload, $i, (unsigned int)g_stm32h755_spwkit_profile.cache_clean_rows[$r].samples[$i]
-      printf "PROFILE_CACHE_INVALIDATE row=%u payload=%u index=%u cycles=%u\n", $r, $payload, $i, (unsigned int)g_stm32h755_spwkit_profile.cache_invalidate_rows[$r].samples[$i]
-      set $i=$i+1
-    end
-    set $r=$r+1
-  end
-end
-
 if $magic == 0x53575050 && $version == 1 && $phase == 0x0000700d && $result == 0 && $iterations > 0 && $rows == 5
   printf "RESULT: PASS\n"
 else
   printf "RESULT: FAIL\n"
 end
+
+# One bulk remote-memory transfer replaces ~1000 individual GDB reads for the
+# default copied-TX case. The campaign runs GDB from the case build directory.
+dump binary memory stm32h755-profile.raw &g_stm32h755_spwkit_profile ((char *)&g_stm32h755_spwkit_profile)+sizeof(g_stm32h755_spwkit_profile)
+printf "PROFILE_RAW bytes=%u\n", (unsigned int)sizeof(g_stm32h755_spwkit_profile)
 
 monitor resume
 detach
