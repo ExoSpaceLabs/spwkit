@@ -47,6 +47,6 @@ CI verifies the final ELF/map and rejects hosted socket/thread/C++ ABI leakage.
 
 ## Evidence boundary
 
-This is **compile/link/ABI evidence**. It does not claim that scheduling or SpWKit executed on STM32H755 silicon.
+This fixture is **compile/link/ABI evidence**. It does not claim that HardRT scheduling or this integration firmware executed on STM32H755 silicon.
 
-Real STM32H755 DMA/cache runtime evidence is tracked separately under v0.6 #119 and will begin only after the board/test architecture is agreed. Physical SpaceWire electrical interoperability remains a later hardware/HIL milestone.
+Physical STM32H755 DMA/cache execution through the portable SpWKit DRIVER contract has since been qualified separately under #119, including phase-7 stale-buffer invalidation. That MCU evidence remains distinct from this HardRT compile/link fixture. Physical SpaceWire controller, FPGA/PHY and electrical interoperability remain later hardware/HIL evidence layers.
