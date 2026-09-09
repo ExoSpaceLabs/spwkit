@@ -1,6 +1,6 @@
 # Getting started
 
-This guide targets the current stable `v0.6.0` release. The `develop` branch contains the post-v0.6 profiling/performance consolidation being prepared for `v0.6.1`; those changes do not intentionally redefine the public application contract.
+This guide targets the current stable `v0.6.1` release. v0.6.1 preserves the v0.6 public application/backend contract while consolidating the completed profiling/performance work and documentation.
 
 ## Choose how you want to run SpaceWire software
 
@@ -44,7 +44,7 @@ cmake --build build-cpp --parallel
 
 ## Install the stable v0.6 package
 
-`v0.6.0` publishes Debian revision `0.6.0-1` for:
+`v0.6.1` publishes Debian revision `0.6.1-1` for:
 
 ```text
 amd64
@@ -56,10 +56,10 @@ riscv64
 Example package names:
 
 ```text
-spwkit_0.6.0-1_amd64.deb
-spwkit_0.6.0-1_arm64.deb
-spwkit_0.6.0-1_armhf.deb
-spwkit_0.6.0-1_riscv64.deb
+spwkit_0.6.1-1_amd64.deb
+spwkit_0.6.1-1_arm64.deb
+spwkit_0.6.1-1_armhf.deb
+spwkit_0.6.1-1_riscv64.deb
 ```
 
 Stable GHCR images are also published for `linux/amd64`, `linux/arm64`, `linux/arm/v7`, and `linux/riscv64`. See [binary packages](binary-packages.md).
@@ -231,7 +231,7 @@ HardRT `0.4.0` is the currently validated external RTOS baseline. The Cortex-M7 
 
 ## v0.6 driver backend
 
-Stable `v0.6.0` includes `SPW_BACKEND_DRIVER` and its DMA/ownership callback boundary. It is intended for host reference drivers, MCU/RTOS integrations and future FPGA/vendor controllers while keeping application source on the same `spw_port_*`/`spw_buffer_*` API.
+Stable `v0.6.1` includes `SPW_BACKEND_DRIVER` and its DMA/ownership callback boundary. It is intended for host reference drivers, MCU/RTOS integrations and future FPGA/vendor controllers while keeping application source on the same `spw_port_*`/`spw_buffer_*` API.
 
 The physical STM32H755 DMA/cache qualification has completed successfully and validates the software ownership/cache boundary on real Cortex-M7 silicon. It does not prove a physical SpaceWire controller, codec, PHY or cable; FPGA/SpaceWire HIL remains a separate future evidence layer.
 
@@ -251,4 +251,4 @@ find_package(SpWKit 0.6 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE spwkit::cpp)
 ```
 
-The stable v0.6 package examples request the compatible `0.6` line. The post-v0.6 work on `develop` is being consolidated for `v0.6.1` without an intentional public-contract break.
+The stable v0.6 package examples request the compatible `0.6` line. v0.6.1 does not intentionally change that public compatibility contract.
