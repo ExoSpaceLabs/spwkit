@@ -165,7 +165,7 @@ At 4096 B / four fragments:
 
 The measurement showed that the main 4 KiB cliff was **not memcpy**. It was the byte-granular coverage bookkeeping in fragment reassembly, with additional fixed cost from ACK and socket readiness handling.
 
-### Optimization
+### Reassembly optimization
 
 PR #202 / issue #201 replaced the normal non-overlapping fragment path with:
 
@@ -183,16 +183,7 @@ Merged result:
 7a6f072fecea1fb851330d189bce6b06dd9a6807
 ```
 
-### Controlled component result after optimization
-
-Reference:
-
-```text
-udp-breakdown-20260909T180527Z-eb383077
-tested head eb3830772dcebde4e7f6b5dd5e9b9ae6e413ee84
-```
-
-Same i7-10850H host and measurement configuration. Counter floor median/p95/p99 was 33/35/36 ticks.
+Controlled component rerun on the same i7-10850H configuration produced:
 
 | Payload | Stage | Before | After | Reduction |
 |---:|---|---:|---:|---:|
@@ -203,9 +194,7 @@ Same i7-10850H host and measurement configuration. Counter floor median/p95/p99 
 | 4096 B | reassembly push | 28,847 | 900 | **96.9%** |
 | 4096 B | complete reassembly/delivery | 36,814 | 1,302 | **96.5%** |
 
-### Production VSPW-TP RX result
-
-The unchanged production-vs-native UDP comparison was then rerun before and after the optimization on the same i7-10850H host.
+The unchanged production-vs-native UDP comparison was then rerun before and after the optimization on the same host.
 
 Paired median `SpWKit - native` RX overhead:
 
@@ -218,17 +207,39 @@ Paired median `SpWKit - native` RX overhead:
 | **2400 B** | **42,245** | **17,170** | **59.4%** |
 | **4096 B** | **60,281** | **25,032** | **58.5%** |
 
-At 4096 B, absolute SpWKit RX statistics changed from:
-
-| Statistic | Before | After |
-|---|---:|---:|
-| median | 62,733 | 27,542.5 |
-| p95 | 77,339 | 37,512 |
-| p99 | 97,277 | 47,631 |
-
-The native 4096 B medians remained close, 2452 before versus 2510.5 after. The production calibration floor differed between the two runs (117 versus 33 ticks), but the authoritative comparison is paired native/SpWKit within each run. In addition, the controlled component runs had near-identical calibration floors (34 versus 33 ticks) and independently showed a ~97% reassembly reduction. The production improvement is therefore accepted as real rather than a calibration artifact.
+At 4096 B, absolute SpWKit RX statistics changed from median/p95/p99 `62,733 / 77,339 / 97,277` to `27,542.5 / 37,512 / 47,631` TSC ticks. The paired native medians remained close. The controlled component runs also had near-identical calibration floors and independently showed the ~97% reassembly reduction.
 
 **Achievement:** the pathological fragmentation/reassembly cost was removed without changing VSPW-TP wire semantics. Production 4 KiB RX overhead fell by about **58.5%**, while unfragmented payloads remained essentially unchanged.
+
+## POSIX UDP readiness: remove avoidable poll-first work
+
+Issue #204 / PR #206 addressed a second, smaller fixed transport cost. POSIX UDP previously performed an unconditional readiness poll before every send/receive attempt. On hosts exposing `MSG_DONTWAIT`, the backend now attempts optimistic nonblocking `sendto`/`recvfrom` first and falls back to the existing poll/deadline path only on `EAGAIN`/`EWOULDBLOCK`.
+
+The change preserves immediate, finite and infinite timeout behavior, `EINTR` handling, peer/liveness maintenance, fault injection, reordering, and Windows/Winsock behavior. Platforms without `MSG_DONTWAIT` retain the original poll-first path.
+
+Hosted before/after jobs landed on different-speed GitHub runners, so their absolute TSC values are **not** directly comparable. Normalizing each run's paired `SpWKit - native` overhead to its own native median showed a consistent approximately **10-18% relative transport-overhead reduction** across representative TX/RX payloads. This is regression/informational hosted evidence, not a controlled-host universal performance claim.
+
+## Linux DEVICE/VSPD readiness: remove avoidable poll-first record cost
+
+Issue #205 / PR #207 applied the same principle to Linux `SOCK_SEQPACKET` DEVICE/VSPD I/O. The backend attempts optimistic nonblocking `send`/`recv` first and uses `wait_fd()` only when the operation would block. Record atomicity, deadlines, `EINTR`, disconnect handling and immediate-timeout semantics remain unchanged.
+
+The direct VSPD comparator was updated to use the same equivalent readiness strategy so the full `SpWKit - native` comparison remains fair. A separate paired AF_UNIX readiness microbenchmark measures poll-first and optimistic ready-record operations in the same process with alternating sample order.
+
+Hosted final-head readiness measurements (64 warmup / 256 measured) showed:
+
+- TX saving approximately **836-850 TSC ticks**, a **40.8-44.9%** reduction in the raw ready-record operation across 1/64/1024/4096 B;
+- RX saving approximately **813-840 TSC ticks**, a **45.4-51.0%** reduction;
+- all eight representative medians improved.
+
+A fair equivalent-path full DEVICE comparison on the preceding run showed RX SpWKit overhead of only about **+74 to +319 TSC ticks** and TX about **+2.7k to +3.9k ticks** over complete VSPD operations.
+
+These are hosted regression/informational measurements. The important architectural conclusion is that a known avoidable readiness syscall was removed while preserving the observable DEVICE contract; the values are not physical SpaceWire timing claims.
+
+## Profiling campaign metadata and coverage
+
+The v0.6.1 consolidation completes the profiling campaign metadata contract introduced by #171/#173. Result sets now record host/build/counter context explicitly, including OS/kernel, architecture, CPU model where available, compiler/version, build type, git SHA, counter kind/frequency and affinity/priority information when known. Unknown values are recorded as `unknown` rather than guessed.
+
+Backend coverage also distinguishes `measured`, `unsupported-platform`, `not-built`, and `not-implemented-benchmark` states. This allows a campaign to state precisely what was measured and why another backend was absent instead of silently presenting incomplete coverage as success.
 
 ## What remains deliberately outside these results
 
@@ -253,7 +264,9 @@ The profiling campaign achieved more than a set of benchmark tables:
 - it separated cache/DMA/provider work from API abstraction cost on real STM32 hardware;
 - it characterized lifecycle operations and found no meaningful lifecycle bottleneck;
 - it identified the dominant VSPW-TP fragmentation cost quantitatively;
-- it produced a production optimization that reduced **4 KiB VSPW-TP RX overhead by ~58.5%** and the reassembly component by **~96-97%**;
+- it reduced **4 KiB VSPW-TP RX overhead by ~58.5%** and the reassembly component by **~96-97%**;
+- it removed avoidable poll-first work from POSIX UDP and Linux DEVICE/VSPD ready-I/O paths while preserving their timeout/error contracts;
+- it finalized explicit campaign host metadata and backend-coverage classification for reproducible comparisons;
 - it left behind reproducible scripts, schemas, CI mechanics and controlled reference snapshots for future FPGA/ASIC/physical SpaceWire development.
 
 That is the purpose of the profiling infrastructure: **make performance decisions from measured boundaries, preserve comparable evidence, and ensure future hardware integration starts from a software stack whose own costs are already understood.**
