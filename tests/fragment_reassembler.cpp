@@ -107,5 +107,34 @@ int main() {
     assert(reassembly.push(zero_message, bytes.data()) == Result::Invalid);
     assert(!reassembly.active());
 
+    /* Non-overlapping ranges crossing 64-bit coverage-word boundaries use the
+     * fast path and remain reusable after reset. */
+    {
+        using WideReassembler = FragmentReassembler<256u>;
+        using WideResult = WideReassembler::Result;
+        std::array<std::uint8_t, 130> wide_bytes{};
+        WideReassembler wide{};
+        for (std::size_t i = 0u; i < wide_bytes.size(); ++i) {
+            wide_bytes[i] = static_cast<std::uint8_t>((i * 13u + 5u) & 0xffu);
+        }
+
+        Header wide_start = fragment(
+            10u, 0u, 70u, static_cast<std::uint32_t>(wide_bytes.size()),
+            static_cast<std::uint8_t>(eop_ack | FlagFragmentStart));
+        Header wide_end = fragment(
+            10u, 70u, 60u, static_cast<std::uint32_t>(wide_bytes.size()),
+            static_cast<std::uint8_t>(eop_ack | FlagFragmentEnd));
+        assert(wide.push(wide_start, wide_bytes.data()) == WideResult::Accepted);
+        assert(wide.push(wide_end, wide_bytes.data() + 70u) == WideResult::Complete);
+        assert(std::memcmp(wide.data(), wide_bytes.data(), wide_bytes.size()) == 0);
+
+        wide.reset();
+        wide_start.message_id = 11u;
+        wide_end.message_id = 11u;
+        assert(wide.push(wide_end, wide_bytes.data() + 70u) == WideResult::Accepted);
+        assert(wide.push(wide_start, wide_bytes.data()) == WideResult::Complete);
+        assert(std::memcmp(wide.data(), wide_bytes.data(), wide_bytes.size()) == 0);
+    }
+
     return 0;
 }
