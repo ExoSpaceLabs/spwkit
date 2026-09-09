@@ -1,5 +1,6 @@
 name: Bootstrap DEVICE benchmark fairness fix
 
+# One-shot guarded benchmark patch; removed before review.
 on:
   pull_request:
     branches:
