@@ -63,10 +63,10 @@ typedef struct spw_udp_fault_rule {
 /**
  * Configuration for the distributed VSPW-TP/UDP backend.
  *
- * Addresses are copied by libspwkit during open. IPv4 numeric addresses are
- * used in v0.2 so backend construction remains deterministic and does not
- * depend on DNS. Applications still communicate exclusively through the
- * normal spw_port_* API.
+ * Addresses are copied by libspwkit during open. Numeric IPv4 addresses are
+ * used so backend construction remains deterministic and does not depend on
+ * DNS. Applications still communicate exclusively through the normal
+ * spw_port_* API.
  *
  * Reliability is transport-level and cooperative: libspwkit retains at most
  * one unacknowledged logical outbound event, retransmits it while API calls

@@ -110,4 +110,6 @@ A current `spw_buffer_t` represents one contiguous logical packet payload. Scatt
 
 ## Verification boundary
 
-Hosted simulator/reference-driver tests verify ownership state, bounded resources, pointer clearing, metadata and completion semantics. They do not prove physical DMA coherency on a specific MCU or FPGA. STM32H755 cache/DMA runtime validation remains separate evidence.
+Hosted simulator/reference-driver tests verify ownership state, bounded resources, pointer clearing, metadata and completion semantics. Separate physical NUCLEO-H755ZI-Q qualification has also exercised the same public ownership boundary using real DMA2 and explicit Cortex-M7 cache clean/invalidate operations, including copied and zero-copy packet paths and stale-buffer invalidation after reset.
+
+That physical-board result is MCU DMA/cache ownership evidence. It does not prove a SpaceWire controller, codec, Data-Strobe/PHY, cable, or electrical link.

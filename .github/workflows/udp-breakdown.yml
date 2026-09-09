@@ -1,0 +1,106 @@
+name: UDP profiling breakdown
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'src/backends/ethernet/**'
+      - 'src/profiling/**'
+      - 'benchmarks/profile_udp_breakdown.c'
+      - 'benchmarks/run_udp_breakdown.sh'
+      - 'benchmarks/summarize_udp_breakdown.py'
+      - 'benchmarks/CMakeLists.txt'
+      - '.github/workflows/udp-breakdown.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'src/backends/ethernet/**'
+      - 'src/profiling/**'
+      - 'benchmarks/profile_udp_breakdown.c'
+      - 'benchmarks/run_udp_breakdown.sh'
+      - 'benchmarks/summarize_udp_breakdown.py'
+      - 'benchmarks/CMakeLists.txt'
+      - '.github/workflows/udp-breakdown.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic-smoke:
+    name: VSPW-TP stage-cost diagnostic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build and run diagnostic smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf udp-breakdown-results
+          mkdir -p udp-breakdown-results
+          bash benchmarks/run_udp_breakdown.sh \
+            --warmup 2 \
+            --iterations 8 \
+            --payloads '64 1201 4096' \
+            --build-dir build/profile-udp-breakdown-ci \
+            --output-root udp-breakdown-results \
+            | tee udp-breakdown-run.log
+
+      - name: Validate attribution coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          result_dir="$(find udp-breakdown-results -mindepth 1 -maxdepth 1 -type d -name 'udp-breakdown-*' | head -n 1)"
+          [[ -n "$result_dir" ]]
+          python3 - "$result_dir" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          rows = [json.loads(line) for line in (root / 'breakdown.jsonl').read_text().splitlines() if line.strip()]
+          assert rows
+          stages = {(row['payload_bytes'], row['stage']) for row in rows}
+          common = {
+              'sendto', 'poll_sendto', 'prepare_poll_sendto',
+              'header_encode', 'header_decode',
+              'recvfrom', 'poll_recvfrom', 'source_validate',
+              'clock_gettime', 'copy_once', 'copy_twice',
+              'ack_encode_validate_send',
+          }
+          for payload in (64, 1201, 4096):
+              assert common <= {stage for size, stage in stages if size == payload}
+          for payload in (1201, 4096):
+              fragment_stages = {stage for size, stage in stages if size == payload}
+              assert {'reassembly_push', 'reassembly_reset_1m', 'reassembly_delivery'} <= fragment_stages
+          assert all(row['diagnostic_only'] is True for row in rows)
+          assert all(row['additive_to_api_interval'] is False for row in rows)
+          summary = (root / 'summary.txt').read_text()
+          assert '128KiB bitmap' in summary
+          assert 'not additive to the public API interval' in summary
+          PY
+
+      - name: Publish diagnostic summary
+        shell: bash
+        run: |
+          result_dir="$(find udp-breakdown-results -mindepth 1 -maxdepth 1 -type d -name 'udp-breakdown-*' | head -n 1)"
+          {
+            echo '### VSPW-TP UDP diagnostic smoke'
+            echo
+            echo '```text'
+            cat "$result_dir/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diagnostic artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-udp-breakdown-${{ github.run_id }}
+          path: |
+            udp-breakdown-results/
+            udp-breakdown-run.log
+          if-no-files-found: error
+          retention-days: 14

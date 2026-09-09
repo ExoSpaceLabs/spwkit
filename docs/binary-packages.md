@@ -2,15 +2,15 @@
 
 SpWKit remains buildable from source through ordinary CMake install/export flows. Stable tags also publish precompiled Linux artifacts, but only for architectures with target-specific package installation and execution evidence in CI.
 
-## v0.6.0 artifacts
+## v0.6.1 artifacts
 
-The `v0.6.0` Release workflow publishes one Debian package and matching SHA-256 sidecar for each validated hosted architecture:
+The `v0.6.1` Release workflow publishes one Debian package and matching SHA-256 sidecar for each validated hosted architecture:
 
 ```text
-spwkit_0.6.0-1_amd64.deb
-spwkit_0.6.0-1_arm64.deb
-spwkit_0.6.0-1_armhf.deb
-spwkit_0.6.0-1_riscv64.deb
+spwkit_0.6.1-1_amd64.deb
+spwkit_0.6.1-1_arm64.deb
+spwkit_0.6.1-1_armhf.deb
+spwkit_0.6.1-1_riscv64.deb
 ```
 
 Architecture mapping:
@@ -76,7 +76,7 @@ Stable releases publish one multi-architecture runtime/toolbox image:
 ghcr.io/exospacelabs/spwkit:vX.Y.Z
 ```
 
-`v0.6.0` targets:
+`v0.6.1` targets:
 
 ```text
 linux/amd64
@@ -114,7 +114,8 @@ This embedded evidence is separate from physical SpaceWire PHY/electrical intero
 There are two lifecycle workflows relevant to publication:
 
 - ordinary pushes run the consolidated `CI` workflow;
-- pushing a `vX.Y.Z` tag runs the `Release` workflow.
+- pushing a `vX.Y.Z` tag runs the `Release` workflow;
+- `workflow_dispatch` is available as an exact-tag recovery/dispatch path and is subject to the same release-boundary validation.
 
 The Release workflow checks out the exact tag and validates:
 
@@ -128,7 +129,7 @@ After validation, the four DEBs are built in parallel. GitHub Release publicatio
 
 The GHCR multi-platform image is published independently. A container-image failure makes the Release workflow red but does not suppress otherwise verified Debian release assets.
 
-The current workflow is intentionally tag-push driven. It does not expose a manual `workflow_dispatch` release path.
+Normal release publication remains exact-tag driven. Manual dispatch exists for exact-tag recovery/re-execution; it is not a bypass around tag/project/main alignment or the immutable-release checks.
 
 ## Hardware-driver scope
 

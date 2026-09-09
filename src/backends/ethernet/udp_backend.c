@@ -9,6 +9,7 @@
 #include "backends/ethernet/fragment_reassembler.h"
 #include "backends/ethernet/virtual_link_timing.h"
 #include "backends/ethernet/vspw_tp.h"
+#include "profiling/profile.h"
 
 #include <spwkit/udp.h>
 
@@ -424,26 +425,10 @@ static spw_result_t send_datagram_raw(spw_udp_backend_t* backend,
                                       const uint8_t* bytes,
                                       size_t size,
                                       spw_timeout_us_t timeout_us) {
-    struct pollfd descriptor;
     struct sockaddr_in remote;
-    int ready;
-    ssize_t sent;
 
     if (backend->socket_fd < 0) {
         return SPW_ERR_INVALID_STATE;
-    }
-
-    memset(&descriptor, 0, sizeof(descriptor));
-    descriptor.fd = backend->socket_fd;
-    descriptor.events = POLLOUT;
-    do {
-        ready = poll(&descriptor, 1, timeout_ms(timeout_us));
-    } while (ready < 0 && errno == EINTR);
-    if (ready == 0) {
-        return SPW_ERR_TIMEOUT;
-    }
-    if (ready < 0 || (descriptor.revents & POLLOUT) == 0) {
-        return SPW_ERR_BACKEND;
     }
 
     memset(&remote, 0, sizeof(remote));
@@ -453,9 +438,71 @@ static spw_result_t send_datagram_raw(spw_udp_backend_t* backend,
         return SPW_ERR_BACKEND;
     }
 
-    sent = sendto(backend->socket_fd, bytes, size, 0,
-                  (const struct sockaddr*)&remote, sizeof(remote));
-    return sent == (ssize_t)size ? SPW_OK : SPW_ERR_BACKEND;
+#if defined(MSG_DONTWAIT)
+    {
+        spw_udp_deadline_t deadline = deadline_make(timeout_us);
+        for (;;) {
+            const ssize_t sent = sendto(backend->socket_fd, bytes, size,
+                                        MSG_DONTWAIT,
+                                        (const struct sockaddr*)&remote,
+                                        sizeof(remote));
+            if (sent == (ssize_t)size) {
+                return SPW_OK;
+            }
+            if (sent >= 0) {
+                return SPW_ERR_BACKEND;
+            }
+            if (errno == EINTR) {
+                if (!deadline.infinite && deadline_expired(&deadline)) {
+                    return SPW_ERR_TIMEOUT;
+                }
+                continue;
+            }
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                return SPW_ERR_BACKEND;
+            }
+
+            {
+                struct pollfd descriptor;
+                int ready;
+                memset(&descriptor, 0, sizeof(descriptor));
+                descriptor.fd = backend->socket_fd;
+                descriptor.events = POLLOUT;
+                do {
+                    ready = poll(&descriptor, 1,
+                                 timeout_ms(deadline_remaining(&deadline)));
+                } while (ready < 0 && errno == EINTR);
+                if (ready == 0) {
+                    return SPW_ERR_TIMEOUT;
+                }
+                if (ready < 0 || (descriptor.revents & POLLOUT) == 0) {
+                    return SPW_ERR_BACKEND;
+                }
+            }
+        }
+    }
+#else
+    {
+        struct pollfd descriptor;
+        int ready;
+        ssize_t sent;
+        memset(&descriptor, 0, sizeof(descriptor));
+        descriptor.fd = backend->socket_fd;
+        descriptor.events = POLLOUT;
+        do {
+            ready = poll(&descriptor, 1, timeout_ms(timeout_us));
+        } while (ready < 0 && errno == EINTR);
+        if (ready == 0) {
+            return SPW_ERR_TIMEOUT;
+        }
+        if (ready < 0 || (descriptor.revents & POLLOUT) == 0) {
+            return SPW_ERR_BACKEND;
+        }
+        sent = sendto(backend->socket_fd, bytes, size, 0,
+                      (const struct sockaddr*)&remote, sizeof(remote));
+        return sent == (ssize_t)size ? SPW_OK : SPW_ERR_BACKEND;
+    }
+#endif
 }
 
 static spw_result_t wait_transport_fault_delay(uint32_t delay_us,
@@ -861,6 +908,7 @@ static spw_result_t process_data(spw_udp_backend_t* backend,
         backend->pending_packet_size = header->payload_size;
         backend->pending_packet_terminator = terminator;
         backend->pending_packet_valid = true;
+        SPW_PROFILE_RX_PROVIDER_BOUNDARY();
         if (ack_required) {
             remember_delivered(backend, SPW_VSPW_TP_DATA, header->message_id);
             (void)send_ack(backend, header->message_id);
@@ -897,6 +945,7 @@ static spw_result_t process_data(spw_udp_backend_t* backend,
             ? SPW_TERMINATOR_EEP
             : SPW_TERMINATOR_EOP;
     backend->pending_packet_valid = true;
+    SPW_PROFILE_RX_PROVIDER_BOUNDARY();
     {
         const uint32_t completed_message_id = backend->reassembly.message_id;
         const bool completed_ack_required = backend->reassembly.ack_required;
@@ -932,7 +981,51 @@ static spw_result_t pump_one(spw_udp_backend_t* backend,
         service_slice = min_timeout(service_slice, ack_slice);
     }
     wait_timeout = min_timeout(timeout_us, service_slice);
+#if defined(MSG_DONTWAIT)
+    {
+        spw_udp_deadline_t receive_deadline = deadline_make(wait_timeout);
+        for (;;) {
+            memset(&source, 0, sizeof(source));
+            source_size = sizeof(source);
+            received = recvfrom(backend->socket_fd, backend->rx_datagram,
+                                sizeof(backend->rx_datagram), MSG_DONTWAIT,
+                                (struct sockaddr*)&source, &source_size);
+            if (received >= 0) {
+                wait_result = SPW_OK;
+                break;
+            }
+            if (errno == EINTR) {
+                if (!receive_deadline.infinite &&
+                    deadline_expired(&receive_deadline)) {
+                    wait_result = SPW_ERR_TIMEOUT;
+                    break;
+                }
+                continue;
+            }
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                wait_result = SPW_ERR_BACKEND;
+                break;
+            }
+            wait_result = wait_readable(
+                backend, deadline_remaining(&receive_deadline));
+            if (wait_result != SPW_OK) {
+                break;
+            }
+        }
+    }
+#else
     wait_result = wait_readable(backend, wait_timeout);
+    if (wait_result == SPW_OK) {
+        memset(&source, 0, sizeof(source));
+        source_size = sizeof(source);
+        received = recvfrom(backend->socket_fd, backend->rx_datagram,
+                            sizeof(backend->rx_datagram), 0,
+                            (struct sockaddr*)&source, &source_size);
+        if (received < 0) {
+            return errno == EINTR ? SPW_ERR_TIMEOUT : SPW_ERR_BACKEND;
+        }
+    }
+#endif
     if (wait_result == SPW_ERR_TIMEOUT) {
         maybe_send_keepalive(backend);
         refresh_peer_state(backend);
@@ -943,15 +1036,6 @@ static spw_result_t pump_one(spw_udp_backend_t* backend,
     }
     if (wait_result != SPW_OK) {
         return wait_result;
-    }
-
-    memset(&source, 0, sizeof(source));
-    source_size = sizeof(source);
-    received = recvfrom(backend->socket_fd, backend->rx_datagram,
-                        sizeof(backend->rx_datagram), 0,
-                        (struct sockaddr*)&source, &source_size);
-    if (received < 0) {
-        return errno == EINTR ? SPW_ERR_TIMEOUT : SPW_ERR_BACKEND;
     }
     if (!source_matches(&backend->config, &source)) {
         return SPW_OK;
@@ -1252,6 +1336,7 @@ static spw_result_t udp_send(void* context,
     spw_result_t result;
     spw_terminator_t effective_terminator;
 
+    SPW_PROFILE_TX_BACKEND_ENTRY();
     if ((packet->length != 0u && packet->data == NULL) ||
         packet->length > SPW_UDP_BACKEND_MAX_PACKET_SIZE ||
         !valid_terminator(packet->terminator)) {
@@ -1296,11 +1381,14 @@ static spw_result_t udp_send(void* context,
     backend->pending_tx_last_send_us = 0u;
 
     (void)send_keepalive(backend, SPW_TIMEOUT_IMMEDIATE);
+    SPW_PROFILE_TX_PROVIDER_ENTRY();
     result = transmit_pending(backend, deadline_remaining(&deadline));
     if (result != SPW_OK) {
         clear_pending_tx(backend);
         return result;
     }
+    /* All fragments of this logical packet have been handed to UDP. */
+    SPW_PROFILE_TX_PROVIDER_BOUNDARY();
 
     ++backend->statistics.tx_packets;
     backend->statistics.tx_bytes += packet->length;
@@ -1353,8 +1441,10 @@ static spw_result_t udp_receive(void* context,
                backend->pending_packet_size);
     }
     backend->pending_packet_valid = false;
+    SPW_PROFILE_RX_PROVIDER_RETURN();
     ++backend->statistics.rx_packets;
     backend->statistics.rx_bytes += packet->length;
+    SPW_PROFILE_RX_BACKEND_RETURN();
     return SPW_OK;
 }
 

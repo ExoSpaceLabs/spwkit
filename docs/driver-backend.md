@@ -132,9 +132,15 @@ The main v0.6 CI also covers:
 
 ## STM32H755 evidence boundary
 
-The STM32H755 task is intended to validate the public driver/DMA boundary on real Cortex-M7 silicon, including actual memory-to-memory DMA and explicit cache/coherency handling. It is **not** yet counted as runtime evidence until the board/test architecture is agreed and executed.
+The physical NUCLEO-H755ZI-Q qualification has completed successfully. It validates the public driver/DMA boundary on real Cortex-M7 silicon using DMA2 memory-to-memory transfers, DMA-visible D2 SRAM, explicit D-cache clean/invalidate synchronization, copied and zero-copy paths, and reset-time stale-buffer invalidation.
 
-The STM32 test is not a SpaceWire PHY test. It proves driver ownership/cache behavior relevant to a future controller integration.
+The accepted phase-7 record reports `magic=0x53505736`, `phase=0x0000700d`, `result=0`, two DMA transfers, two TX packets, two RX packets, synchronization in both directions, and `reset_stale_invalidated=1` (`RESULT: PASS`).
+
+This is physical MCU driver/DMA/cache evidence. It is **not** SpaceWire controller, codec, Data-Strobe, PHY, cable, or electrical interoperability evidence.
+
+## Profiling evidence
+
+Post-v0.6 profiling has also characterized the driver boundary on both controlled x86 and the NUCLEO-H755ZI-Q. The copied DRIVER abstraction is thin relative to provider/copy costs, while zero-copy crossover depends on payload size and the ownership lifecycle being measured. See [`profiling-results.md`](profiling-results.md) for the accepted reference data and its interpretation limits.
 
 ## FPGA/public stop line
 

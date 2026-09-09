@@ -93,15 +93,16 @@ The simulator and UDP backends are hosted software/runtime paths and may use hos
 
 The freestanding/embedded portability baseline disables hosted backends and uses caller-owned construction. HardRT Cortex-M7 CI additionally demonstrates complete no-heap compile/link integration with hosted transports disabled.
 
-## CI verification
+## CI and physical-board verification
 
-Current CI includes:
+Current evidence includes:
 
 - pure-C static/shared package consumers;
 - explicit no-heap `spw_port_open_in_place()` behavior;
 - C++ wrapper/no-heap compilation without exceptions/RTTI;
 - freestanding C archive checks;
 - Cortex-M7/HardRT compile-link evidence;
-- v0.6 driver and DMA ownership tests with bounded wrapper storage.
+- v0.6 driver and DMA ownership tests with bounded wrapper storage;
+- separate physical NUCLEO-H755ZI-Q execution using real DMA2 and explicit Cortex-M7 D-cache clean/invalidate synchronization through the public driver boundary.
 
-These are software memory/portability claims. They do not prove cache coherency on a specific MCU or FPGA. STM32H755 DMA/cache behavior remains a separate runtime evidence item.
+The physical STM32 qualification confirms the ownership/cache model on real MCU silicon, including reset-time stale-buffer invalidation. It remains distinct from physical SpaceWire controller, PHY, Data-Strobe, cable, or electrical interoperability evidence.

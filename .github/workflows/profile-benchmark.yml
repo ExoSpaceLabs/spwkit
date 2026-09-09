@@ -1,0 +1,203 @@
+name: Profile benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: 'Profiling cases: all or space/comma-separated names'
+        required: true
+        default: all
+        type: string
+      warmup:
+        description: Warmup iterations per payload
+        required: true
+        default: '256'
+        type: string
+      iterations:
+        description: Measured iterations per payload (1..4096)
+        required: true
+        default: '1024'
+        type: string
+      payloads:
+        description: Space/comma-separated payload sizes in bytes (0..4096)
+        required: true
+        default: '0 1 8 64 256 1024 4096'
+        type: string
+      counter_hz:
+        description: Optional architectural counter frequency override; 0 means unknown/platform-reported
+        required: true
+        default: '0'
+        type: string
+      settle_seconds:
+        description: Seconds to settle after each clean build before timing
+        required: true
+        default: '1'
+        type: string
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'benchmarks/**'
+      - 'scripts/stm32h755_board_test.sh'
+      - 'CMakeLists.txt'
+      - '.github/workflows/profile-benchmark.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'benchmarks/**'
+      - 'scripts/stm32h755_board_test.sh'
+      - 'CMakeLists.txt'
+      - '.github/workflows/profile-benchmark.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-benchmark:
+    name: Hosted benchmark campaign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BENCHMARK_CASES: ${{ github.event.inputs.cases || 'all' }}
+      BENCHMARK_WARMUP: ${{ github.event.inputs.warmup || '64' }}
+      BENCHMARK_ITERATIONS: ${{ github.event.inputs.iterations || '256' }}
+      BENCHMARK_PAYLOADS: ${{ github.event.inputs.payloads || '0 64 1024 4096' }}
+      BENCHMARK_COUNTER_HZ: ${{ github.event.inputs.counter_hz || '0' }}
+      BENCHMARK_SETTLE_SECONDS: ${{ github.event.inputs.settle_seconds || '0' }}
+      BENCHMARK_RESULT_TYPE: github-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run clean serial benchmark campaign
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Match the common Linux user-stack limit that exposed the UDP
+          # benchmark fixture stack overflow on a controlled local host.
+          ulimit -s 8192
+          rm -rf benchmark-results
+          mkdir -p benchmark-results
+          result_dir="$(benchmarks/run_profile_campaign.sh \
+            --cases "${BENCHMARK_CASES}" \
+            --warmup "${BENCHMARK_WARMUP}" \
+            --iterations "${BENCHMARK_ITERATIONS}" \
+            --payloads "${BENCHMARK_PAYLOADS}" \
+            --counter-hz "${BENCHMARK_COUNTER_HZ}" \
+            --settle-seconds "${BENCHMARK_SETTLE_SECONDS}" \
+            --type "${BENCHMARK_RESULT_TYPE}" \
+            --build-root build/profile-campaign \
+            --output-root benchmark-results | tail -n 1)"
+          [[ -d "$result_dir" ]] || {
+            echo "benchmark result directory was not produced: $result_dir" >&2
+            exit 1
+          }
+          printf 'BENCHMARK_RESULT_DIR=%s\n' "$result_dir" >> "$GITHUB_ENV"
+          printf 'Benchmark result directory: %s\n' "$result_dir"
+
+      - name: Validate machine-readable campaign
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 benchmarks/validate_profile_campaign.py \
+            "${BENCHMARK_RESULT_DIR}" \
+            --expected-type github-hosted \
+            --expected-measured 12
+
+      - name: Benchmark DEVICE ready-record strategies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S benchmarks -B build/device-readiness \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPWKIT_BENCHMARK_COUNTER_HZ="${BENCHMARK_COUNTER_HZ}"
+          cmake --build build/device-readiness \
+            --target spwkit_profile_device_readiness --parallel
+
+          output="${BENCHMARK_RESULT_DIR}/comparison/device_readiness.jsonl"
+          : > "$output"
+          for direction in tx rx; do
+            for payload in 1 64 1024 4096; do
+              build/device-readiness/spwkit_profile_device_readiness \
+                --direction "$direction" \
+                --payload "$payload" \
+                --warmup "${BENCHMARK_WARMUP}" \
+                --iterations "${BENCHMARK_ITERATIONS}" >> "$output"
+            done
+          done
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ['BENCHMARK_RESULT_DIR'])
+          path = root / 'comparison' / 'device_readiness.jsonl'
+          rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+          if len(rows) != 8:
+              raise SystemExit(f'expected 8 DEVICE readiness rows, found {len(rows)}')
+          non_improving = [row for row in rows if row['delta']['median_ticks'] >= 0]
+          if non_improving:
+              details = ', '.join(
+                  f"{row['direction']}/{row['payload_bytes']}B={row['delta']['median_ticks']:.0f}"
+                  for row in non_improving)
+              raise SystemExit(f'optimistic DEVICE readiness did not improve every median: {details}')
+
+          with (root / 'summary.txt').open('a') as summary:
+              summary.write('\nDEVICE AF_UNIX readiness: poll-first vs optimistic ready path\n')
+              summary.write('----------------------------------------------------------------\n')
+              summary.write('Direction  Payload   Poll med   Opt med   Opt-Poll   Change\n')
+              for row in rows:
+                  poll = row['poll_first_statistics']['median']
+                  opt = row['optimistic_statistics']['median']
+                  delta = row['delta']['median_ticks']
+                  percent = row['delta']['median_percent']
+                  summary.write(
+                      f"{row['direction']:>9}  {row['payload_bytes']:>6} B"
+                      f"  {poll:>9.0f}  {opt:>8.0f}  {delta:>9.0f}  {percent:>6.1f}%\n")
+          PY
+
+      - name: Record runner metadata
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ['BENCHMARK_RESULT_DIR'])
+          metadata = {
+              'schema': 'spwkit.profile.run.v1',
+              'git_sha': os.environ['GITHUB_SHA'],
+              'git_ref': os.environ['GITHUB_REF'],
+              'github_event': os.environ['GITHUB_EVENT_NAME'],
+              'runner': 'github-hosted/ubuntu-24.04',
+              'result_directory_name': root.name,
+              'authoritative_performance_result': False,
+              'note': 'GitHub-hosted timing is informational; use controlled/local or physical-target campaigns for performance claims.'
+          }
+          (root / 'run-metadata.json').write_text(json.dumps(metadata, indent=2) + '\n')
+          PY
+
+      - name: Publish summary
+        shell: bash
+        run: |
+          {
+            echo '### SpWKit hosted profiling campaign'
+            echo
+            echo '```text'
+            cat "${BENCHMARK_RESULT_DIR}/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-profile-results-${{ github.run_id }}
+          path: benchmark-results/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,45 @@
+name: Lifecycle profiling
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    name: LOOPBACK lifecycle mechanics
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run lifecycle benchmark smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          benchmarks/run_lifecycle_profile.sh \
+            --warmup 8 \
+            --iterations 32 \
+            --output-dir "$GITHUB_WORKSPACE/build/profile-results/lifecycle-ci"
+
+      - name: Validate schemas and operation set
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('build/profile-results/lifecycle-ci')
+          calibration = json.loads((root / 'calibration.json').read_text())
+          assert calibration['schema'] == 'spwkit.profile.calibration.v1'
+          rows = [json.loads(x) for x in (root / 'lifecycle.jsonl').read_text().splitlines() if x.strip()]
+          assert [r['operation'] for r in rows] == [
+              'open_heap', 'open_in_place', 'start', 'stop', 'reset',
+              'close_in_place', 'close_heap'
+          ]
+          assert all(r['schema'] == 'spwkit.profile.lifecycle.v1' for r in rows)
+          assert all(r['backend'] == 'loopback' for r in rows)
+          assert all(r['counter_floor_subtracted'] is False for r in rows)
+          PY

@@ -42,6 +42,10 @@ SECTIONS
         . = ALIGN(8);
         __data_start__ = .;
         *(.data*)
+        /* Defensive startup support: if a future dependency emits GOT data,
+         * initialize it with the ordinary data image instead of relying on
+         * debugger-preserved SRAM contents across reset. */
+        *(.got*)
         __data_end__ = .;
     } > AXIRAM AT > FLASH
     __data_load__ = LOADADDR(.data);

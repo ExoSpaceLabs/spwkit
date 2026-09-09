@@ -1,0 +1,241 @@
+name: Profiling
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  paired-probes:
+    name: Paired probes / ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: TX API to backend
+            start: SPW_PROFILE_ID_TX_API_ENTRY
+            end: SPW_PROFILE_ID_TX_BACKEND_ENTRY
+          - name: TX backend to provider
+            start: SPW_PROFILE_ID_TX_BACKEND_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_ENTRY
+          - name: TX provider to native boundary
+            start: SPW_PROFILE_ID_TX_PROVIDER_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+          - name: TX API to provider boundary
+            start: SPW_PROFILE_ID_TX_API_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+          - name: RX native boundary to provider return
+            start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+            end: SPW_PROFILE_ID_RX_PROVIDER_RETURN
+          - name: RX provider return to backend return
+            start: SPW_PROFILE_ID_RX_PROVIDER_RETURN
+            end: SPW_PROFILE_ID_RX_BACKEND_RETURN
+          - name: RX backend return to API
+            start: SPW_PROFILE_ID_RX_BACKEND_RETURN
+            end: SPW_PROFILE_ID_RX_API_RETURN
+          - name: RX provider boundary to API
+            start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+            end: SPW_PROFILE_ID_RX_API_RETURN
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure selected pair
+        run: >-
+          cmake -S . -B build-profile
+          -DSPWKIT_ENABLE_PROFILING=ON
+          -DSPWKIT_PROFILE_START=${{ matrix.start }}
+          -DSPWKIT_PROFILE_END=${{ matrix.end }}
+          -DSPWKIT_BUILD_CPP_TESTS=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+
+      - name: Build profiling smoke target
+        run: cmake --build build-profile --target spwkit_profile_probe_smoke --parallel 2
+
+      - name: Execute selected pair
+        run: ctest --test-dir build-profile -R '^profiling_pair_smoke$' --output-on-failure
+
+  zero-copy-paired-probes:
+    name: Paired probes / DRIVER zero-copy TX
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Exercise zero-copy ownership ranges
+        shell: bash
+        run: |
+          set -euo pipefail
+          pairs=(
+            "acquire-provider:SPW_PROFILE_ID_TX_ZC_ACQUIRE_PROVIDER_ENTRY:SPW_PROFILE_ID_TX_ZC_ACQUIRE_PROVIDER_RETURN"
+            "acquire-total:SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_ENTRY:SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_RETURN"
+            "submit-sync:SPW_PROFILE_ID_TX_ZC_SUBMIT_SYNC_ENTRY:SPW_PROFILE_ID_TX_ZC_SUBMIT_SYNC_RETURN"
+            "submit-provider-native:SPW_PROFILE_ID_TX_ZC_SUBMIT_PROVIDER_ENTRY:SPW_PROFILE_ID_TX_ZC_SUBMIT_PROVIDER_BOUNDARY"
+            "submit-total:SPW_PROFILE_ID_TX_ZC_SUBMIT_API_ENTRY:SPW_PROFILE_ID_TX_ZC_SUBMIT_API_RETURN"
+            "reclaim-native-provider:SPW_PROFILE_ID_TX_ZC_RECLAIM_PROVIDER_BOUNDARY:SPW_PROFILE_ID_TX_ZC_RECLAIM_PROVIDER_RETURN"
+            "reclaim-total:SPW_PROFILE_ID_TX_ZC_RECLAIM_API_ENTRY:SPW_PROFILE_ID_TX_ZC_RECLAIM_API_RETURN"
+            "release-provider:SPW_PROFILE_ID_TX_ZC_RELEASE_PROVIDER_ENTRY:SPW_PROFILE_ID_TX_ZC_RELEASE_PROVIDER_RETURN"
+            "release-total:SPW_PROFILE_ID_TX_ZC_RELEASE_API_ENTRY:SPW_PROFILE_ID_TX_ZC_RELEASE_API_RETURN"
+          )
+          for pair in "${pairs[@]}"; do
+            IFS=: read -r name start end <<<"$pair"
+            build="build-profile-zc-${name}"
+            cmake -S . -B "$build" \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START="$start" \
+              -DSPWKIT_PROFILE_END="$end" \
+              -DSPWKIT_BUILD_CPP_TESTS=OFF \
+              -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+            cmake --build "$build" --target spwkit_profile_probe_smoke --parallel 2
+            ctest --test-dir "$build" -R '^profiling_pair_smoke$' --output-on-failure
+          done
+
+  zero-copy-rx-paired-probes:
+    name: Paired probes / DRIVER zero-copy RX
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Exercise RX zero-copy ownership ranges
+        shell: bash
+        run: |
+          set -euo pipefail
+          pairs=(
+            "acquire-provider-ready:SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_ENTRY:SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_BOUNDARY"
+            "acquire-sync:SPW_PROFILE_ID_RX_ZC_ACQUIRE_SYNC_ENTRY:SPW_PROFILE_ID_RX_ZC_ACQUIRE_SYNC_RETURN"
+            "acquire-total:SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_ENTRY:SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_RETURN"
+            "release-provider:SPW_PROFILE_ID_RX_ZC_RELEASE_PROVIDER_ENTRY:SPW_PROFILE_ID_RX_ZC_RELEASE_PROVIDER_RETURN"
+            "release-total:SPW_PROFILE_ID_RX_ZC_RELEASE_API_ENTRY:SPW_PROFILE_ID_RX_ZC_RELEASE_API_RETURN"
+          )
+          for pair in "${pairs[@]}"; do
+            IFS=: read -r name start end <<<"$pair"
+            build="build-profile-zc-rx-${name}"
+            cmake -S . -B "$build" \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START="$start" \
+              -DSPWKIT_PROFILE_END="$end" \
+              -DSPWKIT_BUILD_CPP_TESTS=OFF \
+              -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+            cmake --build "$build" --target spwkit_profile_probe_smoke --parallel 2
+            ctest --test-dir "$build" -R '^profiling_pair_smoke$' --output-on-failure
+          done
+
+  counter-metadata:
+    name: Counter metadata override
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure known counter frequency
+        env:
+          CFLAGS: -DSPWKIT_PROFILE_COUNTER_HZ=123456789
+        run: >-
+          cmake -S . -B build-counter-metadata
+          -DSPWKIT_ENABLE_PROFILING=ON
+          -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY
+          -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_BACKEND_ENTRY
+          -DSPWKIT_BUILD_CPP_TESTS=OFF
+          -DSPWKIT_BUILD_CPP_EXAMPLES=OFF
+
+      - name: Build and verify metadata
+        run: |
+          cmake --build build-counter-metadata --target spwkit_profile_probe_smoke --parallel 2
+          ctest --test-dir build-counter-metadata -R '^profiling_pair_smoke$' --output-on-failure
+
+  cortex-m7-counter:
+    name: Cortex-M7 DWT profiling build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Arm GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi \
+            libnewlib-arm-none-eabi
+
+      - name: Cross-build profiling-enabled library
+        shell: bash
+        env:
+          CFLAGS: -DSPWKIT_PROFILE_COUNTER_HZ=64000000
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-profile-cortex-m7 \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DSPWKIT_ENABLE_PROFILING=ON \
+            -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+            -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_BACKEND_ENTRY \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF
+          cmake --build build-profile-cortex-m7 --parallel 2
+          arm-none-eabi-nm build-profile-cortex-m7/libspwkit.a | grep -q 'spw_profile_prepare'
+
+  invalid-pairs:
+    name: Reject invalid probe pairs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Reject identical probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cmake -S . -B build-invalid-same \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+              -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_API_ENTRY; then
+            echo 'identical profiling probes were incorrectly accepted' >&2
+            exit 1
+          fi
+
+      - name: Reject cross-domain probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cmake -S . -B build-invalid-domain \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+              -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_RX_API_RETURN; then
+            echo 'cross-domain profiling probes were incorrectly accepted' >&2
+            exit 1
+          fi
+
+      - name: Reject cross TX zero-copy operation probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cmake -S . -B build-invalid-zc-domain \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_ENTRY \
+              -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_ZC_SUBMIT_API_RETURN; then
+            echo 'cross-operation TX zero-copy profiling probes were incorrectly accepted' >&2
+            exit 1
+          fi
+
+      - name: Reject cross RX zero-copy operation probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cmake -S . -B build-invalid-zc-rx-domain \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_ENTRY \
+              -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_RX_ZC_RELEASE_API_RETURN; then
+            echo 'cross-operation RX zero-copy profiling probes were incorrectly accepted' >&2
+            exit 1
+          fi

@@ -1,6 +1,6 @@
 # Getting started
 
-This guide targets the current stable `v0.5.0` release while calling out features that exist only on the `develop` v0.6 branch.
+This guide targets the current stable `v0.6.1` release. v0.6.1 preserves the v0.6 public application/backend contract while consolidating the completed profiling/performance work and documentation.
 
 ## Choose how you want to run SpaceWire software
 
@@ -15,7 +15,7 @@ flowchart TD
     NODE -->|yes| CUSE[spwcuse]
     NODE -->|no| API[Use spw_port_*]
     START --> HW{Hardware/RTOS integration?}
-    HW --> DRIVER[SPW_BACKEND_DRIVER<br/>v0.6 develop]
+    HW --> DRIVER[SPW_BACKEND_DRIVER<br/>v0.6 stable]
 ```
 
 For ordinary application development, start with the copied packet API. Zero-copy is an optional capability that can be introduced later without changing packet semantics.
@@ -42,9 +42,9 @@ cmake -S . -B build-cpp \
 cmake --build build-cpp --parallel
 ```
 
-## Install a stable v0.5 package
+## Install the stable v0.6 package
 
-`v0.5.0` publishes Debian revision `0.5.0-1` for:
+`v0.6.1` publishes Debian revision `0.6.1-1` for:
 
 ```text
 amd64
@@ -56,10 +56,10 @@ riscv64
 Example package names:
 
 ```text
-spwkit_0.5.0-1_amd64.deb
-spwkit_0.5.0-1_arm64.deb
-spwkit_0.5.0-1_armhf.deb
-spwkit_0.5.0-1_riscv64.deb
+spwkit_0.6.1-1_amd64.deb
+spwkit_0.6.1-1_arm64.deb
+spwkit_0.6.1-1_armhf.deb
+spwkit_0.6.1-1_riscv64.deb
 ```
 
 Stable GHCR images are also published for `linux/amd64`, `linux/arm64`, `linux/arm/v7`, and `linux/riscv64`. See [binary packages](binary-packages.md).
@@ -160,7 +160,7 @@ flowchart LR
     REC --> REL[Release or reuse]
 ```
 
-The simulator provides a deterministic software implementation of this ownership contract. The v0.6 driver backend can map the same API onto driver/DMA buffers.
+The simulator provides a deterministic software implementation of this ownership contract. The v0.6 driver backend maps the same API onto driver/DMA buffers.
 
 ## Run distributed virtual SpaceWire
 
@@ -199,7 +199,7 @@ Applications attach through `SPW_BACKEND_DEVICE`. `spwctl` inspects/manages daem
 
 ### Optional `/dev/vspwX`
 
-v0.5 ships `spwcuse` for applications that need a real Linux character device:
+The stable v0.6 line includes `spwcuse` for applications that need a real Linux character device:
 
 ```bash
 cmake -S . -B build-cuse \
@@ -227,28 +227,28 @@ spw_port_open_in_place(&config, workspace, workspace_size, &port);
 
 With `SPWKIT_ENABLE_HEAP=OFF`, `spw_port_open()` is not the construction path; use caller-owned storage.
 
-HardRT `0.4.0` is the currently validated external RTOS baseline. The Cortex-M7 CI fixture is compile/link evidence only, not STM32H755 runtime evidence.
+HardRT `0.4.0` is the currently validated external RTOS baseline. The Cortex-M7 CI fixture is compile/link evidence; a separate physical NUCLEO-H755ZI-Q qualification has also completed using real DMA2 and explicit Cortex-M7 cache synchronization through the public driver boundary. Neither result is physical SpaceWire PHY/electrical HIL.
 
-## v0.6 driver development
+## v0.6 driver backend
 
-The `develop` branch adds `SPW_BACKEND_DRIVER` and its DMA/ownership callback boundary. It is intended for host reference drivers, MCU/RTOS integrations and future FPGA/vendor controllers while keeping application source on the same `spw_port_*`/`spw_buffer_*` API.
+Stable `v0.6.1` includes `SPW_BACKEND_DRIVER` and its DMA/ownership callback boundary. It is intended for host reference drivers, MCU/RTOS integrations and future FPGA/vendor controllers while keeping application source on the same `spw_port_*`/`spw_buffer_*` API.
 
-Do not interpret the existence of that software boundary as proof of a physical SpaceWire controller. STM32H755 runtime DMA/cache validation and physical FPGA/SpaceWire HIL are separate milestones.
+The physical STM32H755 DMA/cache qualification has completed successfully and validates the software ownership/cache boundary on real Cortex-M7 silicon. It does not prove a physical SpaceWire controller, codec, PHY or cable; FPGA/SpaceWire HIL remains a separate future evidence layer.
 
 ## Consume the installed package
 
 C:
 
 ```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.6 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE spwkit::spwkit)
 ```
 
 C++17 wrapper:
 
 ```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.6 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE spwkit::cpp)
 ```
 
-A source build from `develop` reports version `0.6.0`; stable v0.5 package examples intentionally request `0.5`.
+The stable v0.6 package examples request the compatible `0.6` line. v0.6.1 does not intentionally change that public compatibility contract.
