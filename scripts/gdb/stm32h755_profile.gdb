@@ -30,6 +30,7 @@ set $rows=(unsigned int)g_stm32h755_spwkit_profile.row_count
 set $cache=(unsigned int)g_stm32h755_spwkit_profile.cache_valid
 
 printf "PROFILE_META magic=0x%08x version=%u phase=0x%08x result=0x%08x case_id=%u start_id=%u end_id=%u core_hz=%u warmup=%u iterations=%u rows=%u cache_valid=%u\n", $magic, $version, $phase, $result, $case, $start, $end, $hz, $warmup, $iterations, $rows, $cache
+printf "PROFILE_DEBUG sequence=%u delta=%u tx_owner=%u rx_owner=%u transfer_length=%u dma_transfers=%u tx_packets=%u rx_packets=%u\n", (unsigned int)spw_profile_state.sequence, (unsigned int)spw_profile_state.delta, (unsigned int)g_driver.tx_owner, (unsigned int)g_driver.rx_owner, (unsigned int)g_driver.transfer_length, (unsigned int)g_driver.dma_transfers, (unsigned int)g_driver.statistics.tx_packets, (unsigned int)g_driver.statistics.rx_packets
 
 if $magic == 0x53575050 && $version == 1 && $phase == 0x0000700d && $result == 0 && $iterations > 0 && $rows == 5
   printf "RESULT: PASS\n"
