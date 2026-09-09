@@ -108,6 +108,59 @@ jobs:
             --expected-type github-hosted \
             --expected-measured 12
 
+      - name: Benchmark DEVICE ready-record strategies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S benchmarks -B build/device-readiness \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPWKIT_BENCHMARK_COUNTER_HZ="${BENCHMARK_COUNTER_HZ}"
+          cmake --build build/device-readiness \
+            --target spwkit_profile_device_readiness --parallel
+
+          output="${BENCHMARK_RESULT_DIR}/comparison/device_readiness.jsonl"
+          : > "$output"
+          for direction in tx rx; do
+            for payload in 1 64 1024 4096; do
+              build/device-readiness/spwkit_profile_device_readiness \
+                --direction "$direction" \
+                --payload "$payload" \
+                --warmup "${BENCHMARK_WARMUP}" \
+                --iterations "${BENCHMARK_ITERATIONS}" >> "$output"
+            done
+          done
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ['BENCHMARK_RESULT_DIR'])
+          path = root / 'comparison' / 'device_readiness.jsonl'
+          rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+          if len(rows) != 8:
+              raise SystemExit(f'expected 8 DEVICE readiness rows, found {len(rows)}')
+          non_improving = [row for row in rows if row['delta']['median_ticks'] >= 0]
+          if non_improving:
+              details = ', '.join(
+                  f"{row['direction']}/{row['payload_bytes']}B={row['delta']['median_ticks']:.0f}"
+                  for row in non_improving)
+              raise SystemExit(f'optimistic DEVICE readiness did not improve every median: {details}')
+
+          with (root / 'summary.txt').open('a') as summary:
+              summary.write('\nDEVICE AF_UNIX readiness: poll-first vs optimistic ready path\n')
+              summary.write('----------------------------------------------------------------\n')
+              summary.write('Direction  Payload   Poll med   Opt med   Opt-Poll   Change\n')
+              for row in rows:
+                  poll = row['poll_first_statistics']['median']
+                  opt = row['optimistic_statistics']['median']
+                  delta = row['delta']['median_ticks']
+                  percent = row['delta']['median_percent']
+                  summary.write(
+                      f"{row['direction']:>9}  {row['payload_bytes']:>6} B"
+                      f"  {poll:>9.0f}  {opt:>8.0f}  {delta:>9.0f}  {percent:>6.1f}%\n")
+          PY
+
       - name: Record runner metadata
         shell: bash
         run: |
