@@ -154,12 +154,8 @@ static spw_result_t send_record(device_context_t* context,
                                 size_t size,
                                 uint64_t deadline) {
     for (;;) {
-        ssize_t sent;
-        spw_result_t result = wait_fd(context, POLLOUT, deadline);
-        if (result != SPW_OK) {
-            return result;
-        }
-        sent = send(context->fd, data, size, MSG_NOSIGNAL | MSG_DONTWAIT);
+        const ssize_t sent =
+            send(context->fd, data, size, MSG_NOSIGNAL | MSG_DONTWAIT);
         if (sent == (ssize_t)size) {
             return SPW_OK;
         }
@@ -167,7 +163,17 @@ static spw_result_t send_record(device_context_t* context,
             mark_disconnected(context);
             return SPW_ERR_BACKEND;
         }
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+        if (errno == EINTR) {
+            if (deadline != UINT64_MAX && poll_timeout_ms(deadline) == 0) {
+                return SPW_ERR_TIMEOUT;
+            }
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            const spw_result_t result = wait_fd(context, POLLOUT, deadline);
+            if (result != SPW_OK) {
+                return result;
+            }
             continue;
         }
         mark_disconnected(context);
@@ -181,12 +187,7 @@ static spw_result_t receive_record(device_context_t* context,
                                    size_t* out_size,
                                    uint64_t deadline) {
     for (;;) {
-        ssize_t received;
-        spw_result_t result = wait_fd(context, POLLIN, deadline);
-        if (result != SPW_OK) {
-            return result;
-        }
-        received = recv(context->fd, frame, capacity, MSG_DONTWAIT);
+        const ssize_t received = recv(context->fd, frame, capacity, MSG_DONTWAIT);
         if (received > 0) {
             *out_size = (size_t)received;
             return SPW_OK;
@@ -195,7 +196,17 @@ static spw_result_t receive_record(device_context_t* context,
             mark_disconnected(context);
             return SPW_ERR_LINK_UNAVAILABLE;
         }
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+        if (errno == EINTR) {
+            if (deadline != UINT64_MAX && poll_timeout_ms(deadline) == 0) {
+                return SPW_ERR_TIMEOUT;
+            }
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            const spw_result_t result = wait_fd(context, POLLIN, deadline);
+            if (result != SPW_OK) {
+                return result;
+            }
             continue;
         }
         mark_disconnected(context);
