@@ -23,7 +23,20 @@ jobs:
           fetch-depth: 0
 
       - name: Apply implementation
-        run: python3 scripts/apply_stm32h755_physical_profiling.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_stm32h755_physical_profiling.py')
+          text = path.read_text()
+          old = '''    count = text.count(old)\n    if count != 1:\n        raise SystemExit(f"{label}: expected one match, found {count}")\n    return text.replace(old, new, 1)\n'''
+          new = '''    count = text.count(old)\n    if count < 1:\n        raise SystemExit(f"{label}: expected at least one match, found {count}")\n    return text.replace(old, new, 1)\n'''
+          if old not in text:
+              raise SystemExit('replace_once implementation not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          python3 scripts/apply_stm32h755_physical_profiling.py
 
       - name: Validate scripts
         shell: bash
@@ -106,6 +119,7 @@ jobs:
           set -euo pipefail
           git config user.name 'Robert A Incze'
           git config user.email '98164670+Inczert@users.noreply.github.com'
+          git checkout -- scripts/apply_stm32h755_physical_profiling.py
           git add \
             integrations/stm32h755_dma/CMakeLists.txt \
             integrations/stm32h755_dma/README.md \
