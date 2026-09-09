@@ -63,7 +63,7 @@ done
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "Missing command: $1" >&2; exit 2; }
 }
-for command in cmake git openocd arm-none-eabi-gcc arm-none-eabi-nm timeout tee grep python3 tar; do
+for command in cmake git openocd arm-none-eabi-gcc arm-none-eabi-nm timeout tee grep python3 tar cp; do
   need "$command"
 done
 if command -v gdb-multiarch >/dev/null 2>&1; then
@@ -141,6 +141,20 @@ rm -rf -- "$campaign_build"
 mkdir -p "$campaign_build"
 compiler="$(arm-none-eabi-gcc --version | head -n 1)"
 
+fail_campaign() {
+  local status="$1"
+  shift
+  cleanup_openocd
+  printf '\nERROR: %s\n' "$*" >&2
+  if [[ -d "$output_dir" ]]; then
+    local failure_archive="${output_dir}.failed.tar"
+    tar -cf "$failure_archive" -C "$(dirname "$output_dir")" "$(basename "$output_dir")" >/dev/null 2>&1 || true
+    printf 'Partial results : %s\n' "$output_dir" >&2
+    [[ -s "$failure_archive" ]] && printf 'Failure archive : %s\n' "$failure_archive" >&2
+  fi
+  exit "$status"
+}
+
 printf 'SpWKit STM32H755 physical profiling campaign\n' >&2
 printf '  commit: %s\n' "$git_sha" >&2
 printf '  STM32CubeH7: %s\n' "$CUBE_SHA" >&2
@@ -160,6 +174,8 @@ for case_name in "${selected_cases[@]}"; do
   build_log="$output_dir/logs/${case_name}-build.log"
   openocd_log="$output_dir/logs/${case_name}-openocd.log"
   gdb_log="$output_dir/logs/${case_name}-gdb.log"
+  raw_build="$case_root/stm32h755-profile.raw"
+  raw_out="$output_dir/cases/${case_name}.raw"
   json_out="$output_dir/cases/${case_name}.json"
 
   printf '\n[STM32 profile] %s: %s -> %s\n' "$case_name" "$START" "$END" >&2
@@ -200,14 +216,12 @@ for case_name in "${selected_cases[@]}"; do
     cmake --build "$fw_build" --target spwkit_stm32h755_profile --parallel 2
   } >"$build_log" 2>&1 || {
     cat "$build_log" >&2
-    echo "Build failed for $case_name; partial results preserved at $output_dir" >&2
-    exit 1
+    fail_campaign 1 "Build failed for $case_name"
   }
 
-  [[ -s "$elf" ]] || { echo "Profile ELF missing: $elf" >&2; exit 1; }
-  arm-none-eabi-nm -g "$elf" | grep -q 'g_stm32h755_spwkit_profile' || {
-    echo "Profile ELF lacks g_stm32h755_spwkit_profile" >&2; exit 1;
-  }
+  [[ -s "$elf" ]] || fail_campaign 1 "Profile ELF missing: $elf"
+  arm-none-eabi-nm -g "$elf" | grep -q 'g_stm32h755_spwkit_profile' || \
+    fail_campaign 1 "Profile ELF lacks g_stm32h755_spwkit_profile"
 
   cleanup_openocd
   openocd -s "$OPENOCD_SCRIPTS" \
@@ -218,30 +232,42 @@ for case_name in "${selected_cases[@]}"; do
     grep -q "Listening on port 3333 for gdb connections" "$openocd_log" 2>/dev/null && break
     if ! kill -0 "$OPENOCD_PID" >/dev/null 2>&1; then
       cat "$openocd_log" >&2
-      echo "OpenOCD exited before GDB server ready" >&2
-      exit 1
+      fail_campaign 1 "OpenOCD exited before GDB server ready"
     fi
     sleep 0.1
   done
-  grep -q "Listening on port 3333 for gdb connections" "$openocd_log" || {
-    cat "$openocd_log" >&2; echo "OpenOCD GDB server timeout" >&2; exit 1;
-  }
+  if ! grep -q "Listening on port 3333 for gdb connections" "$openocd_log"; then
+    cat "$openocd_log" >&2
+    fail_campaign 1 "OpenOCD GDB server timeout"
+  fi
 
+  rm -f -- "$raw_build"
   set +e
-  timeout "${DEBUG_TIMEOUT}s" "$GDB_BIN" -q "$elf" -batch \
-    -x "$ROOT_DIR/scripts/gdb/stm32h755_profile.gdb" 2>&1 | tee "$gdb_log"
+  (
+    cd "$case_root"
+    timeout "${DEBUG_TIMEOUT}s" "$GDB_BIN" -q "$elf" -batch \
+      -x "$ROOT_DIR/scripts/gdb/stm32h755_profile.gdb"
+  ) 2>&1 | tee "$gdb_log"
   gdb_rc=${PIPESTATUS[0]}
   set -e
   cleanup_openocd
-  if (( gdb_rc != 0 )) || ! grep -q '^RESULT: PASS$' "$gdb_log"; then
-    echo "Physical profile case $case_name failed; logs preserved at $output_dir" >&2
-    exit "${gdb_rc:-1}"
+
+  if (( gdb_rc == 124 )); then
+    fail_campaign 124 "GDB timed out after ${DEBUG_TIMEOUT}s for $case_name"
   fi
+  if (( gdb_rc != 0 )) || ! grep -q '^RESULT: PASS$' "$gdb_log"; then
+    status="$gdb_rc"
+    (( status == 0 )) && status=1
+    fail_campaign "$status" "Physical profile case $case_name failed"
+  fi
+  [[ -s "$raw_build" ]] || fail_campaign 1 "Bulk profile evidence dump missing for $case_name"
+  cp "$raw_build" "$raw_out"
 
   python3 "$ROOT_DIR/scripts/extract_stm32h755_profile.py" "$gdb_log" \
+    --raw "$raw_out" \
     --case "$case_name" --start "$START" --end "$END" \
     --git-sha "$git_sha" --cube-sha "$CUBE_SHA" --compiler "$compiler" \
-    --output "$json_out"
+    --output "$json_out" || fail_campaign $? "Profile extraction failed for $case_name"
 done
 
 export SPWKIT_STM32_RESULT_DIR="$output_dir"
@@ -289,5 +315,6 @@ archive="${output_dir}.tar"
 tar -cf "$archive" -C "$(dirname "$output_dir")" "$(basename "$output_dir")"
 printf 'Human summary : %s/summary.txt\n' "$output_dir" >&2
 printf 'Machine data  : %s/cases/*.json\n' "$output_dir" >&2
+printf 'Raw evidence  : %s/cases/*.raw\n' "$output_dir" >&2
 printf 'Archive       : %s\n' "$archive" >&2
 printf '%s\n' "$output_dir"
