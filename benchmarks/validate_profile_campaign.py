@@ -7,7 +7,11 @@ import platform
 import re
 from pathlib import Path
 
+import summarize_profile_campaign as campaign_summary
+
 REQUIRED_STATS = {'min', 'median', 'mean', 'p95', 'p99', 'max', 'stddev'}
+ALLOWED_COVERAGE_STATUSES = {'measured', 'unsupported-platform', 'not-built', 'not-implemented-benchmark'}
+REQUIRED_BACKEND_CAPABILITIES = {'driver', 'loopback', 'simulator', 'udp', 'device'}
 
 
 def load_json(path: Path):
@@ -17,6 +21,44 @@ def load_json(path: Path):
 def load_jsonl(path: Path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
+
+
+def validate_classifier_contract():
+    measured = {
+        "platform_supported": True,
+        "build_enabled": True,
+        "benchmark_implemented": True,
+        "reason": "test",
+    }
+    unsupported = {**measured, "platform_supported": False}
+    not_built = {**measured, "build_enabled": False}
+    not_implemented = {**measured, "benchmark_implemented": False}
+    assert campaign_summary.classify_coverage_status(measured, True)[0] == "measured"
+    assert campaign_summary.classify_coverage_status(unsupported, False)[0] == "unsupported-platform"
+    assert campaign_summary.classify_coverage_status(not_built, False)[0] == "not-built"
+    assert campaign_summary.classify_coverage_status(not_implemented, False)[0] == "not-implemented-benchmark"
+
+
+def validate_campaign_environment(metadata):
+    environment = metadata['host_environment']
+    for key in ('os_name', 'kernel_release', 'architecture', 'cpu_model',
+                'measurement_affinity', 'orchestrator_affinity', 'process_priority'):
+        assert isinstance(environment[key], str) and environment[key]
+    compiler = environment['compiler']
+    for key in ('family', 'command', 'version'):
+        assert isinstance(compiler[key], str) and compiler[key]
+    counter = environment['counter']
+    assert isinstance(counter['kind'], str) and counter['kind']
+    assert counter['width_bits'] == 'unknown' or counter['width_bits'] in (32, 64)
+    assert counter['frequency_hz'] == 'unknown' or isinstance(counter['frequency_hz'], int)
+
+    capabilities = metadata['backend_capabilities']
+    assert set(capabilities) == REQUIRED_BACKEND_CAPABILITIES
+    for capability in capabilities.values():
+        assert isinstance(capability['platform_supported'], bool)
+        assert isinstance(capability['build_enabled'], bool)
+        assert isinstance(capability['benchmark_implemented'], bool)
+        assert isinstance(capability['reason'], str) and capability['reason']
 
 def validate_calibration(row):
     assert row['schema'] == 'spwkit.profile.calibration.v1'
@@ -149,7 +191,8 @@ def main():
 
     root = args.result_dir
     metadata = load_json(root / 'campaign.json')
-    assert metadata['schema'] == 'spwkit.profile.campaign.v1'
+    validate_classifier_contract()
+    assert metadata['schema'] == 'spwkit.profile.campaign.v2'
     if args.expected_type is not None:
         assert metadata['result_type'] == args.expected_type
     assert re.fullmatch(r'\d{8}T\d{6}Z', metadata['timestamp_utc'])
@@ -174,6 +217,9 @@ def main():
     assert metadata['summary_file'] == 'summary.txt'
     assert metadata['coverage_file'] == 'coverage.json'
     assert metadata['cases']
+    validate_campaign_environment(metadata)
+    assert metadata['build_type'] == 'Release'
+    assert isinstance(metadata['git_sha'], str) and metadata['git_sha']
 
     rows = load_jsonl(root / 'results.jsonl')
     calibrations = load_jsonl(root / 'calibration.jsonl')
@@ -276,8 +322,26 @@ def main():
             assert REQUIRED_STATS == set(row['statistics'])
 
     coverage = load_json(root / 'coverage.json')
-    assert coverage['schema'] == 'spwkit.profile.coverage.v1'
+    assert coverage['schema'] == 'spwkit.profile.coverage.v2'
     assert len(coverage['entries']) == 12
+    assert set(coverage['counts']) <= ALLOWED_COVERAGE_STATUSES
+    assert sum(coverage['counts'].values()) == len(coverage['entries'])
+    for entry in coverage['entries']:
+        assert entry['status'] in ALLOWED_COVERAGE_STATUSES
+        capability = metadata['backend_capabilities'][entry['backend']]
+        if entry['status'] == 'measured':
+            assert capability['platform_supported']
+            assert capability['build_enabled']
+            assert capability['benchmark_implemented']
+        elif entry['status'] == 'unsupported-platform':
+            assert not capability['platform_supported']
+        elif entry['status'] == 'not-built':
+            assert capability['platform_supported']
+            assert not capability['build_enabled']
+        elif entry['status'] == 'not-implemented-benchmark':
+            assert capability['platform_supported']
+            assert capability['build_enabled']
+            assert not capability['benchmark_implemented']
     measured = {
         (entry['backend'], entry['path'], entry['direction'])
         for entry in coverage['entries']

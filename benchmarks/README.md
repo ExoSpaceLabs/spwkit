@@ -51,6 +51,8 @@ The default local result type is `host`. GitHub Actions uses `github-hosted`; ph
 
 The campaign metadata repeats the result type, UTC timestamp, full commit SHA, short SHA and directory name so copied/archived result sets remain self-identifying.
 
+The finalized `campaign.json` also records OS/kernel, architecture, CPU model, compiler family/version, architectural counter kind/width/frequency, process priority, measurement/orchestrator affinity, cpufreq control state, and explicit backend capability/build availability. Unknown host values are written as `unknown` rather than inferred. `coverage.json` distinguishes `measured`, `unsupported-platform`, `not-built`, and `not-implemented-benchmark` states.
+
 ## Layer profiling ranges
 
 The copied-DRIVER TX layer ranges are:
