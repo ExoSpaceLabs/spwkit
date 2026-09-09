@@ -18,11 +18,15 @@ jobs:
           ref: test/profile-backend-boundaries
           fetch-depth: 0
 
+      - name: Repair bootstrap anchor
+        run: python3 scripts/fix_136_bootstrap.py
+
       - name: Apply deterministic patch
         run: python3 scripts/apply_136_bootstrap.py
 
       - name: Remove bootstrap machinery
         run: |
+          rm -f scripts/fix_136_bootstrap.py
           rm -f scripts/apply_136_bootstrap.py
           rm -f .github/workflows/apply-136-bootstrap.yml
 
