@@ -11,11 +11,15 @@ on:
       - 'integrations/stm32h755_dma/**'
       - 'scripts/stm32h755_board_test.sh'
       - 'scripts/stm32h755_profile_campaign.sh'
+      - 'scripts/stm32h755_native_compare_campaign.sh'
       - 'scripts/extract_stm32h755_profile.py'
+      - 'scripts/extract_stm32h755_native_compare.py'
       - 'scripts/summarize_stm32h755_profile.py'
+      - 'scripts/summarize_stm32h755_native_compare.py'
       - 'scripts/openocd_h755.cfg'
       - 'scripts/gdb/stm32h755_board_test.gdb'
       - 'scripts/gdb/stm32h755_profile.gdb'
+      - 'scripts/gdb/stm32h755_native_compare.gdb'
       - '.github/workflows/stm32h755-dma.yml'
   pull_request:
     paths:
@@ -26,11 +30,15 @@ on:
       - 'integrations/stm32h755_dma/**'
       - 'scripts/stm32h755_board_test.sh'
       - 'scripts/stm32h755_profile_campaign.sh'
+      - 'scripts/stm32h755_native_compare_campaign.sh'
       - 'scripts/extract_stm32h755_profile.py'
+      - 'scripts/extract_stm32h755_native_compare.py'
       - 'scripts/summarize_stm32h755_profile.py'
+      - 'scripts/summarize_stm32h755_native_compare.py'
       - 'scripts/openocd_h755.cfg'
       - 'scripts/gdb/stm32h755_board_test.gdb'
       - 'scripts/gdb/stm32h755_profile.gdb'
+      - 'scripts/gdb/stm32h755_native_compare.gdb'
       - '.github/workflows/stm32h755-dma.yml'
   workflow_dispatch:
 
@@ -56,11 +64,15 @@ jobs:
           set -euo pipefail
           test -x scripts/stm32h755_board_test.sh
           test -x scripts/stm32h755_profile_campaign.sh
+          test -x scripts/stm32h755_native_compare_campaign.sh
           bash -n scripts/stm32h755_board_test.sh
           bash -n scripts/stm32h755_profile_campaign.sh
+          bash -n scripts/stm32h755_native_compare_campaign.sh
           python3 -m py_compile \
             scripts/extract_stm32h755_profile.py \
-            scripts/summarize_stm32h755_profile.py
+            scripts/extract_stm32h755_native_compare.py \
+            scripts/summarize_stm32h755_profile.py \
+            scripts/summarize_stm32h755_native_compare.py
 
       - name: Install Arm GNU toolchain
         run: |
@@ -187,6 +199,40 @@ jobs:
           fi
           if arm-none-eabi-nm -u "${elf}" | grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free|printf|puts|write|read)$'; then
             echo 'Unexpected hosted runtime symbol in STM32H755 profile firmware' >&2
+            arm-none-eabi-nm -u "${elf}" >&2
+            exit 1
+          fi
+          arm-none-eabi-size "${elf}"
+
+      - name: Cross-build representative native differential firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S integrations/stm32h755_dma -B build/stm32h755-native-compare \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stm32-profile-install" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSTM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR}" \
+            -DSPWKIT_STM32_PROFILE_FIRMWARE=ON \
+            -DSPWKIT_SOURCE_DIR="${GITHUB_WORKSPACE}" \
+            -DSPWKIT_STM32_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+            -DSPWKIT_STM32_PROFILE_END=SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY \
+            -DSPWKIT_STM32_PROFILE_CASE=9 \
+            -DSPWKIT_STM32_PROFILE_WARMUP=2 \
+            -DSPWKIT_STM32_PROFILE_ITERATIONS=4
+          cmake --build build/stm32h755-native-compare \
+            --target spwkit_stm32h755_profile --parallel 2
+
+          elf="build/stm32h755-native-compare/spwkit_stm32h755_profile.elf"
+          test -s "${elf}"
+          arm-none-eabi-nm -g "${elf}" | grep -q 'g_stm32h755_spwkit_profile'
+          if arm-none-eabi-readelf -SW "${elf}" | grep -Eq '[[:space:]]\.got(\.plt)?[[:space:]]'; then
+            echo 'STM32H755 native differential image exposes a standalone GOT section' >&2
+            arm-none-eabi-readelf -SW "${elf}" >&2
+            exit 1
+          fi
+          if arm-none-eabi-nm -u "${elf}" | grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free|printf|puts|write|read)$'; then
+            echo 'Unexpected hosted runtime symbol in STM32H755 native differential firmware' >&2
             arm-none-eabi-nm -u "${elf}" >&2
             exit 1
           fi

@@ -77,8 +77,8 @@ if(SPWKIT_STM32_PROFILE_FIRMWARE)
         message(FATAL_ERROR
             "Profiling firmware requires SPWKIT_STM32_PROFILE_START and SPWKIT_STM32_PROFILE_END")
     endif()
-    if(NOT SPWKIT_STM32_PROFILE_CASE MATCHES "^[1-8]$")
-        message(FATAL_ERROR "SPWKIT_STM32_PROFILE_CASE must be in the range 1..8")
+    if(NOT SPWKIT_STM32_PROFILE_CASE MATCHES "^([1-9]|1[0-2])$")
+        message(FATAL_ERROR "SPWKIT_STM32_PROFILE_CASE must be in the range 1..12")
     endif()
     if(NOT SPWKIT_STM32_PROFILE_WARMUP MATCHES "^[0-9]+$" OR
        NOT SPWKIT_STM32_PROFILE_ITERATIONS MATCHES "^[1-9][0-9]*$")
@@ -88,10 +88,27 @@ if(SPWKIT_STM32_PROFILE_FIRMWARE)
         message(FATAL_ERROR "STM32 profiling iterations must not exceed 256")
     endif()
 
-    add_executable(spwkit_stm32h755_profile firmware.c)
+    set(STM32_PROFILE_FIRMWARE_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/firmware.c")
+    if(SPWKIT_STM32_PROFILE_CASE GREATER_EQUAL 9)
+        # Cases 9..12 use the same provider firmware and profiling markers, but
+        # replace only the repo-internal measurement implementation. Keeping
+        # the provider source identical is the point of the direct differential.
+        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/firmware.c" STM32_PROFILE_FIRMWARE_TEXT)
+        string(REPLACE
+            "#include \"profile_impl.inc\""
+            "#include \"native_compare_impl.inc\""
+            STM32_PROFILE_FIRMWARE_TEXT
+            "${STM32_PROFILE_FIRMWARE_TEXT}")
+        set(STM32_PROFILE_FIRMWARE_SOURCE
+            "${CMAKE_CURRENT_BINARY_DIR}/firmware_native_compare.c")
+        file(WRITE "${STM32_PROFILE_FIRMWARE_SOURCE}" "${STM32_PROFILE_FIRMWARE_TEXT}")
+    endif()
+
+    add_executable(spwkit_stm32h755_profile "${STM32_PROFILE_FIRMWARE_SOURCE}")
     spwkit_configure_stm32_target(spwkit_stm32h755_profile)
     target_include_directories(spwkit_stm32h755_profile PRIVATE
-        "${SPWKIT_SOURCE_DIR}/src")
+        "${SPWKIT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_definitions(spwkit_stm32h755_profile PRIVATE
         SPWKIT_STM32_PROFILE=1
         SPWKIT_ENABLE_PROFILING=1
@@ -103,6 +120,11 @@ if(SPWKIT_STM32_PROFILE_FIRMWARE)
     # Debug information is retained only so GDB can extract the fixed result
     # structure. -g does not change the Release optimization level.
     target_compile_options(spwkit_stm32h755_profile PRIVATE -g3)
+    if(SPWKIT_STM32_PROFILE_CASE GREATER_EQUAL 9)
+        # The paired implementation contains all four direct/public path helpers
+        # so one source is exercised under four compile-time probe pairs.
+        target_compile_options(spwkit_stm32h755_profile PRIVATE -Wno-unused-function)
+    endif()
 else()
     add_executable(spwkit_stm32h755_dma firmware.c)
     spwkit_configure_stm32_target(spwkit_stm32h755_dma)
