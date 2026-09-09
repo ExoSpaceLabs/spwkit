@@ -49,9 +49,10 @@ The profiling epic adds reproducible software/provider performance evidence on t
 - complete hosted LOOPBACK, SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD boundary instrumentation;
 - NUCLEO-H755ZI-Q Cortex-M7 DWT measurements for copied and zero-copy DMA-provider paths;
 - matched STM32H755 direct/native DMA2 differential measurements;
-- controlled lifecycle/startup measurements kept separate from steady-state TX/RX data.
+- controlled lifecycle/startup measurements kept separate from steady-state TX/RX data;
+- controlled VSPW-TP stage attribution followed by a measured reassembly optimization: on the i7-10850H validation host, 4096-byte production RX `SpWKit - native` overhead fell from 60,281 to 25,032 TSC ticks (**58.5% lower**), while the isolated reassembly component fell by roughly **96-97%**.
 
-The canonical measurement contract, accepted reference snapshots and interpretation limits are documented in [`profiling.md`](profiling.md). Hosted x86 values are reported as invariant TSC ticks; Cortex-M7 values are DWT cycles. Neither virtual transport nor generic STM32 DMA evidence is presented as SpaceWire controller/PHY/link timing.
+The canonical measurement contract and interpretation limits are documented in [`profiling.md`](profiling.md). The engineering motivation, accepted statistics, crossover conclusions, and measured before/after achievements are summarized in [`profiling-results.md`](profiling-results.md). Hosted x86 values are reported as invariant TSC ticks; Cortex-M7 values are DWT cycles. Neither virtual transport nor generic STM32 DMA evidence is presented as SpaceWire controller/PHY/link timing.
 
 ## CCSDSPack integration baseline
 
