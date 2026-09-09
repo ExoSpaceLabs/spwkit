@@ -580,7 +580,15 @@ static const spw_driver_ops_t STM32_DRIVER_OPS = {
 };
 
 #ifdef SPWKIT_STM32_PROFILE
+/* The physical profiling firmware reads the exported profiling state directly.
+ * This keeps capture on the exact object written by cross-TU probe macros and
+ * avoids an extra static-library indirection in the freestanding image. */
+static const volatile spw_profile_sample_t* stm32_profile_last_sample_direct(void) {
+    return &spw_profile_state;
+}
+#define spw_profile_last_sample stm32_profile_last_sample_direct
 #include "profile_impl.inc"
+#undef spw_profile_last_sample
 #endif
 
 static int __attribute__((unused)) run_contract(void) {
