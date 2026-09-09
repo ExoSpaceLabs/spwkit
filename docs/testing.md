@@ -12,7 +12,7 @@ flowchart LR
     CONTRACT --> DEV[Linux DEVICE / CUSE]
     CONTRACT --> DRIVER[Reference driver / DMA ownership]
     DRIVER --> RTOS[HardRT / Cortex-M build evidence]
-    RTOS --> MCU[STM32 runtime evidence<br/>pending]
+    RTOS --> MCU[STM32 runtime DMA/cache evidence<br/>completed]
     MCU --> HIL[Physical SpaceWire HIL<br/>future]
 ```
 
@@ -43,7 +43,8 @@ Key active evidence includes:
 - installed C/C++ device consumers and mixed-language pairs;
 - HardRT `0.4.0` POSIX and Cortex-M7 integration;
 - driver backend, DMA/ownership and deterministic reference-driver tests;
-- CCSDSPack installed-package and two-node Compose integration against the current provisional baseline.
+- physical NUCLEO-H755ZI-Q DMA/cache qualification through the public driver boundary;
+- CCSDSPack `v2.0.0` installed-package and two-node Compose integration.
 
 ## Pure-C runtime gate
 
@@ -145,7 +146,7 @@ The v0.6 integration builds CCSDSPack and SpWKit as independent installed packag
 
 The two-node Compose test requires PASS from both peers and keeps EOP separate from CCSDS packet bytes.
 
-CCSDSPack is currently pinned to a deterministic snapshot of `CCSDSPack/develop`. Final v0.6 acceptance requires rerunning the same evidence against the user-approved immutable CCSDSPack 2.x release baseline.
+The accepted immutable external baseline is `CCSDSPack v2.0.0`, commit `c2f318c330c564429bcc565a8acbff22728b2851`. A moving `CCSDSPack/develop` branch is not release evidence.
 
 ## Linux virtual device
 
@@ -164,7 +165,7 @@ VSPD/`vspwd` verification covers:
 
 ## CUSE
 
-The early `cuse-feasibility.md` work is retained as a historical design record. v0.5 subsequently ships production `spwcuse` and CI includes a live `/dev/cuse` character-device contract where the runner exposes CUSE.
+The early `cuse-feasibility.md` work is retained as a historical design record. v0.5 subsequently shipped production `spwcuse`, and the stable v0.6 line retains it. CI includes a live `/dev/cuse` character-device contract where the runner exposes CUSE.
 
 The contract checks packet-record behavior, DATA/EOP/EEP/time codes, zero-length packets, non-consuming short reads, non-blocking empty reads, poll/readiness and endpoint ownership.
 
@@ -183,7 +184,7 @@ v0.6 host/reference-driver tests verify:
 - bounded wrapper slots;
 - no-heap/freestanding driver use.
 
-These are software driver-contract tests, not proof of a particular MCU/FPGA controller.
+These are software driver-contract tests. The separate NUCLEO-H755ZI-Q qualification adds physical MCU DMA/cache evidence but still does not prove a SpaceWire controller or PHY.
 
 ## HardRT and Cortex-M
 
@@ -192,13 +193,15 @@ HardRT release `0.4.0` is the validated external RTOS baseline.
 - POSIX integration executes installed HardRT and SpWKit together.
 - Cortex-M7 integration cross-builds/links HardRT plus no-heap SpWKit for ARMv7E-M/Thumb with hosted backends disabled.
 
-The Cortex-M7 result is compile/link/ABI evidence. It does not claim execution on STM32H755.
+That CI result remains compile/link/ABI evidence. Runtime DMA/cache behavior is established separately by the physical NUCLEO-H755ZI-Q qualification.
 
-## STM32H755 (#119)
+## STM32H755 qualification
 
-The planned board test will add actual MCU DMA/cache ownership evidence after its architecture is agreed. GitHub cross-build results alone cannot close this runtime requirement.
+The physical board campaign has completed successfully on NUCLEO-H755ZI-Q. It exercises real DMA2 memory-to-memory transfers and explicit Cortex-M7 D-cache clean/invalidate ownership transitions through `SPW_BACKEND_DRIVER`, including copied and zero-copy paths and reset-time stale-buffer invalidation.
 
-The board test will not be described as SpaceWire PHY/electrical HIL unless actual matching SpaceWire hardware exists and is exercised.
+The accepted phase-7 result records `magic=0x53505736`, `phase=0x0000700d`, `result=0`, two DMA transfers, two TX packets, two RX packets, synchronization in both directions, and `reset_stale_invalidated=1` (`RESULT: PASS`).
+
+This is physical MCU driver/DMA/cache evidence. It is not SpaceWire controller, codec, Data-Strobe, LVDS, cable or electrical interoperability evidence.
 
 ## Physical HIL
 
@@ -209,18 +212,18 @@ The HIL workflow remains explicit/manual and must not be satisfied by hosted sim
 Consumers are configured as independent projects using exported targets only:
 
 ```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.6 CONFIG REQUIRED)
 target_link_libraries(c_app PRIVATE spwkit::spwkit)
 ```
 
 Optional C++:
 
 ```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.6 CONFIG REQUIRED)
 target_link_libraries(cpp_app PRIVATE spwkit::cpp)
 ```
 
-Source builds from `develop` report version `0.6.0`; stable consumer examples intentionally request the compatible v0.5 line.
+The stable consumer examples request the compatible v0.6 line. Post-v0.6 work on `develop` is being consolidated for v0.6.1 without an intentional public-contract break.
 
 ## Determinism rules
 
