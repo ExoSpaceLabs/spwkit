@@ -114,13 +114,18 @@ jobs:
             arm-none-eabi-nm -g "${root}/firmware/spwkit_stm32h755_profile.elf" | grep -q g_stm32h755_spwkit_profile
           done
 
-      - name: Commit permanent changes
+      - name: Commit permanent code changes
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'Robert A Incze'
           git config user.email '98164670+Inczert@users.noreply.github.com'
-          git checkout -- scripts/apply_stm32h755_physical_profiling.py scripts/postprocess_stm32h755_physical_profiling.py
+          # The Actions token may not mutate workflows. Keep that file for a
+          # direct connector update after the code commit has landed.
+          git checkout -- \
+            scripts/apply_stm32h755_physical_profiling.py \
+            scripts/postprocess_stm32h755_physical_profiling.py \
+            .github/workflows/stm32h755-dma.yml
           git add \
             integrations/stm32h755_dma/CMakeLists.txt \
             integrations/stm32h755_dma/README.md \
@@ -129,8 +134,7 @@ jobs:
             scripts/gdb/stm32h755_profile.gdb \
             scripts/stm32h755_profile_campaign.sh \
             scripts/extract_stm32h755_profile.py \
-            scripts/summarize_stm32h755_profile.py \
-            .github/workflows/stm32h755-dma.yml
+            scripts/summarize_stm32h755_profile.py
           git diff --cached --check
           git commit -m 'test(spwkit): add STM32H755 physical profiling campaign'
           git push origin HEAD:test/stm32h755-physical-profiling
