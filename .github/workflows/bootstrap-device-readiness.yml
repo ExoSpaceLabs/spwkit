@@ -8,6 +8,12 @@ on:
     paths:
       - scripts/bootstrap_device_readiness.py
       - .github/workflows/bootstrap-device-readiness.yml
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - scripts/bootstrap_device_readiness.py
+      - .github/workflows/bootstrap-device-readiness.yml
 
 permissions:
   contents: write
