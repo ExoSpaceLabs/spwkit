@@ -21,7 +21,8 @@ flowchart TB
     CUSE[spwcuse / /dev/vspwX] --> DEVICE
 
     DRIVER --> RTOS[RTOS / bare-metal adapter]
-    DRIVER --> HW[Future vendor / MMIO / DMA controller]
+    DRIVER --> MCU[Validated STM32 DMA/cache provider]
+    DRIVER --> HW[Future vendor / FPGA controller]
     HW --> PHY[Future physical SpaceWire implementation]
 ```
 
@@ -100,7 +101,7 @@ flowchart TB
     API[spw_port_* / spw_buffer_*] --> DB[SPW_BACKEND_DRIVER]
     DB --> OPS[spw_driver_ops_t]
     OPS --> REF[Host reference driver]
-    OPS --> MCU[MCU / RTOS driver]
+    OPS --> MCU[Validated STM32 DMA/cache provider]
     OPS --> FPGA[Future FPGA/vendor driver]
 ```
 
@@ -138,7 +139,7 @@ The same application-visible ownership sequence can be backed by fixed simulator
 
 SpWKit does not require POSIX or heap allocation at the core API boundary. `spw_port_workspace_requirements()` plus `spw_port_open_in_place()` allow caller-owned construction. The driver boundary can therefore be used from bare metal or an RTOS without exposing scheduler primitives in the public API.
 
-HardRT `0.4.0` is the current validated external RTOS integration baseline. CI provides POSIX execution evidence and Cortex-M7 compile/link evidence; it does not claim STM32H755 runtime or physical SpaceWire HIL.
+HardRT `0.4.0` is the current validated external RTOS integration baseline. CI provides POSIX execution evidence and Cortex-M7 compile/link evidence. A separate physical NUCLEO-H755ZI-Q qualification has completed through the public DRIVER boundary using real DMA2 and explicit Cortex-M7 cache synchronization. That result is MCU driver/DMA/cache runtime evidence, not physical SpaceWire controller or PHY HIL.
 
 ## Hardware and FPGA stop line
 
@@ -160,7 +161,7 @@ flowchart LR
     UNIT[Unit/API tests] --> SIM[Software simulation]
     SIM --> PROC[Process / container / namespace integration]
     PROC --> RTOS[RTOS / cross-build evidence]
-    RTOS --> MCU[MCU runtime evidence]
+    RTOS --> MCU[MCU runtime DMA/cache evidence]
     MCU --> HIL[Physical SpaceWire HIL]
 ```
 
