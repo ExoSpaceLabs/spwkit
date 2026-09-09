@@ -14,11 +14,13 @@ option(SPWKIT_BENCHMARK_BUILD_UDP
     "Build the VSPW-TP/UDP runtime for UDP benchmark cases" OFF)
 option(SPWKIT_BENCHMARK_BUILD_DEVICE
     "Build the Linux DEVICE/VSPD runtime and daemon for DEVICE benchmark cases" OFF)
+option(SPWKIT_BENCHMARK_ENABLE_HEAP
+    "Enable SpWKit heap support for lifecycle open/close measurements" OFF)
 
 set(SPWKIT_ENABLE_PROFILING ON CACHE BOOL "" FORCE)
 set(SPWKIT_PROFILE_START "${SPWKIT_BENCHMARK_PROFILE_START}" CACHE STRING "" FORCE)
 set(SPWKIT_PROFILE_END "${SPWKIT_BENCHMARK_PROFILE_END}" CACHE STRING "" FORCE)
-set(SPWKIT_ENABLE_HEAP OFF CACHE BOOL "" FORCE)
+set(SPWKIT_ENABLE_HEAP ${SPWKIT_BENCHMARK_ENABLE_HEAP} CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_CPP_TESTS OFF CACHE BOOL "" FORCE)
 set(SPWKIT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -83,6 +85,12 @@ spwkit_configure_profile_executable(
 spwkit_configure_profile_executable(
     spwkit_profile_host_backend
     profile_host_backend.c)
+
+if(SPWKIT_BENCHMARK_ENABLE_HEAP)
+    spwkit_configure_profile_executable(
+        spwkit_profile_lifecycle
+        profile_lifecycle.c)
+endif()
 
 if(UNIX)
     spwkit_configure_profile_executable(
