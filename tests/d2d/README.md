@@ -9,7 +9,7 @@ SpWKit deliberately has two different simulation boundaries:
 - `SPW_BACKEND_SIMULATOR` is **process-local**. Both virtual endpoints live in one process. It is ideal for deterministic contract, edge-case and zero-copy testing, but it is not a cross-process transport.
 - `SPW_BACKEND_UDP` is the distributed simulation backend. Independent processes or hosts communicate through VSPW-TP/UDP while applications continue to use the public `spw_port_*` API or the optional `spwkit::Port` C++ wrapper.
 
-The Linux device/service path is separate again: `SPW_BACKEND_DEVICE -> VSPD -> vspwd`. Its installed-device CI already covers C/C, C++/C++, C/C++ and C++/C process pairs through the daemon.
+The Linux device/service path is separate again: `SPW_BACKEND_DEVICE -> VSPD -> vspwd`. Its installed-device CI covers C/C, C++/C++, C/C++ and C++/C process pairs through the daemon.
 
 ## Public and transport coverage
 
@@ -33,10 +33,10 @@ examples/distributed      C11 public API       -> spwkit::spwkit
 examples/distributed_cpp  C++17 wrapper        -> spwkit::cpp
 ```
 
-Both use:
+Both request the stable-compatible v0.6 package line:
 
 ```cmake
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.6 CONFIG REQUIRED)
 ```
 
 The C consumer is configured with `CXX=/bin/false`. Neither application can reach source-private VSPW-TP/backend targets.
@@ -71,7 +71,7 @@ The application packet is 8 KiB while the veth MTU remains 1500 bytes, so succes
 
 ## Docker Compose host topology
 
-`compose.yml` and `run_compose.sh` add a deployment-style two-host simulation. A single container image is built from the repository, but SpWKit is first installed to `/opt/spwkit`; only then are the standalone C and C++ peers configured through `find_package(SpWKit 0.5 CONFIG REQUIRED)`.
+`compose.yml` and `run_compose.sh` add a deployment-style two-host simulation. A single container image is built from the repository, but SpWKit is first installed to `/opt/spwkit`; only then are the standalone C and C++ peers configured through `find_package(SpWKit 0.6 CONFIG REQUIRED)`.
 
 Compose runs two containers on an isolated bridge network with distinct IPv4 addresses. Each container has its own process and network namespace. The same four language combinations are exercised:
 
