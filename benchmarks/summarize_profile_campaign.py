@@ -4,7 +4,10 @@
 import argparse
 import json
 import math
+import os
 import platform
+import shlex
+import subprocess
 from pathlib import Path
 
 
@@ -38,107 +41,204 @@ def fmt_percent(value):
     return f"{float(value):.1f}"
 
 
-def coverage_entries(root: Path):
-    is_linux = platform.system() == "Linux"
+def command_version(command: str) -> str:
+    try:
+        completed = subprocess.run(
+            [*shlex.split(command), "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return "unknown"
+    combined = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
+    for line in combined.splitlines():
+        if line.strip():
+            return line.strip()
+    return "unknown"
+
+
+def cpu_model() -> str:
+    system = platform.system()
+    if system == "Linux":
+        try:
+            for line in Path("/proc/cpuinfo").read_text(errors="replace").splitlines():
+                key, separator, value = line.partition(":")
+                if separator and key.strip() in {"model name", "Hardware"} and value.strip():
+                    return value.strip()
+        except OSError:
+            pass
+    elif system == "Darwin":
+        try:
+            completed = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if completed.stdout.strip():
+                return completed.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    value = platform.processor() or os.environ.get("PROCESSOR_IDENTIFIER", "")
+    return value.strip() or "unknown"
+
+
+def process_affinity() -> str:
+    if hasattr(os, "sched_getaffinity"):
+        try:
+            return ",".join(str(cpu) for cpu in sorted(os.sched_getaffinity(0))) or "unknown"
+        except OSError:
+            pass
+    return "unknown"
+
+
+def process_priority() -> str:
+    if hasattr(os, "getpriority") and hasattr(os, "PRIO_PROCESS"):
+        try:
+            return str(os.getpriority(os.PRIO_PROCESS, 0))
+        except OSError:
+            pass
+    return "unknown"
+
+
+def discover_backend_capabilities():
+    system = platform.system()
+    udp_supported = system in {"Linux", "Darwin", "Windows"}
+    device_supported = system == "Linux"
+
+    def capability(platform_supported, build_enabled, benchmark_implemented, reason):
+        return {
+            "platform_supported": bool(platform_supported),
+            "build_enabled": bool(build_enabled),
+            "benchmark_implemented": bool(benchmark_implemented),
+            "reason": reason,
+        }
+
+    return {
+        "driver": capability(True, True, True, "portable DRIVER benchmark fixture is part of the campaign"),
+        "loopback": capability(True, True, True, "LOOPBACK benchmark fixture is part of the campaign"),
+        "simulator": capability(True, True, True, "SIMULATOR benchmark fixture is enabled by the campaign"),
+        "udp": capability(
+            udp_supported,
+            udp_supported,
+            True,
+            "VSPW-TP/UDP benchmark is available on POSIX/Winsock hosts"
+            if udp_supported else "VSPW-TP/UDP runtime is unsupported on this platform",
+        ),
+        "device": capability(
+            device_supported,
+            device_supported,
+            True,
+            "DEVICE/VSPD benchmark is available on Linux"
+            if device_supported else "DEVICE/VSPD runtime is Linux-only",
+        ),
+    }
+
+
+def finalize_campaign(root: Path, campaign):
+    calibrations = load_jsonl(root / "calibration.jsonl")
+    calibration = calibrations[0] if calibrations else {}
+    calibration_platform = calibration.get("platform", {})
+    calibration_compiler = calibration.get("compiler", {})
+    calibration_counter = calibration.get("counter", {})
+    compiler_command = os.environ.get("CC") or "cc"
+    control = campaign.get("host_control", {})
+    if control.get("enabled") and control.get("selected_cpu") is not None:
+        measurement_affinity = f"cpu:{control['selected_cpu']}"
+    else:
+        measurement_affinity = process_affinity()
+
+    campaign["schema"] = "spwkit.profile.campaign.v2"
+    campaign["host_environment"] = {
+        "os_name": platform.system() or "unknown",
+        "kernel_release": platform.release() or "unknown",
+        "architecture": platform.machine() or calibration_platform.get("architecture", "unknown"),
+        "cpu_model": cpu_model(),
+        "compiler": {
+            "family": calibration_compiler.get("family", "unknown"),
+            "command": compiler_command,
+            "version": command_version(compiler_command),
+        },
+        "counter": {
+            "kind": calibration_counter.get("kind", "unknown"),
+            "width_bits": calibration_counter.get("width_bits", "unknown"),
+            "frequency_hz": calibration_counter.get("frequency_hz") or "unknown",
+        },
+        "measurement_affinity": measurement_affinity,
+        "orchestrator_affinity": process_affinity(),
+        "process_priority": process_priority(),
+    }
+    campaign["backend_capabilities"] = discover_backend_capabilities()
+    (root / "campaign.json").write_text(json.dumps(campaign, indent=2) + "\n")
+    return campaign
+
+
+def classify_coverage_status(capability, is_measured):
+    if is_measured:
+        return "measured", None
+    if not capability["platform_supported"]:
+        return "unsupported-platform", capability["reason"]
+    if not capability["build_enabled"]:
+        return "not-built", capability["reason"]
+    if not capability["benchmark_implemented"]:
+        return "not-implemented-benchmark", capability["reason"]
+    return "not-implemented-benchmark", "benchmark result missing from completed campaign"
+
+
+def coverage_entries(root: Path, campaign):
+    capabilities = campaign["backend_capabilities"]
 
     def measured(path: str):
         return (root / path).exists() and (root / path).stat().st_size > 0
 
-    tx_driver = measured("comparison/tx_api_native.jsonl")
-    rx_driver = measured("comparison/rx_native_api.jsonl")
-    zero_copy_tx = measured("comparison/driver_tx_copy_zero_copy.jsonl")
-    zero_copy_rx = measured("comparison/driver_rx_copy_zero_copy.jsonl")
-    loopback_tx = measured("backends/loopback_tx.jsonl")
-    loopback_rx = measured("backends/loopback_rx.jsonl")
-    simulator_tx = measured("backends/simulator_tx.jsonl")
-    simulator_rx = measured("backends/simulator_rx.jsonl")
-    udp_tx = measured("comparison/udp_tx.jsonl")
-    udp_rx = measured("comparison/udp_rx.jsonl")
-    device_tx = measured("comparison/device_tx.jsonl")
-    device_rx = measured("comparison/device_rx.jsonl")
-
-    def backend_entry(backend, direction, is_measured, issue):
+    def entry(backend, path_name, direction, result_path, measured_reason):
+        is_measured = measured(result_path)
+        status, fallback_reason = classify_coverage_status(capabilities[backend], is_measured)
         return {
             "backend": backend,
-            "path": "standard",
+            "path": path_name,
             "direction": direction,
-            "status": "measured" if is_measured else "not-implemented-benchmark",
-            "reason": "complete public API operation" if is_measured else f"tracked by #{issue}",
-        }
-
-    def udp_entry(direction, is_measured):
-        return {
-            "backend": "udp",
-            "path": "vspw-tp",
-            "direction": direction,
-            "status": "measured" if is_measured else "not-implemented-benchmark",
-            "reason": "same-process direct UDP socket comparison" if is_measured else "tracked by #164",
-        }
-
-    def device_entry(direction, is_measured):
-        if not is_linux:
-            return {
-                "backend": "device",
-                "path": "vspd",
-                "direction": direction,
-                "status": "unsupported-platform",
-                "reason": "DEVICE/VSPD runtime is Linux-only",
-            }
-        return {
-            "backend": "device",
-            "path": "vspd",
-            "direction": direction,
-            "status": "measured" if is_measured else "not-implemented-benchmark",
-            "reason": "same-vspwd-daemon direct VSPD comparison" if is_measured else "tracked by #165",
+            "status": status,
+            "reason": measured_reason if is_measured else fallback_reason,
         }
 
     entries = [
-        {
-            "backend": "driver",
-            "path": "copied",
-            "direction": "tx",
-            "status": "measured" if tx_driver else "not-implemented-benchmark",
-            "reason": "same-process direct/provider comparison" if tx_driver else "comparison result missing",
-        },
-        {
-            "backend": "driver",
-            "path": "copied",
-            "direction": "rx",
-            "status": "measured" if rx_driver else "not-implemented-benchmark",
-            "reason": "same-process direct/provider comparison" if rx_driver else "tracked by #166",
-        },
-        {
-            "backend": "driver",
-            "path": "zero-copy",
-            "direction": "tx",
-            "status": "measured" if zero_copy_tx else "not-implemented-benchmark",
-            "reason": "provider-owned DMA-buffer copied-vs-zero-copy comparison" if zero_copy_tx else "tracked by #138/#160",
-        },
-        {
-            "backend": "driver",
-            "path": "zero-copy",
-            "direction": "rx",
-            "status": "measured" if zero_copy_rx else "not-implemented-benchmark",
-            "reason": "provider-owned RX DMA-buffer copied-vs-zero-copy comparison" if zero_copy_rx else "tracked by #182",
-        },
-        backend_entry("loopback", "tx", loopback_tx, 163),
-        backend_entry("loopback", "rx", loopback_rx, 163),
-        backend_entry("simulator", "tx", simulator_tx, 163),
-        backend_entry("simulator", "rx", simulator_rx, 163),
-        udp_entry("tx", udp_tx),
-        udp_entry("rx", udp_rx),
-        device_entry("tx", device_tx),
-        device_entry("rx", device_rx),
+        entry("driver", "copied", "tx", "comparison/tx_api_native.jsonl",
+              "same-process direct/provider comparison"),
+        entry("driver", "copied", "rx", "comparison/rx_native_api.jsonl",
+              "same-process direct/provider comparison"),
+        entry("driver", "zero-copy", "tx", "comparison/driver_tx_copy_zero_copy.jsonl",
+              "provider-owned DMA-buffer copied-vs-zero-copy comparison"),
+        entry("driver", "zero-copy", "rx", "comparison/driver_rx_copy_zero_copy.jsonl",
+              "provider-owned RX DMA-buffer copied-vs-zero-copy comparison"),
+        entry("loopback", "standard", "tx", "backends/loopback_tx.jsonl",
+              "complete public API operation"),
+        entry("loopback", "standard", "rx", "backends/loopback_rx.jsonl",
+              "complete public API operation"),
+        entry("simulator", "standard", "tx", "backends/simulator_tx.jsonl",
+              "complete public API operation"),
+        entry("simulator", "standard", "rx", "backends/simulator_rx.jsonl",
+              "complete public API operation"),
+        entry("udp", "vspw-tp", "tx", "comparison/udp_tx.jsonl",
+              "same-process direct UDP socket comparison"),
+        entry("udp", "vspw-tp", "rx", "comparison/udp_rx.jsonl",
+              "same-process direct UDP socket comparison"),
+        entry("device", "vspd", "tx", "comparison/device_tx.jsonl",
+              "same-vspwd-daemon direct VSPD comparison"),
+        entry("device", "vspd", "rx", "comparison/device_rx.jsonl",
+              "same-vspwd-daemon direct VSPD comparison"),
     ]
     counts = {}
-    for entry in entries:
-        counts[entry["status"]] = counts.get(entry["status"], 0) + 1
+    for item in entries:
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
     return {
-        "schema": "spwkit.profile.coverage.v1",
+        "schema": "spwkit.profile.coverage.v2",
         "entries": entries,
         "counts": counts,
     }
-
 
 def append_comparison(lines, title, comparison_path: Path):
     comparisons = load_jsonl(comparison_path)
@@ -239,6 +339,15 @@ def render_summary(root: Path, campaign, coverage):
     lines.append(f"UTC        : {campaign['timestamp_utc']}")
     lines.append(f"Commit     : {campaign['git_short_sha']} ({campaign['git_sha']})")
     lines.append(f"Build      : {campaign['build_type']} / clean serial cases")
+    environment = campaign.get("host_environment", {})
+    compiler = environment.get("compiler", {})
+    counter = environment.get("counter", {})
+    lines.append(f"Host       : {environment.get('os_name', 'unknown')} {environment.get('kernel_release', 'unknown')} / {environment.get('architecture', 'unknown')}")
+    lines.append(f"CPU model  : {environment.get('cpu_model', 'unknown')}")
+    lines.append(f"Compiler   : {compiler.get('family', 'unknown')} / {compiler.get('version', 'unknown')}")
+    lines.append(f"Counter    : {counter.get('kind', 'unknown')} / {counter.get('width_bits', 'unknown')} bits / {counter.get('frequency_hz', 'unknown')} Hz")
+    lines.append(f"Affinity   : measurement={environment.get('measurement_affinity', 'unknown')} orchestrator={environment.get('orchestrator_affinity', 'unknown')}")
+    lines.append(f"Priority   : {environment.get('process_priority', 'unknown')}")
     control = campaign.get("host_control", {})
     if control.get("enabled"):
         lines.append(f"CPU        : pinned logical CPU {control.get('selected_cpu')} ({control.get('auto_cpu_policy')})")
@@ -324,8 +433,8 @@ def main():
     args = parser.parse_args()
 
     root = args.result_dir
-    campaign = load_json(root / "campaign.json")
-    coverage = coverage_entries(root)
+    campaign = finalize_campaign(root, load_json(root / "campaign.json"))
+    coverage = coverage_entries(root, campaign)
     (root / "coverage.json").write_text(json.dumps(coverage, indent=2) + "\n")
     summary = render_summary(root, campaign, coverage)
     (root / "summary.txt").write_text(summary)
