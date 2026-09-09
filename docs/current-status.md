@@ -22,6 +22,21 @@ The stable v0.6 line includes:
 
 See [v0.6.0 release notes](releases/v0.6.0.md).
 
+## v0.6.1 consolidation in progress
+
+Post-v0.6 work on `develop` is being consolidated as `v0.6.1`. This is a profiling/performance and documentation-hygiene release, not an intentional public-contract redesign.
+
+Completed post-v0.6 work includes:
+
+- hosted and physical STM32 profiling/reference campaigns;
+- VSPW-TP reassembly optimization, reducing the isolated fragmented reassembly component by about **96-97%**;
+- controlled 4096-byte VSPW-TP RX paired overhead reduction from **60,281 to 25,032 TSC ticks** (**58.5%**);
+- POSIX UDP optimistic-ready I/O, removing unconditional poll-first work where `MSG_DONTWAIT` is available;
+- Linux DEVICE/VSPD optimistic-ready record I/O, saving roughly **813-850 TSC ticks** in the hosted paired readiness microbenchmark and reducing the raw ready-record operation by about **41-51%**;
+- finalized profiling host metadata and backend coverage classification from #171/#173.
+
+Hosted timing results are reference/regression evidence for the named measurement environment. They are not physical SpaceWire controller, PHY, cable, or universal performance specifications.
+
 ## STM32H755 qualification
 
 The phase-7 physical-board run completed successfully with:
@@ -50,7 +65,9 @@ The profiling epic adds reproducible software/provider performance evidence on t
 - NUCLEO-H755ZI-Q Cortex-M7 DWT measurements for copied and zero-copy DMA-provider paths;
 - matched STM32H755 direct/native DMA2 differential measurements;
 - controlled lifecycle/startup measurements kept separate from steady-state TX/RX data;
-- controlled VSPW-TP stage attribution followed by a measured reassembly optimization: on the i7-10850H validation host, 4096-byte production RX `SpWKit - native` overhead fell from 60,281 to 25,032 TSC ticks (**58.5% lower**), while the isolated reassembly component fell by roughly **96-97%**.
+- controlled VSPW-TP stage attribution followed by the accepted reassembly optimization;
+- POSIX UDP and Linux DEVICE/VSPD readiness-path optimization with equivalent-path comparator checks;
+- campaign metadata covering host/build/counter context and explicit backend coverage states (`measured`, `unsupported-platform`, `not-built`, `not-implemented-benchmark`).
 
 The canonical measurement contract and interpretation limits are documented in [`profiling.md`](profiling.md). The engineering motivation, accepted statistics, crossover conclusions, and measured before/after achievements are summarized in [`profiling-results.md`](profiling-results.md). Hosted x86 values are reported as invariant TSC ticks; Cortex-M7 values are DWT cycles. Neither virtual transport nor generic STM32 DMA evidence is presented as SpaceWire controller/PHY/link timing.
 
@@ -68,6 +85,22 @@ CCSDSPack remains optional and external. `libspwkit` does not include or link CC
 The public repository defines the portable driver semantics and generic HIL acceptance criteria. It does not publish proprietary FPGA/HDL implementation details, register maps, descriptor layouts, bus/clock/reset/interrupt architecture, or electrical design.
 
 Physical FPGA-backed SpaceWire interoperability remains a later validation layer described in [`hardware-acceptance.md`](hardware-acceptance.md).
+
+## Road to v1.0
+
+The v1.0 objective is a stable software-facing API/backend contract that external applications and future hardware providers can depend on without redesigning the application layer. FPGA RTL, USB adapters, ASICs, router implementation, optional upper layers and blanket ECSS certification do not block that software release boundary.
+
+The planned progression is evidence-driven:
+
+```text
+v0.6.1  profiling/performance consolidation and documentation sync
+v0.7.x  behavioral/backend contract hardening and simulator equivalence
+v0.8.x  public API/ABI cleanup and DRIVER contract candidate
+v0.9.x  API freeze, compatibility gates, fuzz/soak and 1.0 RC
+v1.0.0  stable software contract
+```
+
+See #209 and its tracked workstreams #210-#216 for the pre-v1 contract-hardening plan.
 
 ## Development flow after v0.6
 
