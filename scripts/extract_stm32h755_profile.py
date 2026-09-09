@@ -3,13 +3,13 @@ import argparse
 import json
 import math
 import re
+import struct
 from pathlib import Path
 
 META_RE = re.compile(r"PROFILE_META (.+)$")
-SAMPLE_RE = re.compile(r"PROFILE_SAMPLE row=(\d+) payload=(\d+) index=(\d+) cycles=(\d+)")
-FLOOR_RE = re.compile(r"PROFILE_FLOOR index=(\d+) cycles=(\d+)")
-CLEAN_RE = re.compile(r"PROFILE_CACHE_CLEAN row=(\d+) payload=(\d+) index=(\d+) cycles=(\d+)")
-INVALIDATE_RE = re.compile(r"PROFILE_CACHE_INVALIDATE row=(\d+) payload=(\d+) index=(\d+) cycles=(\d+)")
+PROFILE_MAGIC = 0x53575050
+PROFILE_VERSION = 1
+PROFILE_COMPLETE_PHASE = 0x0000700D
 
 
 def parse_int(value):
@@ -44,31 +44,87 @@ def statistics(values):
     }
 
 
-def add_sample(rows, row, payload, index, cycles):
-    entry = rows.setdefault(row, {"payload_bytes": payload, "samples": {}})
-    if entry["payload_bytes"] != payload:
-        raise ValueError(f"payload changed within row {row}")
-    entry["samples"][index] = cycles
+def parse_log(path):
+    meta = None
+    pass_seen = False
+    raw_seen = False
+    for line in path.read_text(errors="replace").splitlines():
+        if line.strip() == "RESULT: PASS":
+            pass_seen = True
+        if line.startswith("PROFILE_RAW "):
+            raw_seen = True
+        match = META_RE.search(line)
+        if match:
+            meta = {}
+            for token in match.group(1).split():
+                key, value = token.split("=", 1)
+                meta[key] = parse_int(value)
+    if meta is None or not pass_seen:
+        raise SystemExit("profile log does not contain a passing PROFILE_META/RESULT record")
+    if not raw_seen:
+        raise SystemExit("profile log does not confirm a bulk raw-memory dump")
+    return meta
 
 
-def finalize_rows(rows, iterations):
-    result = []
-    for row_index in sorted(rows):
-        entry = rows[row_index]
-        samples = [entry["samples"].get(i) for i in range(iterations)]
-        if any(value is None for value in samples):
-            raise ValueError(f"row {row_index} does not contain {iterations} samples")
-        result.append({
-            "payload_bytes": entry["payload_bytes"],
-            "samples": samples,
-            "statistics": statistics(samples),
-        })
-    return result
+class RawReader:
+    def __init__(self, data):
+        self.data = data
+        self.offset = 0
+
+    def u32(self):
+        if self.offset + 4 > len(self.data):
+            raise ValueError("raw profile evidence is truncated")
+        value = struct.unpack_from("<I", self.data, self.offset)[0]
+        self.offset += 4
+        return value
+
+    def u32_array(self, count):
+        return [self.u32() for _ in range(count)]
+
+
+def parse_row(reader, iterations):
+    payload = reader.u32()
+    samples = reader.u32_array(iterations)
+    return {
+        "payload_bytes": payload,
+        "samples": samples,
+        "statistics": statistics(samples),
+    }
+
+
+def parse_raw(path):
+    reader = RawReader(path.read_bytes())
+    header_names = (
+        "magic", "version", "phase", "result", "case_id", "start_id", "end_id",
+        "core_hz", "warmup", "iterations", "rows",
+    )
+    header = {name: reader.u32() for name in header_names}
+    iterations = header["iterations"]
+    rows = header["rows"]
+
+    if not 1 <= iterations <= 256:
+        raise SystemExit(f"invalid measured iteration count in raw evidence: {iterations}")
+    if rows != 5:
+        raise SystemExit(f"unexpected raw payload row count: {rows}")
+
+    floor_samples = reader.u32_array(iterations)
+    payload_rows = [parse_row(reader, iterations) for _ in range(rows)]
+    cache_valid = reader.u32()
+    clean_rows = [parse_row(reader, iterations) for _ in range(rows)]
+    invalidate_rows = [parse_row(reader, iterations) for _ in range(rows)]
+
+    if reader.offset != len(reader.data):
+        raise SystemExit(
+            f"raw evidence size mismatch: parsed {reader.offset} bytes, file has {len(reader.data)}"
+        )
+
+    return header, floor_samples, payload_rows, cache_valid, clean_rows, invalidate_rows
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("log", type=Path)
+    parser.add_argument("--raw", type=Path, required=True)
     parser.add_argument("--case", required=True)
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
@@ -78,49 +134,24 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    meta = None
-    floor = {}
-    rows = {}
-    clean = {}
-    invalidate = {}
-    pass_seen = False
+    meta = parse_log(args.log)
+    header, floor_samples, payload_rows, cache_valid, clean_rows, invalidate_rows = parse_raw(args.raw)
 
-    for line in args.log.read_text(errors="replace").splitlines():
-        if line.strip() == "RESULT: PASS":
-            pass_seen = True
-        match = META_RE.search(line)
-        if match:
-            meta = {}
-            for token in match.group(1).split():
-                key, value = token.split("=", 1)
-                meta[key] = parse_int(value)
-            continue
-        match = FLOOR_RE.search(line)
-        if match:
-            floor[int(match.group(1))] = int(match.group(2))
-            continue
-        match = SAMPLE_RE.search(line)
-        if match:
-            add_sample(rows, *(int(group) for group in match.groups()))
-            continue
-        match = CLEAN_RE.search(line)
-        if match:
-            add_sample(clean, *(int(group) for group in match.groups()))
-            continue
-        match = INVALIDATE_RE.search(line)
-        if match:
-            add_sample(invalidate, *(int(group) for group in match.groups()))
+    for key in (
+        "magic", "version", "phase", "result", "case_id", "start_id", "end_id",
+        "core_hz", "warmup", "iterations", "rows",
+    ):
+        if header[key] != meta[key]:
+            raise SystemExit(
+                f"raw/log metadata mismatch for {key}: raw={header[key]} log={meta[key]}"
+            )
 
-    if meta is None or not pass_seen:
-        raise SystemExit("profile log does not contain a passing PROFILE_META/RESULT record")
-    iterations = meta["iterations"]
-    floor_samples = [floor.get(i) for i in range(iterations)]
-    if any(value is None for value in floor_samples):
-        raise SystemExit("counter-floor sample set is incomplete")
-
-    payload_rows = finalize_rows(rows, iterations)
-    if len(payload_rows) != meta["rows"]:
-        raise SystemExit("profile payload row count is incomplete")
+    if header["magic"] != PROFILE_MAGIC or header["version"] != PROFILE_VERSION:
+        raise SystemExit("raw evidence has an invalid magic/version")
+    if header["phase"] != PROFILE_COMPLETE_PHASE or header["result"] != 0:
+        raise SystemExit(
+            f"raw evidence is not complete: phase=0x{header['phase']:08x} result=0x{header['result']:08x}"
+        )
 
     document = {
         "schema": "spwkit.profile.stm32h755.v1",
@@ -137,16 +168,16 @@ def main():
         "case": args.case,
         "probe_start": args.start,
         "probe_end": args.end,
-        "probe_start_id": meta["start_id"],
-        "probe_end_id": meta["end_id"],
+        "probe_start_id": header["start_id"],
+        "probe_end_id": header["end_id"],
         "payload_capacity_bytes": 256,
         "counter": {
             "kind": "cortex-m-dwt-cyccnt",
             "width_bits": 32,
-            "frequency_hz": meta["core_hz"],
+            "frequency_hz": header["core_hz"],
         },
-        "warmup_iterations": meta["warmup"],
-        "iterations": iterations,
+        "warmup_iterations": header["warmup"],
+        "iterations": header["iterations"],
         "counter_floor": {
             "method": "back_to_back_dwt_reads",
             "samples": floor_samples,
@@ -157,10 +188,10 @@ def main():
         "scope_note": "STM32 DMA2 memory-to-memory provider timing; not SpaceWire PHY/link timing",
     }
 
-    if meta.get("cache_valid") == 1:
+    if cache_valid == 1:
         document["cache_maintenance"] = {
-            "clean": finalize_rows(clean, iterations),
-            "invalidate": finalize_rows(invalidate, iterations),
+            "clean": clean_rows,
+            "invalidate": invalidate_rows,
             "note": "D-cache primitives isolated around the same CMSIS clean/invalidate helpers used by the provider",
         }
 
