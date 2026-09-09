@@ -164,6 +164,40 @@ The default OpenOCD script root is `/usr/share/openocd/scripts`; override it wit
 
 The scripted pass criteria are exactly the `g_stm32h755_spwkit_evidence` values documented above. This is MCU DMA/cache evidence, not SpaceWire electrical/physical-link HIL.
 
+
+## Physical DWT profiling
+
+The Debug correctness firmware above and the performance firmware are intentionally separate. Physical profiling uses an optimized Release build, DWT `CYCCNT`, fixed/no-heap sample storage, and a clean rebuild/flash for every compiled probe pair.
+
+With the NUCLEO-H755ZI-Q connected, run:
+
+```bash
+scripts/stm32h755_profile_campaign.sh --stm32h7-root /tmp/STM32CubeH7
+```
+
+The first physical sweep stays within the existing provider's real 256-byte DMA buffer capacity:
+
+```text
+0 1 8 64 256 bytes
+```
+
+The campaign measures these compiled ranges serially:
+
+- copied TX: public API entry -> provider DMA submission;
+- copied RX: provider data-ready -> public API return;
+- zero-copy TX acquire: API entry -> API return;
+- zero-copy TX submit: API entry -> provider DMA submission;
+- zero-copy TX reclaim: provider completion boundary -> API return;
+- zero-copy TX release: API entry -> API return;
+- zero-copy RX acquire: provider data-ready -> API return;
+- zero-copy RX release: API entry -> API return.
+
+The copied-TX configuration also records isolated Cortex-M7 D-cache clean and invalidate costs for the same payload sizes. Every configuration records its own back-to-back DWT read floor; calibration is diagnostic and is never subtracted from measured intervals.
+
+Results are written under `build/profile-results/stm32h755-<UTC>-<commit>/` and the runner also creates a `.tar` archive beside the result directory. `summary.txt` contains rounded integral cycle values while each `cases/*.json` file retains raw DWT samples and full-precision derived statistics.
+
+These measurements characterize the SpWKit software/provider/DMA/cache path on STM32H755. DMA2 is used as a concrete hardware-backed provider boundary, but there is still no SpaceWire controller, codec, PHY, cable, or link serialization in this fixture. Do not report these values as SpaceWire link latency.
+
 ## Acceptance record for #119
 
 When run on the board, record in issue #119:

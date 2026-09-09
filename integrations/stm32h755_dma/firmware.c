@@ -5,6 +5,22 @@
 
 #include "stm32h755xx.h"
 
+#ifdef SPWKIT_STM32_PROFILE
+#include "profiling/profile.h"
+#define STM32_PROFILE_DMA_SUBMITTED() do { \
+    SPW_PROFILE_TX_PROVIDER_BOUNDARY(); \
+    SPW_PROFILE_TX_ZC_SUBMIT_PROVIDER_BOUNDARY(); \
+} while (0)
+#define STM32_PROFILE_DMA_COMPLETE() do { \
+    SPW_PROFILE_RX_PROVIDER_BOUNDARY(); \
+    SPW_PROFILE_RX_ZC_ACQUIRE_PROVIDER_BOUNDARY(); \
+    SPW_PROFILE_TX_ZC_RECLAIM_PROVIDER_BOUNDARY(); \
+} while (0)
+#else
+#define STM32_PROFILE_DMA_SUBMITTED() ((void)0)
+#define STM32_PROFILE_DMA_COMPLETE() ((void)0)
+#endif
+
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -181,6 +197,7 @@ static int dma_start_copy(size_t length) {
         return 0;
     }
     if (length == 0u) {
+        STM32_PROFILE_DMA_SUBMITTED();
         return 1;
     }
 
@@ -199,6 +216,7 @@ static int dma_start_copy(size_t length) {
                        DMA_SxCR_PL_1;
     __DSB();
     DMA2_Stream0->CR |= DMA_SxCR_EN;
+    STM32_PROFILE_DMA_SUBMITTED();
     return 1;
 }
 
@@ -212,6 +230,7 @@ static void driver_poll_completion(stm32_driver_state_t* state) {
     state->tx_owner = STM32_DMA_TX_COMPLETE;
     state->rx_owner = STM32_DMA_RX_READY;
     ++state->dma_transfers;
+    STM32_PROFILE_DMA_COMPLETE();
 }
 
 static spw_result_t driver_start(void* raw) {
@@ -313,6 +332,7 @@ static spw_result_t driver_send(void* raw,
         state->tx_owner = STM32_DMA_TX_COMPLETE;
         state->rx_owner = STM32_DMA_RX_READY;
         ++state->dma_transfers;
+        STM32_PROFILE_DMA_COMPLETE();
     } else {
         driver_poll_completion(state);
     }
@@ -446,6 +466,7 @@ static spw_result_t driver_submit_tx(void* raw,
         state->tx_owner = STM32_DMA_TX_COMPLETE;
         state->rx_owner = STM32_DMA_RX_READY;
         ++state->dma_transfers;
+        STM32_PROFILE_DMA_COMPLETE();
     }
     ++state->statistics.tx_packets;
     state->statistics.tx_bytes += buffer->length;
@@ -558,7 +579,11 @@ static const spw_driver_ops_t STM32_DRIVER_OPS = {
     driver_sync
 };
 
-static int run_contract(void) {
+#ifdef SPWKIT_STM32_PROFILE
+#include "profile_impl.inc"
+#endif
+
+static int __attribute__((unused)) run_contract(void) {
     static const uint8_t copied_payload[] = {
         0x53u, 0x70u, 0x57u, 0x4bu, 0x2du, 0x48u, 0x37u, 0x35u, 0x35u
     };
@@ -708,12 +733,22 @@ void Reset_Handler(void) {
     g_driver.link_state = SPW_LINK_ERROR_RESET;
     g_driver.tx_owner = STM32_DMA_FREE;
     g_driver.rx_owner = STM32_DMA_FREE;
+
+#ifdef SPWKIT_STM32_PROFILE
+    g_stm32h755_spwkit_profile.magic = STM32_PROFILE_MAGIC;
+    g_stm32h755_spwkit_profile.result = UINT32_C(0xfffffffe);
+    result = run_profile();
+    g_stm32h755_spwkit_profile.result = (uint32_t)result;
+    g_stm32h755_spwkit_profile.phase =
+        result == 0 ? 0x700du : 0xdead0000u | (uint32_t)result;
+#else
     g_stm32h755_spwkit_evidence.magic = STM32_EVIDENCE_MAGIC;
     g_stm32h755_spwkit_evidence.result = UINT32_C(0xfffffffe);
-
     result = run_contract();
     g_stm32h755_spwkit_evidence.result = (uint32_t)result;
-    g_stm32h755_spwkit_evidence.phase = result == 0 ? 0x700du : 0xdead0000u | (uint32_t)result;
+    g_stm32h755_spwkit_evidence.phase =
+        result == 0 ? 0x700du : 0xdead0000u | (uint32_t)result;
+#endif
     __DSB();
 
     for (;;) {
