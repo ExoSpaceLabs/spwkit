@@ -117,22 +117,27 @@ static int __attribute__((unused)) profile_copied_once(spw_port_t* port,
     spw_packet_t rx = {
         g_profile_rx_data, 0u, sizeof(g_profile_rx_data), SPW_TERMINATOR_EOP
     };
+    spw_result_t result;
 
     spw_profile_reset();
-    if (spw_port_send(port, &tx, SPW_TIMEOUT_IMMEDIATE) != SPW_OK) {
-        return 0;
+    result = spw_port_send(port, &tx, SPW_TIMEOUT_IMMEDIATE);
+    if (result != SPW_OK) {
+        return 0x10 + (int)(-result & 0x0f);
     }
     if (!measure_rx && !profile_capture_delta(out_cycles)) {
-        return 0;
+        return 0x20;
     }
-    if (spw_port_receive(port, &rx, SPW_TIMEOUT_IMMEDIATE) != SPW_OK ||
-        rx.length != length) {
-        return 0;
+    result = spw_port_receive(port, &rx, SPW_TIMEOUT_IMMEDIATE);
+    if (result != SPW_OK) {
+        return 0x30 + (int)(-result & 0x0f);
+    }
+    if (rx.length != length) {
+        return 0x40;
     }
     if (measure_rx && !profile_capture_delta(out_cycles)) {
-        return 0;
+        return 0x50;
     }
-    return 1;
+    return 0;
 }
 
 static int __attribute__((unused)) profile_prepare_zc_tx(spw_port_t* port,
@@ -284,7 +289,7 @@ static int profile_operation_once(spw_port_t* port,
 #elif SPWKIT_STM32_PROFILE_CASE == 2
     return profile_copied_once(port, length, 1, out_cycles);
 #else
-    return profile_zc_once(port, length, out_cycles);
+    return profile_zc_once(port, length, out_cycles) ? 0 : 0x7f;
 #endif
 }
 
@@ -367,13 +372,15 @@ static int run_profile(void) {
         profile_fill(g_profile_tx_data, length, (uint8_t)(0x40u + row));
 
         for (index = 0u; index < (uint32_t)SPWKIT_STM32_PROFILE_WARMUP; ++index) {
-            if (!profile_operation_once(port, length, &cycles)) {
-                return (int)(0x900u + row);
+            const int operation_result = profile_operation_once(port, length, &cycles);
+            if (operation_result != 0) {
+                return (int)(0x9000u | (row << 8u) | (uint32_t)operation_result);
             }
         }
         for (index = 0u; index < (uint32_t)SPWKIT_STM32_PROFILE_ITERATIONS; ++index) {
-            if (!profile_operation_once(port, length, &cycles)) {
-                return (int)(0xa00u + row);
+            const int operation_result = profile_operation_once(port, length, &cycles);
+            if (operation_result != 0) {
+                return (int)(0xa000u | (row << 8u) | (uint32_t)operation_result);
             }
             g_stm32h755_spwkit_profile.rows[row].samples[index] = cycles;
         }

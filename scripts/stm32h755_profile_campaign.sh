@@ -141,16 +141,38 @@ rm -rf -- "$campaign_build"
 mkdir -p "$campaign_build"
 compiler="$(arm-none-eabi-gcc --version | head -n 1)"
 
+archive_results() {
+  local archive="$1"
+  rm -f -- "$archive"
+  if ! tar -cf "$archive" -C "$(dirname "$output_dir")" "$(basename "$output_dir")"; then
+    printf 'ERROR: tar failed while creating %s\n' "$archive" >&2
+    rm -f -- "$archive"
+    return 1
+  fi
+  if [[ ! -s "$archive" ]]; then
+    printf 'ERROR: tar reported success but archive is missing/empty: %s\n' "$archive" >&2
+    rm -f -- "$archive"
+    return 1
+  fi
+  printf 'Archive       : %s\n' "$archive" >&2
+}
+
 fail_campaign() {
   local status="$1"
   shift
   cleanup_openocd
   printf '\nERROR: %s\n' "$*" >&2
+
+  if [[ -n "${raw_build:-}" && -s "${raw_build:-}" && -n "${raw_out:-}" ]]; then
+    cp "$raw_build" "$raw_out" || printf 'WARNING: could not preserve raw evidence at %s\n' "$raw_out" >&2
+  fi
+
   if [[ -d "$output_dir" ]]; then
     local failure_archive="${output_dir}.failed.tar"
-    tar -cf "$failure_archive" -C "$(dirname "$output_dir")" "$(basename "$output_dir")" >/dev/null 2>&1 || true
     printf 'Partial results : %s\n' "$output_dir" >&2
-    [[ -s "$failure_archive" ]] && printf 'Failure archive : %s\n' "$failure_archive" >&2
+    if ! archive_results "$failure_archive"; then
+      printf 'ERROR: automatic failure archive creation failed; results remain in %s\n' "$output_dir" >&2
+    fi
   fi
   exit "$status"
 }
@@ -252,6 +274,8 @@ for case_name in "${selected_cases[@]}"; do
   set -e
   cleanup_openocd
 
+  [[ -s "$raw_build" ]] && cp "$raw_build" "$raw_out"
+
   if (( gdb_rc == 124 )); then
     fail_campaign 124 "GDB timed out after ${DEBUG_TIMEOUT}s for $case_name"
   fi
@@ -260,8 +284,7 @@ for case_name in "${selected_cases[@]}"; do
     (( status == 0 )) && status=1
     fail_campaign "$status" "Physical profile case $case_name failed"
   fi
-  [[ -s "$raw_build" ]] || fail_campaign 1 "Bulk profile evidence dump missing for $case_name"
-  cp "$raw_build" "$raw_out"
+  [[ -s "$raw_out" ]] || fail_campaign 1 "Bulk profile evidence dump missing for $case_name"
 
   python3 "$ROOT_DIR/scripts/extract_stm32h755_profile.py" "$gdb_log" \
     --raw "$raw_out" \
@@ -312,9 +335,8 @@ printf '\n================ STM32H755 PROFILING RESULTS ================\n' >&2
 python3 "$ROOT_DIR/scripts/summarize_stm32h755_profile.py" "$output_dir" | tee "$output_dir/summary.console.txt" >&2
 printf '==============================================================\n' >&2
 archive="${output_dir}.tar"
-tar -cf "$archive" -C "$(dirname "$output_dir")" "$(basename "$output_dir")"
+archive_results "$archive" || exit 1
 printf 'Human summary : %s/summary.txt\n' "$output_dir" >&2
 printf 'Machine data  : %s/cases/*.json\n' "$output_dir" >&2
 printf 'Raw evidence  : %s/cases/*.raw\n' "$output_dir" >&2
-printf 'Archive       : %s\n' "$archive" >&2
 printf '%s\n' "$output_dir"
