@@ -99,8 +99,8 @@ struct spw_buffer_view {
 /*
  * SpaceWire time-code representation.
  * time_count uses the least-significant six-bit value range 0..63.
- * control_flags holds the two control bits. For ordinary time-codes v0.1
- * expects control_flags == 0; broader broadcast-code semantics are reserved.
+ * control_flags holds the two control bits. Ordinary time-codes expect
+ * control_flags == 0; broader broadcast-code semantics are reserved.
  */
 struct spw_time_code {
     uint8_t time_count;
