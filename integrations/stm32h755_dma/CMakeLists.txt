@@ -120,6 +120,11 @@ if(SPWKIT_STM32_PROFILE_FIRMWARE)
     # Debug information is retained only so GDB can extract the fixed result
     # structure. -g does not change the Release optimization level.
     target_compile_options(spwkit_stm32h755_profile PRIVATE -g3)
+    if(SPWKIT_STM32_PROFILE_CASE GREATER_EQUAL 9)
+        # The paired implementation contains all four direct/public path helpers
+        # so one source is exercised under four compile-time probe pairs.
+        target_compile_options(spwkit_stm32h755_profile PRIVATE -Wno-unused-function)
+    endif()
 else()
     add_executable(spwkit_stm32h755_dma firmware.c)
     spwkit_configure_stm32_target(spwkit_stm32h755_dma)
