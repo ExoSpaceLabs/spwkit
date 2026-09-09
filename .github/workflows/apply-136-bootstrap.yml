@@ -24,11 +24,10 @@ jobs:
       - name: Apply deterministic patch
         run: python3 scripts/apply_136_bootstrap.py
 
-      - name: Remove bootstrap machinery
+      - name: Keep workflow edits out of bot push
         run: |
-          rm -f scripts/fix_136_bootstrap.py
-          rm -f scripts/apply_136_bootstrap.py
-          rm -f .github/workflows/apply-136-bootstrap.yml
+          git checkout HEAD -- .github/workflows/profiling.yml
+          git checkout HEAD -- scripts/apply_136_bootstrap.py
 
       - name: Commit patched sources
         shell: bash
@@ -36,7 +35,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add src/backends benchmarks/profile_host_backend.c benchmarks/profile_udp_comparison.c benchmarks/profile_device_comparison.c
           git diff --cached --check
           git commit -m "test(spwkit): instrument hosted backend boundaries"
           git push origin HEAD:test/profile-backend-boundaries
