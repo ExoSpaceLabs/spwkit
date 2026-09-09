@@ -16,6 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description="Summarize VSPW-TP UDP diagnostic component costs")
     parser.add_argument("breakdown", type=Path)
     parser.add_argument("calibration", type=Path)
+    parser.add_argument("--metadata", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
@@ -25,18 +26,35 @@ def main():
         if line.strip()
     ]
     calibration = json.loads(args.calibration.read_text())
+    metadata = json.loads(args.metadata.read_text()) if args.metadata is not None else None
     floor = calibration["statistics"]
 
     lines = [
         "VSPW-TP UDP diagnostic stage summary",
         "=====================================",
+    ]
+    if metadata is not None:
+        platform = metadata.get("platform", {})
+        compiler = metadata.get("compiler", {})
+        control = metadata.get("host_control", {})
+        counter = metadata.get("counter", {})
+        lines.extend([
+            f"Commit      : {metadata.get('git_short_sha', 'unknown')} ({metadata.get('git_sha', 'unknown')})",
+            f"Host        : {platform.get('cpu_model', 'unknown')}",
+            f"OS/kernel   : {platform.get('os', 'unknown')} {platform.get('kernel_release', 'unknown')} / {platform.get('architecture', 'unknown')}",
+            f"Compiler    : {compiler.get('family', 'unknown')} / {compiler.get('version', 'unknown')}",
+            f"Counter     : {counter.get('kind', 'unknown')} / {counter.get('frequency_hz', 0)} Hz metadata",
+            f"CPU control : selected={control.get('selected_cpu')} affinity={control.get('affinity', 'unknown')} nice={control.get('nice_level', 'unknown')} precondition={control.get('precondition_seconds', 0)}s",
+            f"Governor    : requested={control.get('requested_governor', 'unknown')} before={control.get('governor_before', 'unknown')} effective={control.get('governor_effective', 'unknown')} driver={control.get('scaling_driver', 'unknown')} status={control.get('governor_change_status', 'unknown')}",
+        ])
+    lines.extend([
         f"Counter floor: median {rounded(floor['median'])} ticks, p95 {rounded(floor['p95'])}, p99 {rounded(floor['p99'])}",
         "Counter floor is diagnostic only and is not subtracted.",
         "Component rows are attribution microbenchmarks and are not additive to the public API interval.",
         "",
         "stage                         payload  frags   median     mean      p95      p99",
         "-------------------------------------------------------------------------------",
-    ]
+    ])
     for row in rows:
         stats = row["statistics"]
         lines.append(
