@@ -165,7 +165,7 @@ def finalize_campaign(root: Path, campaign):
         "counter": {
             "kind": calibration_counter.get("kind", "unknown"),
             "width_bits": calibration_counter.get("width_bits", "unknown"),
-            "frequency_hz": calibration_counter.get("frequency_hz", "unknown"),
+            "frequency_hz": calibration_counter.get("frequency_hz") or "unknown",
         },
         "measurement_affinity": measurement_affinity,
         "orchestrator_affinity": process_affinity(),
