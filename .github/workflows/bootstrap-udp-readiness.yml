@@ -7,6 +7,12 @@ on:
     paths:
       - scripts/bootstrap_udp_readiness.py
       - .github/workflows/bootstrap-udp-readiness.yml
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - scripts/bootstrap_udp_readiness.py
+      - .github/workflows/bootstrap-udp-readiness.yml
   workflow_dispatch:
 
 permissions:
@@ -19,6 +25,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: perf/udp-readiness-fast-path
       - name: Apply guarded patch
         shell: bash
         run: |
