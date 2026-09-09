@@ -1,0 +1,45 @@
+name: Profile metadata polish
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/profile-frequency-polish.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: chore/pre-v1-audit
+          fetch-depth: 0
+      - name: Normalize unknown counter frequency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('benchmarks/summarize_profile_campaign.py')
+          text = path.read_text()
+          old = '"frequency_hz": calibration_counter.get("frequency_hz", "unknown"),'
+          new = '"frequency_hz": calibration_counter.get("frequency_hz") or "unknown",'
+          if old not in text:
+              raise SystemExit('frequency marker not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          rm .github/workflows/profile-frequency-polish.yml
+      - name: Commit polished metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix(spwkit): mark unknown counter frequency explicitly'
+          git push origin HEAD:chore/pre-v1-audit
