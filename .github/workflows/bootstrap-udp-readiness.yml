@@ -1,0 +1,42 @@
+name: Bootstrap UDP readiness optimization
+
+on:
+  push:
+    branches:
+      - perf/udp-readiness-fast-path
+    paths:
+      - scripts/bootstrap_udp_readiness.py
+      - .github/workflows/bootstrap-udp-readiness.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Apply guarded patch
+        shell: bash
+        run: |
+          if [[ ! -f scripts/bootstrap_udp_readiness.py ]]; then
+            echo "Patch script already consumed."
+            exit 0
+          fi
+          python3 scripts/bootstrap_udp_readiness.py
+          git diff --check
+      - name: Commit production change
+        shell: bash
+        run: |
+          if [[ ! -f scripts/bootstrap_udp_readiness.py ]]; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/backends/ethernet/udp_backend.c
+          git rm scripts/bootstrap_udp_readiness.py
+          git commit -m "perf(spwkit): optimize POSIX UDP readiness"
+          git push origin HEAD:perf/udp-readiness-fast-path
