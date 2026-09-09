@@ -214,15 +214,17 @@ static bool raw_send_record(int fd, const uint8_t* data, size_t size) {
 
 static ssize_t raw_receive_record(int fd, uint8_t* frame, size_t capacity) {
     for (;;) {
-        ssize_t received;
-        if (!wait_fd(fd, POLLIN, SPW_DEVICE_BENCH_TIMEOUT_MS)) {
-            return -1;
-        }
-        received = recv(fd, frame, capacity, MSG_DONTWAIT);
+        const ssize_t received = recv(fd, frame, capacity, MSG_DONTWAIT);
         if (received >= 0) {
             return received;
         }
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (!wait_fd(fd, POLLIN, SPW_DEVICE_BENCH_TIMEOUT_MS)) {
+                return -1;
+            }
             continue;
         }
         return -1;
