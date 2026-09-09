@@ -99,6 +99,7 @@ if(UNIX)
     spwkit_configure_profile_executable(
         spwkit_profile_udp_breakdown
         profile_udp_breakdown.c)
+    target_link_libraries(spwkit_profile_udp_breakdown PRIVATE m)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND SPWKIT_BENCHMARK_BUILD_DEVICE)
