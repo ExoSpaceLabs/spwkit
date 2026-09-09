@@ -114,7 +114,8 @@ This embedded evidence is separate from physical SpaceWire PHY/electrical intero
 There are two lifecycle workflows relevant to publication:
 
 - ordinary pushes run the consolidated `CI` workflow;
-- pushing a `vX.Y.Z` tag runs the `Release` workflow.
+- pushing a `vX.Y.Z` tag runs the `Release` workflow;
+- `workflow_dispatch` is available as an exact-tag recovery/dispatch path and is subject to the same release-boundary validation.
 
 The Release workflow checks out the exact tag and validates:
 
@@ -128,7 +129,7 @@ After validation, the four DEBs are built in parallel. GitHub Release publicatio
 
 The GHCR multi-platform image is published independently. A container-image failure makes the Release workflow red but does not suppress otherwise verified Debian release assets.
 
-The current workflow is intentionally tag-push driven. It does not expose a manual `workflow_dispatch` release path.
+Normal release publication remains exact-tag driven. Manual dispatch exists for exact-tag recovery/re-execution; it is not a bypass around tag/project/main alignment or the immutable-release checks.
 
 ## Hardware-driver scope
 
