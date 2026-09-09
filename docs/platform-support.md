@@ -19,7 +19,7 @@ The public UDP configuration/wire contract is identical across POSIX and Windows
 
 ## Stable v0.6 architecture packages
 
-Release `v0.6.0` publishes Debian packages for:
+Release `v0.6.1` publishes Debian packages for:
 
 ```text
 amd64
@@ -52,7 +52,7 @@ The physical STM32 result is MCU driver/DMA/cache evidence, not SpaceWire contro
 
 ## v0.6 portable driver backend
 
-Stable `v0.6.0` includes `SPW_BACKEND_DRIVER`, driver ABI v2 DMA/zero-copy ownership mapping and a deterministic host reference driver.
+Stable `v0.6.1` includes `SPW_BACKEND_DRIVER`, driver ABI v2 DMA/zero-copy ownership mapping and a deterministic host reference driver.
 
 ```mermaid
 flowchart LR
