@@ -1,6 +1,12 @@
 name: Bootstrap UDP readiness portability fix
 
 on:
+  push:
+    branches:
+      - perf/udp-readiness-fast-path
+    paths:
+      - scripts/bootstrap_udp_readiness_portability.py
+      - .github/workflows/bootstrap-udp-readiness-portability.yml
   pull_request:
     branches:
       - develop
