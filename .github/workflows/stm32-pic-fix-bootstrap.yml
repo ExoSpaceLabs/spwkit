@@ -31,10 +31,10 @@ jobs:
           grep -q '\*(.got\*)' integrations/stm32h755_dma/linker.ld
           ! grep -q 'stm32_profile_last_sample_direct' integrations/stm32h755_dma/firmware.c
 
-      - name: Commit permanent fix
+      - name: Commit permanent non-workflow fix
         run: |
           git config user.name 'Robert A Incze'
           git config user.email '98164670+Inczert@users.noreply.github.com'
-          git add CMakeLists.txt integrations/stm32h755_dma/linker.ld integrations/stm32h755_dma/firmware.c .github/workflows/stm32h755-dma.yml
+          git add CMakeLists.txt integrations/stm32h755_dma/linker.ld integrations/stm32h755_dma/firmware.c
           git commit -m 'fix(spwkit): make Cortex-M7 startup position-independent safe'
           git push origin HEAD:test/stm32h755-physical-profiling
