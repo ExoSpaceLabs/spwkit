@@ -370,7 +370,7 @@ static void print_result(host_backend_kind_t backend,
 static void print_usage(const char* program) {
     fprintf(stderr,
             "Usage: %s --backend loopback|simulator --direction tx|rx "
-            "[--warmup N] [--iterations N] [--payload N]\n",
+            "[--warmup N] [--iterations N] [--payload N] [--probe-smoke]\n",
             program);
 }
 
@@ -379,6 +379,7 @@ int main(int argc, char** argv) {
     host_direction_t direction = HOST_DIRECTION_TX;
     int have_backend = 0;
     int have_direction = 0;
+    int probe_smoke = 0;
     size_t warmup_iterations = 256u;
     size_t iterations = 1024u;
     size_t payload_size = 64u;
@@ -424,6 +425,8 @@ int main(int argc, char** argv) {
                 print_usage(argv[0]);
                 return 2;
             }
+        } else if (strcmp(argv[i], "--probe-smoke") == 0) {
+            probe_smoke = 1;
         } else {
             print_usage(argv[0]);
             return 2;
@@ -446,6 +449,25 @@ int main(int argc, char** argv) {
     }
 
     spw_profile_prepare();
+    if (probe_smoke) {
+        uint64_t ignored = 0u;
+        const volatile spw_profile_sample_t* sample;
+        spw_profile_reset();
+        if (!run_sample(&fixture, direction, payload_size, &ignored)) {
+            fprintf(stderr, "probe smoke operation failed\n");
+            return 1;
+        }
+        sample = spw_profile_last_sample();
+        if (sample == NULL || sample->sequence != 1u) {
+            fprintf(stderr, "probe smoke expected sequence=1, got %u\n",
+                    sample == NULL ? 0u : sample->sequence);
+            return 1;
+        }
+        printf("PROBE_SMOKE PASS backend=%s direction=%s sequence=%u delta=%llu\n",
+               backend_name(backend), direction_name(direction), sample->sequence,
+               (unsigned long long)sample->delta);
+        return fixture_close(&fixture) ? 0 : 1;
+    }
     for (i = 0u; i < warmup_iterations; ++i) {
         uint64_t ignored;
         if (!run_sample(&fixture, direction, payload_size, &ignored)) {

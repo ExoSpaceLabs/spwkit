@@ -769,7 +769,7 @@ static void print_result(device_direction_t direction,
 
 static void usage(const char* program) {
     fprintf(stderr,
-            "Usage: %s --socket PATH --direction tx|rx [--warmup N] [--iterations N] [--payload N]\n",
+            "Usage: %s --socket PATH --direction tx|rx [--warmup N] [--iterations N] [--payload N] [--probe-smoke]\n",
             program);
 }
 
@@ -777,6 +777,7 @@ int main(int argc, char** argv) {
     const char* socket_path = NULL;
     device_direction_t direction = DEVICE_DIRECTION_TX;
     int have_direction = 0;
+    int probe_smoke = 0;
     size_t warmup_iterations = 64u;
     size_t iterations = 256u;
     size_t payload_size = 64u;
@@ -814,6 +815,8 @@ int main(int argc, char** argv) {
                 usage(argv[0]);
                 return 2;
             }
+        } else if (strcmp(argv[i], "--probe-smoke") == 0) {
+            probe_smoke = 1;
         } else {
             usage(argv[0]);
             return 2;
@@ -835,6 +838,30 @@ int main(int argc, char** argv) {
         return 1;
     }
     spw_profile_prepare();
+    if (probe_smoke) {
+        uint64_t ignored = 0u;
+        const volatile spw_profile_sample_t* sample;
+        spw_profile_reset();
+        if (!(direction == DEVICE_DIRECTION_TX
+                  ? sample_spw_tx(&fixture, payload_size, &ignored)
+                  : sample_spw_rx(&fixture, payload_size, &ignored))) {
+            fprintf(stderr, "DEVICE probe smoke operation failed\n");
+            fixture_close(&fixture);
+            return 1;
+        }
+        sample = spw_profile_last_sample();
+        if (sample == NULL || sample->sequence != 1u) {
+            fprintf(stderr, "DEVICE probe smoke expected sequence=1, got %u\n",
+                    sample == NULL ? 0u : sample->sequence);
+            fixture_close(&fixture);
+            return 1;
+        }
+        printf("PROBE_SMOKE PASS backend=device direction=%s sequence=%u delta=%llu\n",
+               direction == DEVICE_DIRECTION_TX ? "tx" : "rx", sample->sequence,
+               (unsigned long long)sample->delta);
+        fixture_close(&fixture);
+        return 0;
+    }
 
     for (i = 0u; i < warmup_iterations; ++i) {
         uint64_t native_delta;

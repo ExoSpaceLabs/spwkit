@@ -3,6 +3,7 @@
 #include "backends/virtual/simulator_backend.h"
 #include "core/buffer_internal.h"
 #include "platform/host_sync.h"
+#include "profiling/profile.h"
 
 #include <spwkit/simulator.h>
 
@@ -497,6 +498,7 @@ static spw_result_t simulator_send(void* context,
     spw_packet_space_predicate_t predicate;
     bool ready;
 
+    SPW_PROFILE_TX_BACKEND_ENTRY();
     if (backend->link == NULL) {
         return SPW_ERR_INVALID_STATE;
     }
@@ -546,6 +548,7 @@ static spw_result_t simulator_send(void* context,
         return SPW_ERR_TIMEOUT;
     }
 
+    SPW_PROFILE_TX_PROVIDER_ENTRY();
     slot = &peer->packets.slots[peer->packets.tail];
     if (packet->length > 0u) {
         memcpy(slot->data, packet->data, packet->length);
@@ -555,6 +558,9 @@ static spw_result_t simulator_send(void* context,
     peer->packets.tail =
         (peer->packets.tail + 1u) % SPW_SIMULATOR_PACKET_QUEUE_DEPTH;
     ++peer->packets.count;
+    /* Enqueue completes both TX carrier handoff and peer RX data-ready. */
+    SPW_PROFILE_TX_PROVIDER_BOUNDARY();
+    SPW_PROFILE_RX_PROVIDER_BOUNDARY();
 
     ++local->statistics.tx_packets;
     local->statistics.tx_bytes += packet->length;
@@ -625,10 +631,12 @@ static spw_result_t simulator_receive(void* context,
     local->packets.head =
         (local->packets.head + 1u) % SPW_SIMULATOR_PACKET_QUEUE_DEPTH;
     --local->packets.count;
+    SPW_PROFILE_RX_PROVIDER_RETURN();
     ++local->statistics.rx_packets;
     local->statistics.rx_bytes += slot->length;
     spw_host_condition_broadcast(&backend->link->condition);
     spw_host_mutex_unlock(&backend->link->mutex);
+    SPW_PROFILE_RX_BACKEND_RETURN();
     return SPW_OK;
 }
 

@@ -3,6 +3,7 @@
 
 #include "backends/device/device_backend.h"
 #include "backends/device/vspw_device_protocol.h"
+#include "profiling/profile.h"
 
 #include <spwkit/device.h>
 
@@ -268,6 +269,7 @@ static spw_result_t process_event(device_context_t* context,
                                                       : SPW_TERMINATOR_EOP;
             context->rx_active = false;
             context->rx_ready = true;
+            SPW_PROFILE_RX_PROVIDER_BOUNDARY();
         }
         return SPW_OK;
     }
@@ -602,13 +604,17 @@ static spw_result_t device_send(void* raw,
     uint32_t request_id;
     uint32_t message_id;
     uint32_t offset = 0u;
-    spw_result_t result = ensure_connected(context, deadline);
+    spw_result_t result;
+
+    SPW_PROFILE_TX_BACKEND_ENTRY();
+    result = ensure_connected(context, deadline);
     if (result != SPW_OK) {
         return result;
     }
     request_id = context->next_request_id++;
     message_id = context->next_message_id++;
 
+    SPW_PROFILE_TX_PROVIDER_ENTRY();
     do {
         uint8_t frame[VSPD_HEADER_SIZE + VSPD_MAX_FRAME_PAYLOAD];
         vspd_header_t header;
@@ -651,6 +657,8 @@ static spw_result_t device_send(void* raw,
         }
         offset += chunk;
         if (final_fragment) {
+            /* Complete logical DATA_TX request has reached AF_UNIX. */
+            SPW_PROFILE_TX_PROVIDER_BOUNDARY();
             int32_t status = VSPD_STATUS_BACKEND;
             result = wait_response(context,
                                    VSPD_MSG_DATA_TX,
@@ -718,6 +726,8 @@ static spw_result_t device_receive(void* raw,
         memcpy(packet->data, context->rx_data, context->rx_total_size);
     }
     clear_rx(context);
+    SPW_PROFILE_RX_PROVIDER_RETURN();
+    SPW_PROFILE_RX_BACKEND_RETURN();
     return SPW_OK;
 }
 

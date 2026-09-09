@@ -9,6 +9,7 @@
 #include "backends/ethernet/fragment_reassembler.h"
 #include "backends/ethernet/virtual_link_timing.h"
 #include "backends/ethernet/vspw_tp.h"
+#include "profiling/profile.h"
 
 #include <spwkit/udp.h>
 
@@ -861,6 +862,7 @@ static spw_result_t process_data(spw_udp_backend_t* backend,
         backend->pending_packet_size = header->payload_size;
         backend->pending_packet_terminator = terminator;
         backend->pending_packet_valid = true;
+        SPW_PROFILE_RX_PROVIDER_BOUNDARY();
         if (ack_required) {
             remember_delivered(backend, SPW_VSPW_TP_DATA, header->message_id);
             (void)send_ack(backend, header->message_id);
@@ -897,6 +899,7 @@ static spw_result_t process_data(spw_udp_backend_t* backend,
             ? SPW_TERMINATOR_EEP
             : SPW_TERMINATOR_EOP;
     backend->pending_packet_valid = true;
+    SPW_PROFILE_RX_PROVIDER_BOUNDARY();
     {
         const uint32_t completed_message_id = backend->reassembly.message_id;
         const bool completed_ack_required = backend->reassembly.ack_required;
@@ -1252,6 +1255,7 @@ static spw_result_t udp_send(void* context,
     spw_result_t result;
     spw_terminator_t effective_terminator;
 
+    SPW_PROFILE_TX_BACKEND_ENTRY();
     if ((packet->length != 0u && packet->data == NULL) ||
         packet->length > SPW_UDP_BACKEND_MAX_PACKET_SIZE ||
         !valid_terminator(packet->terminator)) {
@@ -1296,11 +1300,14 @@ static spw_result_t udp_send(void* context,
     backend->pending_tx_last_send_us = 0u;
 
     (void)send_keepalive(backend, SPW_TIMEOUT_IMMEDIATE);
+    SPW_PROFILE_TX_PROVIDER_ENTRY();
     result = transmit_pending(backend, deadline_remaining(&deadline));
     if (result != SPW_OK) {
         clear_pending_tx(backend);
         return result;
     }
+    /* All fragments of this logical packet have been handed to UDP. */
+    SPW_PROFILE_TX_PROVIDER_BOUNDARY();
 
     ++backend->statistics.tx_packets;
     backend->statistics.tx_bytes += packet->length;
@@ -1353,8 +1360,10 @@ static spw_result_t udp_receive(void* context,
                backend->pending_packet_size);
     }
     backend->pending_packet_valid = false;
+    SPW_PROFILE_RX_PROVIDER_RETURN();
     ++backend->statistics.rx_packets;
     backend->statistics.rx_bytes += packet->length;
+    SPW_PROFILE_RX_BACKEND_RETURN();
     return SPW_OK;
 }
 
