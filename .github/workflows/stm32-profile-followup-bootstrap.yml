@@ -1,0 +1,36 @@
+name: STM32 profile follow-up bootstrap
+
+on:
+  push:
+    branches: [test/stm32h755-physical-profiling]
+    paths:
+      - 'scripts/apply_stm32_profile_followup.py'
+      - '.github/workflows/stm32-profile-followup-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/stm32h755-physical-profiling
+          fetch-depth: 0
+
+      - name: Apply follow-up
+        run: python3 scripts/apply_stm32_profile_followup.py
+
+      - name: Validate shell and diff
+        run: |
+          bash -n scripts/stm32h755_profile_campaign.sh
+          git diff --check
+
+      - name: Commit permanent changes
+        run: |
+          git config user.name 'Robert A Incze'
+          git config user.email '98164670+Inczert@users.noreply.github.com'
+          git add integrations/stm32h755_dma/profile_impl.inc scripts/stm32h755_profile_campaign.sh
+          git commit -m 'fix(spwkit): improve STM32 profiling diagnostics and archives'
+          git push origin HEAD:test/stm32h755-physical-profiling
