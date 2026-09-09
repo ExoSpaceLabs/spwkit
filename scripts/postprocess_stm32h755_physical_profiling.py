@@ -4,6 +4,7 @@ from pathlib import Path
 profile = Path('integrations/stm32h755_dma/profile_impl.inc')
 text = profile.read_text()
 for name in (
+    'profile_copied_once',
     'profile_prepare_zc_tx',
     'profile_release_rx_ready',
     'profile_reclaim_release_tx',
