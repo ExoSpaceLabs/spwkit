@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "backends/loopback/loopback_backend.h"
+#include "profiling/profile.h"
 
 #include <stdalign.h>
 #include <stddef.h>
@@ -130,6 +131,7 @@ static spw_result_t loopback_send(void* context,
     spw_loopback_packet_slot_t* slot;
     (void)timeout_us;
 
+    SPW_PROFILE_TX_BACKEND_ENTRY();
     if (backend->state != SPW_LINK_RUN) {
         return SPW_ERR_INVALID_STATE;
     }
@@ -147,6 +149,7 @@ static spw_result_t loopback_send(void* context,
         return SPW_ERR_RESOURCE_EXHAUSTED;
     }
 
+    SPW_PROFILE_TX_PROVIDER_ENTRY();
     slot = &backend->packets.slots[backend->packets.tail];
     if (packet->length > 0u) {
         memcpy(slot->data, packet->data, packet->length);
@@ -157,6 +160,9 @@ static spw_result_t loopback_send(void* context,
     backend->packets.tail =
         (backend->packets.tail + 1u) % SPW_LOOPBACK_PACKET_QUEUE_DEPTH;
     ++backend->packets.count;
+    /* One logical packet is now resident in the carrier queue. */
+    SPW_PROFILE_TX_PROVIDER_BOUNDARY();
+    SPW_PROFILE_RX_PROVIDER_BOUNDARY();
 
     ++backend->statistics.tx_packets;
     backend->statistics.tx_bytes += packet->length;
@@ -197,9 +203,11 @@ static spw_result_t loopback_receive(void* context,
     backend->packets.head =
         (backend->packets.head + 1u) % SPW_LOOPBACK_PACKET_QUEUE_DEPTH;
     --backend->packets.count;
+    SPW_PROFILE_RX_PROVIDER_RETURN();
 
     ++backend->statistics.rx_packets;
     backend->statistics.rx_bytes += slot->length;
+    SPW_PROFILE_RX_BACKEND_RETURN();
     return SPW_OK;
 }
 
