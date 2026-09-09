@@ -126,4 +126,16 @@ EOF
 python3 "$ROOT_DIR/benchmarks/summarize_lifecycle_profile.py" \
   "$output_dir/lifecycle.jsonl" "$output_dir/calibration.json"
 
+archive="${output_dir%/}.tar"
+rm -f -- "$archive"
+if ! tar -C "$(dirname "$output_dir")" -cf "$archive" "$(basename "$output_dir")"; then
+  echo "failed to create lifecycle archive: $archive" >&2
+  exit 1
+fi
+if [[ ! -s "$archive" ]]; then
+  echo "lifecycle archive is missing or empty: $archive" >&2
+  exit 1
+fi
+
 printf '\nLifecycle result directory: %s\n' "$output_dir"
+printf 'Lifecycle archive         : %s\n' "$archive"
