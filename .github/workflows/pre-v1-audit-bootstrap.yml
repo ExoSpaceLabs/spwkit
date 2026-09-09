@@ -1,0 +1,34 @@
+name: Pre-v1 audit bootstrap
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'scripts/apply_profile_campaign_completion.py'
+      - '.github/workflows/pre-v1-audit-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: chore/pre-v1-audit
+          fetch-depth: 0
+      - name: Apply audited profiling changes
+        run: python3 scripts/apply_profile_campaign_completion.py
+      - name: Commit generated change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat(spwkit): complete profiling campaign metadata'
+          git push origin HEAD:chore/pre-v1-audit
