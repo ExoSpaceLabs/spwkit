@@ -1,5 +1,6 @@
 name: Bootstrap DEVICE readiness optimization
 
+# One-shot guarded source patch; removed before review.
 on:
   push:
     branches:
