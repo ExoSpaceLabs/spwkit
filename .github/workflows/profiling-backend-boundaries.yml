@@ -1,0 +1,144 @@
+name: Profiling backend boundaries
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-boundaries:
+    name: Backend boundary / ${{ matrix.backend }} / ${{ matrix.direction }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: loopback
+            direction: tx
+            start: SPW_PROFILE_ID_TX_API_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+          - backend: loopback
+            direction: rx
+            start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+            end: SPW_PROFILE_ID_RX_API_RETURN
+          - backend: simulator
+            direction: tx
+            start: SPW_PROFILE_ID_TX_API_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+          - backend: simulator
+            direction: rx
+            start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+            end: SPW_PROFILE_ID_RX_API_RETURN
+          - backend: udp
+            direction: tx
+            start: SPW_PROFILE_ID_TX_API_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+          - backend: udp
+            direction: rx
+            start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+            end: SPW_PROFILE_ID_RX_API_RETURN
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure boundary fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S benchmarks -B build-boundary \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPWKIT_BENCHMARK_PROFILE_START=${{ matrix.start }} \
+            -DSPWKIT_BENCHMARK_PROFILE_END=${{ matrix.end }} \
+            -DSPWKIT_BENCHMARK_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BENCHMARK_BUILD_UDP=ON
+
+      - name: Exercise real backend path
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.backend }}" == "udp" ]]; then
+            cmake --build build-boundary --target spwkit_profile_udp_comparison --parallel 2
+            timeout 30s build-boundary/spwkit_profile_udp_comparison \
+              --direction "${{ matrix.direction }}" \
+              --payload 4096 \
+              --probe-smoke
+          else
+            cmake --build build-boundary --target spwkit_profile_host_backend --parallel 2
+            build-boundary/spwkit_profile_host_backend \
+              --backend "${{ matrix.backend }}" \
+              --direction "${{ matrix.direction }}" \
+              --payload 64 \
+              --probe-smoke
+          fi
+
+  device-boundaries:
+    name: Backend boundary / device / ${{ matrix.direction }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - direction: tx
+            start: SPW_PROFILE_ID_TX_API_ENTRY
+            end: SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+          - direction: rx
+            start: SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY
+            end: SPW_PROFILE_ID_RX_API_RETURN
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure DEVICE/VSPD boundary fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S benchmarks -B build-device-boundary \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPWKIT_BENCHMARK_PROFILE_START=${{ matrix.start }} \
+            -DSPWKIT_BENCHMARK_PROFILE_END=${{ matrix.end }} \
+            -DSPWKIT_BENCHMARK_BUILD_DEVICE=ON
+          cmake --build build-device-boundary \
+            --target vspwd spwkit_profile_device_comparison --parallel 2
+
+      - name: Exercise real DEVICE/VSPD path
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          socket="$tmpdir/vspwd.sock"
+          log="$tmpdir/vspwd.log"
+          daemon="build-device-boundary/spwkit-runtime/vspwd"
+          cleanup() {
+            set +e
+            if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+              kill -TERM "$pid" 2>/dev/null || true
+              wait "$pid" 2>/dev/null || true
+            fi
+            rm -rf "$tmpdir"
+          }
+          trap cleanup EXIT
+
+          "$daemon" --socket "$socket" >"$log" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 100); do
+            [[ -S "$socket" ]] && break
+            if ! kill -0 "$pid" 2>/dev/null; then
+              cat "$log" >&2
+              exit 1
+            fi
+            sleep 0.02
+          done
+          if [[ ! -S "$socket" ]]; then
+            cat "$log" >&2
+            exit 1
+          fi
+
+          timeout 30s build-device-boundary/spwkit_profile_device_comparison \
+            --socket "$socket" \
+            --direction "${{ matrix.direction }}" \
+            --payload 4096 \
+            --probe-smoke
