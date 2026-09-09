@@ -2,6 +2,31 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
+## v0.6.1 — 2026-09-10
+
+Maintenance and performance-consolidation release on the v0.6 line. It preserves the existing public application/backend contract while recording the completed profiling infrastructure, accepted performance optimizations, and synchronized post-v0.6 documentation.
+
+### Changed
+
+- completed benchmark backend capability discovery and host/build/counter metadata, including explicit `measured`, `unsupported-platform`, `not-built`, and `not-implemented-benchmark` coverage states (#171, #173);
+- optimized VSPW-TP fragmented RX reassembly bookkeeping: the controlled 4096-byte paired `SpWKit - native` RX overhead fell from 60,281 to 25,032 invariant-TSC ticks (**58.5%**), while the isolated reassembly component fell by roughly **96-97%** (#201/#202);
+- optimized POSIX UDP ready I/O by attempting `MSG_DONTWAIT` send/receive before readiness polling and falling back on `EAGAIN`/`EWOULDBLOCK`, preserving timeout/retry/liveness semantics; hosted normalized paired results show roughly **10-18%** relative transport-overhead reduction across representative payloads (#204/#206);
+- optimized Linux DEVICE/VSPD ready-record I/O with the equivalent optimistic-ready strategy and a fair native comparator; hosted paired readiness measurements remove roughly **813-850 TSC ticks**, about **41-51%** of the raw ready-record operation (#205/#207);
+- synchronized stable-version, STM32H755, CCSDSPack, DEVICE contract, release-workflow, DRIVER initializer, public-header, profiling and current-status documentation (#208).
+
+### Verification
+
+- consolidated CI, lifecycle profiling, profiling, profile benchmark, profiling-backend-boundary, and STM32H755 DMA-evidence workflows pass on the v0.6.1 consolidation candidate;
+- profiling result sets now record the host/build/counter context required for reproducible comparisons and state unsupported/unbuilt/unimplemented benchmark coverage explicitly rather than silently omitting it;
+- the existing physical NUCLEO-H755ZI-Q DMA2/Cortex-M7 cache qualification and immutable CCSDSPack `v2.0.0` baseline remain unchanged release evidence;
+- hosted TSC measurements are retained as named-host regression/reference evidence and are not promoted into universal or physical SpaceWire performance claims.
+
+### Scope
+
+- no intentional public API/ABI contract break is introduced by v0.6.1;
+- physical FPGA-backed SpaceWire controller/PHY/electrical HIL remains a later evidence layer;
+- the staged pre-v1 behavioral, API/ABI, robustness and governance work remains tracked under #209 and #210-#216.
+
 ## v0.6.0 — 2026-09-08
 
 Hardware-driver integration release. v0.6 adds the public software boundary needed to move an application from virtual SpaceWire backends to platform/vendor hardware drivers without changing the application-facing `spw_port_*` API or publishing proprietary hardware implementation details.
