@@ -327,11 +327,19 @@ else()
     target_compile_definitions(spwkit PRIVATE SPWKIT_ENABLE_PROFILING=0)
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    # Bare-metal static images have no dynamic loader and should not depend on
+    # a runtime GOT. Hosted builds retain the existing PIC behavior.
+    set(SPWKIT_TARGET_PIC OFF)
+else()
+    set(SPWKIT_TARGET_PIC ON)
+endif()
+
 set_target_properties(spwkit PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED YES
     C_EXTENSIONS OFF
-    POSITION_INDEPENDENT_CODE ON
+    POSITION_INDEPENDENT_CODE ${SPWKIT_TARGET_PIC}
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
     EXPORT_NAME spwkit

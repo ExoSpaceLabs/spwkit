@@ -10,8 +10,12 @@ on:
       - 'CMakeLists.txt'
       - 'integrations/stm32h755_dma/**'
       - 'scripts/stm32h755_board_test.sh'
+      - 'scripts/stm32h755_profile_campaign.sh'
+      - 'scripts/extract_stm32h755_profile.py'
+      - 'scripts/summarize_stm32h755_profile.py'
       - 'scripts/openocd_h755.cfg'
       - 'scripts/gdb/stm32h755_board_test.gdb'
+      - 'scripts/gdb/stm32h755_profile.gdb'
       - '.github/workflows/stm32h755-dma.yml'
   pull_request:
     paths:
@@ -21,8 +25,12 @@ on:
       - 'CMakeLists.txt'
       - 'integrations/stm32h755_dma/**'
       - 'scripts/stm32h755_board_test.sh'
+      - 'scripts/stm32h755_profile_campaign.sh'
+      - 'scripts/extract_stm32h755_profile.py'
+      - 'scripts/summarize_stm32h755_profile.py'
       - 'scripts/openocd_h755.cfg'
       - 'scripts/gdb/stm32h755_board_test.gdb'
+      - 'scripts/gdb/stm32h755_profile.gdb'
       - '.github/workflows/stm32h755-dma.yml'
   workflow_dispatch:
 
@@ -47,7 +55,12 @@ jobs:
         run: |
           set -euo pipefail
           test -x scripts/stm32h755_board_test.sh
+          test -x scripts/stm32h755_profile_campaign.sh
           bash -n scripts/stm32h755_board_test.sh
+          bash -n scripts/stm32h755_profile_campaign.sh
+          python3 -m py_compile \
+            scripts/extract_stm32h755_profile.py \
+            scripts/summarize_stm32h755_profile.py
 
       - name: Install Arm GNU toolchain
         run: |
@@ -117,3 +130,64 @@ jobs:
           fi
           arm-none-eabi-size "${elf}"
           arm-none-eabi-objdump -h "${elf}" | grep -E '(isr_vector|dma_buffer|text|data|bss)'
+
+      - name: Cross-build representative Release profiling firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/stm32-profile-spwkit \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/build/stm32-profile-install" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_ENABLE_PROFILING=ON \
+            -DSPWKIT_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+            -DSPWKIT_PROFILE_END=SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF
+          cmake --build build/stm32-profile-spwkit --parallel 2
+
+          port_obj="build/stm32-profile-spwkit/CMakeFiles/spwkit.dir/src/core/port.c.obj"
+          test -s "${port_obj}"
+          if arm-none-eabi-readelf -r "${port_obj}" | grep -q 'GOT'; then
+            echo 'Bare-metal Cortex-M7 SpWKit unexpectedly contains GOT relocations' >&2
+            arm-none-eabi-readelf -r "${port_obj}" >&2
+            exit 1
+          fi
+
+          cmake --install build/stm32-profile-spwkit
+
+          cmake -S integrations/stm32h755_dma -B build/stm32h755-profile \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+            -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stm32-profile-install" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSTM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR}" \
+            -DSPWKIT_STM32_PROFILE_FIRMWARE=ON \
+            -DSPWKIT_SOURCE_DIR="${GITHUB_WORKSPACE}" \
+            -DSPWKIT_STM32_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+            -DSPWKIT_STM32_PROFILE_END=SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY \
+            -DSPWKIT_STM32_PROFILE_CASE=1 \
+            -DSPWKIT_STM32_PROFILE_WARMUP=2 \
+            -DSPWKIT_STM32_PROFILE_ITERATIONS=4
+          cmake --build build/stm32h755-profile \
+            --target spwkit_stm32h755_profile --parallel 2
+
+          elf="build/stm32h755-profile/spwkit_stm32h755_profile.elf"
+          test -s "${elf}"
+          arm-none-eabi-nm -g "${elf}" | grep -q 'g_stm32h755_spwkit_profile'
+          if arm-none-eabi-readelf -SW "${elf}" | grep -Eq '[[:space:]]\.got(\.plt)?[[:space:]]'; then
+            echo 'STM32H755 profile image exposes a standalone GOT section' >&2
+            arm-none-eabi-readelf -SW "${elf}" >&2
+            exit 1
+          fi
+          if arm-none-eabi-nm -u "${elf}" | grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free|printf|puts|write|read)$'; then
+            echo 'Unexpected hosted runtime symbol in STM32H755 profile firmware' >&2
+            arm-none-eabi-nm -u "${elf}" >&2
+            exit 1
+          fi
+          arm-none-eabi-size "${elf}"
