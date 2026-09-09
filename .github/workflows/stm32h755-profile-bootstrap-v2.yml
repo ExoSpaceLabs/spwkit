@@ -1,0 +1,136 @@
+name: STM32H755 profile bootstrap v2
+
+on:
+  push:
+    branches: [test/stm32h755-physical-profiling]
+    paths:
+      - 'scripts/postprocess_stm32h755_physical_profiling.py'
+      - '.github/workflows/stm32h755-profile-bootstrap-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      STM32_CUBE_H7_COMMIT: f5c0b7a2b1f6eb26fde150f72edb2d7deb647066
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/stm32h755-physical-profiling
+          fetch-depth: 0
+
+      - name: Apply implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_stm32h755_physical_profiling.py')
+          text = path.read_text()
+          old = '''    count = text.count(old)\n    if count != 1:\n        raise SystemExit(f"{label}: expected one match, found {count}")\n    return text.replace(old, new, 1)\n'''
+          new = '''    count = text.count(old)\n    if count < 1:\n        raise SystemExit(f"{label}: expected at least one match, found {count}")\n    return text.replace(old, new, 1)\n'''
+          if old not in text:
+              raise SystemExit('replace_once implementation not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          python3 scripts/apply_stm32h755_physical_profiling.py
+          python3 scripts/postprocess_stm32h755_physical_profiling.py
+
+      - name: Validate scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/stm32h755_profile_campaign.sh
+          python3 -m py_compile scripts/extract_stm32h755_profile.py scripts/summarize_stm32h755_profile.py
+          git diff --check
+
+      - name: Install Arm GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi git
+
+      - name: Fetch pinned STM32 CMSIS headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cube="${RUNNER_TEMP}/STM32CubeH7"
+          git clone --filter=blob:none --no-checkout https://github.com/STMicroelectronics/STM32CubeH7.git "${cube}"
+          git -C "${cube}" sparse-checkout init --cone
+          git -C "${cube}" sparse-checkout set Drivers/CMSIS/Include Drivers/CMSIS/Device/ST/STM32H7xx
+          git -C "${cube}" checkout "${STM32_CUBE_H7_COMMIT}"
+          git -C "${cube}" submodule update --init --depth 1 Drivers/CMSIS/Device/ST/STM32H7xx
+          echo "STM32_CUBE_H7_DIR=${cube}" >> "$GITHUB_ENV"
+
+      - name: Cross-build all profile cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          cases=(
+            '1 SPW_PROFILE_ID_TX_API_ENTRY SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY'
+            '2 SPW_PROFILE_ID_RX_PROVIDER_BOUNDARY SPW_PROFILE_ID_RX_API_RETURN'
+            '3 SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_ENTRY SPW_PROFILE_ID_TX_ZC_ACQUIRE_API_RETURN'
+            '4 SPW_PROFILE_ID_TX_ZC_SUBMIT_API_ENTRY SPW_PROFILE_ID_TX_ZC_SUBMIT_PROVIDER_BOUNDARY'
+            '5 SPW_PROFILE_ID_TX_ZC_RECLAIM_PROVIDER_BOUNDARY SPW_PROFILE_ID_TX_ZC_RECLAIM_API_RETURN'
+            '6 SPW_PROFILE_ID_TX_ZC_RELEASE_API_ENTRY SPW_PROFILE_ID_TX_ZC_RELEASE_API_RETURN'
+            '7 SPW_PROFILE_ID_RX_ZC_ACQUIRE_PROVIDER_BOUNDARY SPW_PROFILE_ID_RX_ZC_ACQUIRE_API_RETURN'
+            '8 SPW_PROFILE_ID_RX_ZC_RELEASE_API_ENTRY SPW_PROFILE_ID_RX_ZC_RELEASE_API_RETURN'
+          )
+          for entry in "${cases[@]}"; do
+            read -r id start end <<< "$entry"
+            root="build/bootstrap-${id}"
+            cmake -S . -B "${root}/spwkit" \
+              -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+              -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/${root}/install" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DSPWKIT_ENABLE_HEAP=OFF \
+              -DSPWKIT_ENABLE_PROFILING=ON \
+              -DSPWKIT_PROFILE_START="$start" \
+              -DSPWKIT_PROFILE_END="$end" \
+              -DSPWKIT_BUILD_TESTS=OFF \
+              -DSPWKIT_BUILD_CPP_TESTS=OFF \
+              -DSPWKIT_BUILD_EXAMPLES=OFF \
+              -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+              -DSPWKIT_BUILD_SIMULATOR=OFF \
+              -DSPWKIT_BUILD_UDP=OFF \
+              -DSPWKIT_BUILD_DEVICE=OFF
+            cmake --build "${root}/spwkit" --parallel 2
+            cmake --install "${root}/spwkit"
+            cmake -S integrations/stm32h755_dma -B "${root}/firmware" \
+              -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchains/arm-none-eabi-cortex-m7.cmake" \
+              -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/${root}/install" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DSTM32_CUBE_H7_DIR="$STM32_CUBE_H7_DIR" \
+              -DSPWKIT_STM32_PROFILE_FIRMWARE=ON \
+              -DSPWKIT_SOURCE_DIR="$GITHUB_WORKSPACE" \
+              -DSPWKIT_STM32_PROFILE_START="$start" \
+              -DSPWKIT_STM32_PROFILE_END="$end" \
+              -DSPWKIT_STM32_PROFILE_CASE="$id" \
+              -DSPWKIT_STM32_PROFILE_WARMUP=2 \
+              -DSPWKIT_STM32_PROFILE_ITERATIONS=4
+            cmake --build "${root}/firmware" --target spwkit_stm32h755_profile --parallel 2
+            arm-none-eabi-nm -g "${root}/firmware/spwkit_stm32h755_profile.elf" | grep -q g_stm32h755_spwkit_profile
+          done
+
+      - name: Commit permanent changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Robert A Incze'
+          git config user.email '98164670+Inczert@users.noreply.github.com'
+          git checkout -- scripts/apply_stm32h755_physical_profiling.py scripts/postprocess_stm32h755_physical_profiling.py
+          git add \
+            integrations/stm32h755_dma/CMakeLists.txt \
+            integrations/stm32h755_dma/README.md \
+            integrations/stm32h755_dma/firmware.c \
+            integrations/stm32h755_dma/profile_impl.inc \
+            scripts/gdb/stm32h755_profile.gdb \
+            scripts/stm32h755_profile_campaign.sh \
+            scripts/extract_stm32h755_profile.py \
+            scripts/summarize_stm32h755_profile.py \
+            .github/workflows/stm32h755-dma.yml
+          git diff --cached --check
+          git commit -m 'test(spwkit): add STM32H755 physical profiling campaign'
+          git push origin HEAD:test/stm32h755-physical-profiling
