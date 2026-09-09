@@ -2,7 +2,7 @@
 
 ## Stable release: v0.6.1
 
-`v0.6.1` is the current stable release candidate and the maintenance/performance consolidation of the v0.6 software contract. It preserves the public application-facing `spw_port_*` and backend contract while incorporating the completed profiling infrastructure, accepted readiness/reassembly optimizations, and synchronized documentation.
+`v0.6.1` is the current stable release. It is the maintenance/performance consolidation of the v0.6 software contract and preserves the public application-facing `spw_port_*` and backend contract while incorporating the completed profiling infrastructure, accepted readiness/reassembly optimizations, and synchronized documentation.
 
 The stable v0.6 line includes:
 
