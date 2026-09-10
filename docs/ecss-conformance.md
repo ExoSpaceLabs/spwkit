@@ -6,7 +6,7 @@ SpWKit targets the requirements of **ECSS-E-ST-50-12C Rev.1 — SpaceWire — Li
 
 The project does **not** use a blanket statement that it makes no ECSS conformance claim. Instead, conformance is claimed requirement by requirement where the requirement is applicable to SpWKit software and supporting evidence exists.
 
-A formal clause/requirement traceability table is a release-quality artifact. The v0.7.0 release gate is tracked by #224.
+The current project-owned release traceability record is [`../tests/compliance/ecss-e-st-50-12c-rev1.md`](../tests/compliance/ecss-e-st-50-12c-rev1.md). The v0.7.0 release gate is tracked by #224.
 
 ## Claim model
 
@@ -21,25 +21,22 @@ Each relevant ECSS requirement is classified into one of four states:
 
 Only **Software verified** rows form the SpWKit software conformance claim.
 
-The traceability record must identify the ECSS requirement, classification, SpWKit implementation surface, executable/documented evidence, limitations, and release/version to which the evidence applies.
+The traceability record identifies the ECSS clause, project-owned requirement summary, classification, SpWKit implementation surface, executable/documented evidence, limitations, and release target. The normative ECSS text is not copied into the repository.
 
 ## Software responsibility
 
-SpWKit owns the software-facing behavior that applications and hardware providers rely on. Applicable areas include, subject to clause-level review:
+SpWKit owns the software-facing behavior that applications and hardware providers rely on. Applicable verified areas include:
 
-- public port construction and lifecycle control;
-- mapping of start, stop, reset and observable link state into the portable API;
-- preservation of complete packet boundaries;
-- arbitrary packet data values;
+- preservation of complete packet boundaries and arbitrary payload data;
 - explicit EOP and EEP packet termination semantics;
+- zero-length packet representation at the endpoint service boundary;
+- packet send/receive service semantics;
+- six-bit time-code values and the permitted time-code type/control field;
 - time-code transmit/receive semantics when the capability is advertised;
-- error and state mapping exposed to applications;
-- receive-capacity behavior without silent packet truncation;
-- bounded resource behavior advertised through the public API;
-- readiness and statistics semantics when advertised;
-- portable provider/DRIVER responsibilities required to preserve the application-visible SpaceWire contract.
+- portable lifecycle, error, timeout and state mapping required to expose provider behavior consistently;
+- backend-neutral application packet/link semantics.
 
-The reusable backend contract, runtime contract, simulator/backend equivalence matrix and provider acceptance tests are evidence sources for these software-visible behaviors. They are not substitutes for the clause-level ECSS traceability table.
+The exact conformance claim is defined by the rows classified **Software verified** in the traceability record. Broader runtime features are not promoted into ECSS claims merely because SpWKit tests them.
 
 ## Hardware/provider responsibility
 
@@ -79,9 +76,20 @@ A full end-to-end SpaceWire conformance statement for a concrete system requires
 
 ## Virtual backends
 
-SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD are software-development and verification environments. They are expected to preserve the applicable application-visible SpaceWire semantics covered by the software contract.
+SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD are software-development and verification environments. They preserve the applicable application-visible SpaceWire semantics covered by the software contract.
 
-They do not pretend to reproduce physical Data-Strobe signalling, cable/electrical behavior, physical character timing or a particular FPGA implementation. That distinction affects which ECSS requirements are applicable to their evidence; it does not make their verified packet/link software semantics non-conformant by definition.
+They do not reproduce physical Data-Strobe signalling, cable/electrical behavior, physical character timing or a particular FPGA implementation. That distinction affects which ECSS requirements their evidence can support; it does not make their verified packet/link software semantics non-conformant by definition.
+
+## Current explicit exclusions
+
+The v0.7 traceability record does not claim:
+
+- distributed-interrupt service support;
+- a complete ECSS SpaceWire MIB service;
+- generic routing-switch implementation or router management;
+- physical/encoding/data-link-engine requirements delegated to a concrete provider.
+
+Those exclusions are recorded rather than hidden behind a blanket project disclaimer.
 
 ## Terminology
 
@@ -94,7 +102,7 @@ Do not casually use **qualification** or **certification** as synonyms. Qualific
 Before publishing a release that makes an ECSS software-conformance statement:
 
 1. freeze the applicable ECSS revision;
-2. complete/update the clause-level applicability and traceability matrix;
+2. update and review the applicability/traceability matrix;
 3. ensure every claimed software requirement has reproducible evidence on the release candidate;
 4. ensure delegated requirements are clearly assigned to the provider/hardware boundary;
 5. remove contradictory blanket disclaimers elsewhere in the documentation;
