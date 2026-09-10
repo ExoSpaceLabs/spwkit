@@ -49,11 +49,12 @@ jobs:
             echo "- Candidate: \`${candidate}\`"
             echo "- Runner: \`${RUNNER_NAME}\`"
             echo "- OS: \`${RUNNER_OS}\` / \`${RUNNER_ARCH}\`"
-            echo "- Pinned CPU: \`${campaign_cpu}\` for all three pairs"
+            echo "- Pinned CPU: \`${campaign_cpu}\` for all three successful pairs"
             echo '- Warmup iterations: `256`'
             echo '- Measured iterations: `1024`'
             echo '- Payloads: `0 1 8 64 256 1024 4096`'
             echo '- Precondition before each campaign step: `2 s`'
+            echo '- Infrastructure policy: retry an entire pair from clean output if fixture setup fails; partial attempts are never aggregated.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run three paired comparisons sequentially
@@ -65,21 +66,42 @@ jobs:
           mkdir -p release-performance-controlled
 
           for replica in 1 2 3; do
-            echo "::group::controlled pair ${replica}/3"
-            bash benchmarks/run_release_profile_comparison.sh \
-              --baseline-ref "${{ steps.params.outputs.baseline }}" \
-              --candidate-ref "${{ steps.params.outputs.candidate }}" \
-              --warmup 256 \
-              --iterations 1024 \
-              --payloads "0 1 8 64 256 1024 4096" \
-              --cpu "${{ steps.params.outputs.cpu }}" \
-              --precondition-seconds 2 \
-              --governor keep \
-              --type controlled-same-runner-release-campaign \
-              --relative-threshold 5 \
-              --absolute-threshold 20 \
-              --output-root "release-performance-controlled/run-${replica}"
-            echo "::endgroup::"
+            success=0
+            for attempt in 1 2 3; do
+              attempt_root="release-performance-controlled/attempts/run-${replica}-attempt-${attempt}"
+              rm -rf "$attempt_root"
+              echo "::group::controlled pair ${replica}/3 attempt ${attempt}/3"
+              if bash benchmarks/run_release_profile_comparison.sh \
+                --baseline-ref "${{ steps.params.outputs.baseline }}" \
+                --candidate-ref "${{ steps.params.outputs.candidate }}" \
+                --warmup 256 \
+                --iterations 1024 \
+                --payloads "0 1 8 64 256 1024 4096" \
+                --cpu "${{ steps.params.outputs.cpu }}" \
+                --precondition-seconds 2 \
+                --governor keep \
+                --type controlled-same-runner-release-campaign \
+                --relative-threshold 5 \
+                --absolute-threshold 20 \
+                --output-root "$attempt_root"; then
+                mkdir -p "release-performance-controlled/accepted/run-${replica}"
+                comparison_dir="$(find "$attempt_root" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+                [[ -n "$comparison_dir" ]] || {
+                  echo "successful pair ${replica} produced no comparison directory" >&2
+                  exit 1
+                }
+                cp -a "$comparison_dir" "release-performance-controlled/accepted/run-${replica}/"
+                success=1
+                echo "::endgroup::"
+                break
+              fi
+              echo "pair ${replica} attempt ${attempt} failed before producing accepted evidence; retrying the complete pair" >&2
+              echo "::endgroup::"
+            done
+            if (( success == 0 )); then
+              echo "controlled pair ${replica} failed all three clean attempts" >&2
+              exit 1
+            fi
           done
 
       - name: Aggregate controlled campaign
@@ -87,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 benchmarks/aggregate_release_profile_repeats.py \
-            release-performance-controlled \
+            release-performance-controlled/accepted \
             --expected-runs 3 \
             --min-attention-runs 2 \
             --output-json release-performance-controlled/repeat-summary.json \
@@ -95,13 +117,14 @@ jobs:
           cat release-performance-controlled/repeat-summary.md >> "$GITHUB_STEP_SUMMARY"
           {
             echo
-            echo '> All three baseline/candidate pairs ran sequentially in this one job on the same runner and pinned logical CPU. Raw campaign metadata remains the final comparability record.'
+            echo '> All three accepted baseline/candidate pairs ran sequentially in this one job on the same runner and pinned logical CPU. Any failed fixture attempt was discarded as a complete pair and is retained only as diagnostic evidence.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload controlled evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: spwkit-v0.7-controlled-campaign-${{ github.run_id }}
           path: release-performance-controlled/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
