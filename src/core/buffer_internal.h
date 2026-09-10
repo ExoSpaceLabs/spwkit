@@ -52,6 +52,15 @@ struct spw_buffer {
     spw_buffer_direction_internal_t direction;
     spw_buffer_state_internal_t state;
     size_t token;
+
+    /*
+     * Core-owned ownership epoch metadata. Backends may leave these fields
+     * untouched; the public acquire paths bind them to the originating port.
+     * A successful reset increments the port epoch so pre-reset handles become
+     * stale without requiring backend-specific stale-handle bookkeeping.
+     */
+    const uint64_t* owner_epoch;
+    uint64_t epoch;
 };
 
 #endif /* SPWKIT_INTERNAL_BUFFER_H */
