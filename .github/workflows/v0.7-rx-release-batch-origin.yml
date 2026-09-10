@@ -1,0 +1,325 @@
+name: v0.7 RX release batched origin probe
+
+on:
+  push:
+    branches:
+      - perf-campaign/v0.7.0
+    paths:
+      - .github/workflows/v0.7-rx-release-batch-origin.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  batch-isolate-rx-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Prepare three source variants
+        id: prep
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="23eceeb0389e02d66febf5a0f027cc3e9153b14a"
+          cpu="$(python3 - <<'PY'
+          import os
+          print(min(os.sched_getaffinity(0)))
+          PY
+          )"
+          echo "cpu=${cpu}" >> "$GITHUB_OUTPUT"
+          rm -rf /tmp/spw-batch-current /tmp/spw-batch-direct /tmp/spw-batch-bypass
+          for variant in current direct bypass; do
+            git worktree add --detach "/tmp/spw-batch-${variant}" "$current"
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('/tmp/spw-batch-direct/src/core/port.c')
+          text = p.read_text()
+          start = text.index('static bool buffer_owned_by_port(')
+          end = text.index('\n}\n', start) + 3
+          replacement = '''static bool buffer_owned_by_port(const spw_buffer_t* buffer,
+                                           const spw_port_t* port) {
+              const struct spw_buffer* internal = (const struct spw_buffer*)buffer;
+              return internal != NULL && port != NULL &&
+                     internal->state == SPW_BUFFER_STATE_APPLICATION &&
+                     internal->owner_epoch == &port->ownership_epoch &&
+                     internal->epoch == port->ownership_epoch;
+          }
+          '''
+          p.write_text(text[:start] + replacement + text[end:])
+
+          p = Path('/tmp/spw-batch-bypass/src/core/port.c')
+          text = p.read_text()
+          start = text.index('spw_result_t spw_port_release_rx_buffer(')
+          check_start = text.index('    if (!buffer_owned_by_port(*inout_buffer, port)) {', start)
+          check_end = text.index('    }\n', check_start) + len('    }\n')
+          p.write_text(text[:check_start] + text[check_end:])
+          PY
+
+      - name: Add batch probe and build all variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpu='${{ steps.prep.outputs.cpu }}'
+          mkdir -p rx-release-batch
+          for variant in current direct bypass; do
+            root="/tmp/spw-batch-${variant}"
+            cat > "$root/benchmarks/profile_rx_release_batch.c" <<'EOF'
+          // SPDX-License-Identifier: Apache-2.0
+          #include <spwkit/spwkit.h>
+          #include "profiling/profile.h"
+          #include <stddef.h>
+          #include <stdint.h>
+          #include <stdio.h>
+          #include <string.h>
+
+          #define PAYLOAD_SIZE 64u
+          #define TOKEN_VALUE 0x52584241u
+          #define WORKSPACE_SIZE 16384u
+
+          typedef struct provider {
+              spw_link_state_t state;
+              uint8_t storage[PAYLOAD_SIZE];
+              int acquired;
+              volatile uint64_t sink;
+          } provider_t;
+
+          typedef union workspace {
+              max_align_t alignment;
+              uint8_t bytes[WORKSPACE_SIZE];
+          } workspace_t;
+
+          static workspace_t g_workspace;
+
+          static spw_result_t start_cb(void* raw) {
+              ((provider_t*)raw)->state = SPW_LINK_RUN;
+              return SPW_OK;
+          }
+          static spw_result_t stop_cb(void* raw) {
+              ((provider_t*)raw)->state = SPW_LINK_READY;
+              return SPW_OK;
+          }
+          static spw_result_t reset_cb(void* raw) {
+              provider_t* p = (provider_t*)raw;
+              p->state = SPW_LINK_ERROR_RESET;
+              p->acquired = 0;
+              return SPW_OK;
+          }
+          static spw_result_t state_cb(const void* raw, spw_link_state_t* out) {
+              if (raw == NULL || out == NULL) return SPW_ERR_INVALID_ARGUMENT;
+              *out = ((const provider_t*)raw)->state;
+              return SPW_OK;
+          }
+          static spw_result_t caps_cb(const void* raw, spw_capabilities_t* out) {
+              (void)raw;
+              if (out == NULL) return SPW_ERR_INVALID_ARGUMENT;
+              memset(out, 0, sizeof(*out));
+              out->max_packet_size = PAYLOAD_SIZE;
+              out->tx_queue_depth = 1u;
+              out->rx_queue_depth = 1u;
+              out->buffer_alignment = 1u;
+              return SPW_OK;
+          }
+          static spw_result_t send_stub(void* raw, const spw_packet_t* packet,
+                                        spw_timeout_us_t timeout) {
+              (void)raw; (void)packet; (void)timeout;
+              return SPW_ERR_UNSUPPORTED;
+          }
+          static spw_result_t receive_stub(void* raw, spw_packet_t* packet,
+                                           spw_timeout_us_t timeout) {
+              (void)raw; (void)packet; (void)timeout;
+              return SPW_ERR_UNSUPPORTED;
+          }
+          static spw_result_t tx_acquire_stub(void* raw, size_t capacity,
+                                              spw_timeout_us_t timeout,
+                                              spw_driver_buffer_t* out) {
+              (void)raw; (void)capacity; (void)timeout; (void)out;
+              return SPW_ERR_UNSUPPORTED;
+          }
+          static spw_result_t tx_submit_stub(void* raw,
+                                             const spw_driver_buffer_t* buffer,
+                                             spw_timeout_us_t timeout) {
+              (void)raw; (void)buffer; (void)timeout;
+              return SPW_ERR_UNSUPPORTED;
+          }
+          static spw_result_t tx_reclaim_stub(void* raw, spw_timeout_us_t timeout,
+                                              spw_driver_buffer_t* out) {
+              (void)raw; (void)timeout; (void)out;
+              return SPW_ERR_UNSUPPORTED;
+          }
+          static spw_result_t tx_release_stub(void* raw,
+                                              const spw_driver_buffer_t* buffer) {
+              (void)raw; (void)buffer;
+              return SPW_ERR_UNSUPPORTED;
+          }
+          static spw_result_t rx_acquire_cb(void* raw, spw_timeout_us_t timeout,
+                                            spw_driver_buffer_t* out) {
+              provider_t* p = (provider_t*)raw;
+              (void)timeout;
+              if (p == NULL || out == NULL) return SPW_ERR_INVALID_ARGUMENT;
+              if (p->state != SPW_LINK_RUN) return SPW_ERR_INVALID_STATE;
+              if (p->acquired) return SPW_ERR_RESOURCE_EXHAUSTED;
+              out->data = p->storage;
+              out->length = PAYLOAD_SIZE;
+              out->capacity = PAYLOAD_SIZE;
+              out->terminator = SPW_TERMINATOR_EOP;
+              out->token = TOKEN_VALUE;
+              p->acquired = 1;
+              return SPW_OK;
+          }
+          static spw_result_t rx_release_cb(void* raw,
+                                            const spw_driver_buffer_t* buffer) {
+              provider_t* p = (provider_t*)raw;
+              if (p == NULL || buffer == NULL) return SPW_ERR_INVALID_ARGUMENT;
+              if (!p->acquired || buffer->token != TOKEN_VALUE ||
+                  buffer->data != p->storage) return SPW_ERR_INVALID_STATE;
+              p->sink += buffer->data[0];
+              p->acquired = 0;
+              return SPW_OK;
+          }
+
+          static const spw_driver_ops_t OPS = {
+              .struct_size = sizeof(spw_driver_ops_t),
+              .version = SPW_DRIVER_OPS_VERSION,
+              .start = start_cb,
+              .stop = stop_cb,
+              .reset = reset_cb,
+              .get_link_state = state_cb,
+              .get_capabilities = caps_cb,
+              .send = send_stub,
+              .receive = receive_stub,
+              .acquire_tx_buffer = tx_acquire_stub,
+              .submit_tx_buffer = tx_submit_stub,
+              .reclaim_tx_buffer = tx_reclaim_stub,
+              .release_tx_buffer = tx_release_stub,
+              .acquire_rx_buffer = rx_acquire_cb,
+              .release_rx_buffer = rx_release_cb,
+              .sync_buffer = NULL,
+          };
+
+          int main(int argc, char** argv) {
+              size_t warmup = 20000u;
+              size_t iterations = 2000000u;
+              provider_t provider;
+              spw_driver_config_t driver_config;
+              spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_DRIVER);
+              spw_port_workspace_requirements_t req;
+              spw_port_t* port = NULL;
+              uint64_t begin, end;
+              size_t i;
+              if (argc == 2) iterations = (size_t)strtoull(argv[1], NULL, 10);
+              memset(&provider, 0, sizeof(provider));
+              provider.state = SPW_LINK_READY;
+              driver_config = (spw_driver_config_t)SPW_DRIVER_CONFIG_INITIALIZER(&OPS, &provider);
+              driver_config.tx_buffer_slots = 1u;
+              driver_config.rx_buffer_slots = 1u;
+              config.backend_config = &driver_config;
+              config.backend_config_size = sizeof(driver_config);
+              if (spw_port_workspace_requirements(&config, &req) != SPW_OK ||
+                  req.size > sizeof(g_workspace.bytes) ||
+                  spw_port_open_in_place(&config, g_workspace.bytes,
+                                         sizeof(g_workspace.bytes), &port) != SPW_OK ||
+                  spw_port_start(port) != SPW_OK) return 2;
+              spw_profile_prepare();
+              for (i = 0; i < warmup; ++i) {
+                  spw_buffer_t* b = NULL;
+                  if (spw_port_acquire_rx_buffer(port, SPW_TIMEOUT_IMMEDIATE, &b) != SPW_OK ||
+                      spw_port_release_rx_buffer(port, &b) != SPW_OK) return 3;
+              }
+              begin = spw_profile_counter_read();
+              for (i = 0; i < iterations; ++i) {
+                  spw_buffer_t* b = NULL;
+                  if (spw_port_acquire_rx_buffer(port, SPW_TIMEOUT_IMMEDIATE, &b) != SPW_OK ||
+                      spw_port_release_rx_buffer(port, &b) != SPW_OK) return 4;
+              }
+              end = spw_profile_counter_read();
+              printf("{\"iterations\":%zu,\"total_ticks\":%llu,\"ticks_per_pair\":%.6f}\n",
+                     iterations,
+                     (unsigned long long)spw_profile_counter_delta(begin, end),
+                     (double)spw_profile_counter_delta(begin, end) / (double)iterations);
+              if (spw_port_stop(port) != SPW_OK || spw_port_close(port) != SPW_OK) return 5;
+              return provider.sink == UINT64_MAX ? 6 : 0;
+          }
+          EOF
+            # stdlib is needed by strtoull; insert explicitly to keep strict C11 clean.
+            python3 - "$root/benchmarks/profile_rx_release_batch.c" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          text = p.read_text().replace('#include <stdio.h>\n', '#include <stdio.h>\n#include <stdlib.h>\n')
+          p.write_text(text)
+          PY
+            cat >> "$root/benchmarks/CMakeLists.txt" <<'EOF'
+          spwkit_configure_profile_executable(
+              spwkit_profile_rx_release_batch
+              profile_rx_release_batch.c)
+          EOF
+            cmake -S "$root/benchmarks" -B "$root/build-rx-batch" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DSPWKIT_BENCHMARK_PROFILE_START=SPW_PROFILE_ID_TX_API_ENTRY \
+              -DSPWKIT_BENCHMARK_PROFILE_END=SPW_PROFILE_ID_TX_PROVIDER_BOUNDARY
+            cmake --build "$root/build-rx-batch" --target spwkit_profile_rx_release_batch --parallel 2
+          done
+
+      - name: Run nine interleaved batched measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpu='${{ steps.prep.outputs.cpu }}'
+          for variant in current direct bypass; do : > "rx-release-batch/${variant}.jsonl"; done
+          orders=(
+            'current direct bypass'
+            'direct bypass current'
+            'bypass current direct'
+            'current bypass direct'
+            'direct current bypass'
+            'bypass direct current'
+            'current direct bypass'
+            'direct bypass current'
+            'bypass current direct'
+          )
+          for order in "${orders[@]}"; do
+            for variant in $order; do
+              binary="/tmp/spw-batch-${variant}/build-rx-batch/spwkit_profile_rx_release_batch"
+              taskset -c "$cpu" "$binary" 2000000 >> "rx-release-batch/${variant}.jsonl"
+            done
+          done
+
+      - name: Summarize batched cost
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee rx-release-batch/summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, statistics
+          from pathlib import Path
+          vals = {}
+          print('### Batched zero-copy RX acquire+release probe')
+          print()
+          for variant in ('current', 'direct', 'bypass'):
+              rows = [json.loads(x) for x in Path(f'rx-release-batch/{variant}.jsonl').read_text().splitlines() if x.strip()]
+              x = [r['ticks_per_pair'] for r in rows]
+              vals[variant] = x
+              print(f'- {variant}: median={statistics.median(x):.6f} ticks/pair; min={min(x):.6f}; max={max(x):.6f}; runs={len(x)}')
+          current = statistics.median(vals['current'])
+          direct = statistics.median(vals['direct'])
+          bypass = statistics.median(vals['bypass'])
+          print()
+          print(f'- direct-current: {direct-current:+.6f} ticks/pair')
+          print(f'- bypass-current: {bypass-current:+.6f} ticks/pair')
+          print(f'- current-bypass attributable fixed-path cost: {current-bypass:+.6f} ticks/pair')
+          PY
+
+      - name: Upload batch evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-v0.7-rx-release-batch-origin-${{ github.run_id }}
+          path: rx-release-batch/
+          retention-days: 90
