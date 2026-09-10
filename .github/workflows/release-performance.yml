@@ -158,7 +158,7 @@ jobs:
         with:
           pattern: spwkit-release-performance-${{ github.run_id }}-*
           path: release-performance-repeats
-          merge-multiple: true
+          merge-multiple: false
 
       - name: Aggregate repeated screening signals
         shell: bash
