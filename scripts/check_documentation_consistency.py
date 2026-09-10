@@ -88,6 +88,58 @@ if traceability.is_file():
         if classification not in trace_text:
             errors.append(f"tests/compliance ECSS matrix: missing classification {classification!r}")
 
+    target_match = re.search(r"^- SpWKit release target: `v(\d+\.\d+\.\d+)`$", trace_text, re.MULTILINE)
+    revision_match = re.search(r"^- Matrix revision: `v(\d+\.\d+)-r(\d+)`$", trace_text, re.MULTILINE)
+    if not target_match:
+        errors.append("tests/compliance ECSS matrix: missing parseable release target")
+    else:
+        target = tuple(int(part) for part in target_match.group(1).split("."))
+        current = tuple(int(part) for part in VERSION.split("."))
+        if target < current:
+            errors.append(
+                "tests/compliance ECSS matrix: release target "
+                f"v{target_match.group(1)} predates current project v{VERSION}"
+            )
+        if revision_match and revision_match.group(1) != ".".join(target_match.group(1).split(".")[:2]):
+            errors.append(
+                "tests/compliance ECSS matrix: matrix revision minor does not match release target"
+            )
+    if not revision_match:
+        errors.append("tests/compliance ECSS matrix: missing parseable matrix revision")
+
+    positive_rows = [
+        line for line in trace_text.splitlines()
+        if re.match(r"^\| SW-SPW-\d{3} \|", line)
+    ]
+    if not positive_rows:
+        errors.append("tests/compliance ECSS matrix: no Software verified requirement rows found")
+    ids: list[str] = []
+    for line in positive_rows:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != 6:
+            errors.append(f"tests/compliance ECSS matrix: malformed Software verified row: {line}")
+            continue
+        requirement_id, clause, summary, surface, evidence, classification = cells
+        ids.append(requirement_id)
+        if not clause or not summary or not surface or not evidence:
+            errors.append(f"tests/compliance ECSS matrix: incomplete row {requirement_id}")
+        if classification != "**Software verified**":
+            errors.append(
+                f"tests/compliance ECSS matrix: positive row {requirement_id} has classification {classification!r}"
+            )
+    if len(ids) != len(set(ids)):
+        errors.append("tests/compliance ECSS matrix: duplicate Software verified requirement IDs")
+
+    required_boundary_markers = [
+        "## Clause-family review coverage",
+        "5.6.4.3-5.6.4.8",
+        "specifically enumerated",
+        "spwkit-fpga",
+    ]
+    for marker in required_boundary_markers:
+        if marker not in trace_text:
+            errors.append(f"tests/compliance ECSS matrix: missing boundary marker {marker!r}")
+
 ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 tag_match = re.search(r"CCSDSPACK_TAG:\s*([^\s]+)", ci_text)
 sha_match = re.search(r"CCSDSPACK_SHA:\s*([0-9a-f]{40})", ci_text)
