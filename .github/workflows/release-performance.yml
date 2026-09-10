@@ -1,0 +1,138 @@
+name: Release performance comparison
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'benchmarks/**'
+      - '.github/workflows/release-performance.yml'
+  workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Baseline Git ref
+        required: true
+        default: v0.6.1
+        type: string
+      candidate_ref:
+        description: Candidate Git ref
+        required: true
+        default: develop
+        type: string
+      warmup:
+        description: Warmup iterations
+        required: true
+        default: '256'
+        type: string
+      iterations:
+        description: Measured iterations
+        required: true
+        default: '1024'
+        type: string
+      payloads:
+        description: Space-separated payload sizes
+        required: true
+        default: '0 1 8 64 256 1024 4096'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  tooling:
+    name: Release comparator tooling
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate comparator
+        run: python3 benchmarks/test_compare_release_profiles.py
+
+      - name: Validate runner shell
+        run: bash -n benchmarks/run_release_profile_comparison.sh
+
+  hosted-screen:
+    name: v0.6.1 to candidate hosted screen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve screening parameters
+        id: params
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_BASELINE: ${{ github.event.inputs.baseline_ref }}
+          DISPATCH_CANDIDATE: ${{ github.event.inputs.candidate_ref }}
+          DISPATCH_WARMUP: ${{ github.event.inputs.warmup }}
+          DISPATCH_ITERATIONS: ${{ github.event.inputs.iterations }}
+          DISPATCH_PAYLOADS: ${{ github.event.inputs.payloads }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            baseline="${DISPATCH_BASELINE}"
+            candidate="${DISPATCH_CANDIDATE}"
+            warmup="${DISPATCH_WARMUP}"
+            iterations="${DISPATCH_ITERATIONS}"
+            payloads="${DISPATCH_PAYLOADS}"
+          else
+            baseline="v0.6.1"
+            candidate="HEAD"
+            warmup="32"
+            iterations="128"
+            payloads="0 64 1024 4096"
+          fi
+          printf 'baseline=%s\n' "$baseline" >> "$GITHUB_OUTPUT"
+          printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
+          printf 'warmup=%s\n' "$warmup" >> "$GITHUB_OUTPUT"
+          printf 'iterations=%s\n' "$iterations" >> "$GITHUB_OUTPUT"
+          printf 'payloads=%s\n' "$payloads" >> "$GITHUB_OUTPUT"
+
+      - name: Run paired release screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -s 8192
+          rm -rf release-performance-screen
+          benchmarks/run_release_profile_comparison.sh \
+            --baseline-ref "${{ steps.params.outputs.baseline }}" \
+            --candidate-ref "${{ steps.params.outputs.candidate }}" \
+            --warmup "${{ steps.params.outputs.warmup }}" \
+            --iterations "${{ steps.params.outputs.iterations }}" \
+            --payloads "${{ steps.params.outputs.payloads }}" \
+            --cpu auto \
+            --precondition-seconds 0 \
+            --governor keep \
+            --type github-hosted-release-screen \
+            --relative-threshold 5 \
+            --absolute-threshold 20 \
+            --output-root release-performance-screen
+
+      - name: Publish comparison summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          comparison="$(find release-performance-screen -name comparison.md -print -quit)"
+          [[ -f "$comparison" ]] || {
+            echo "release comparison summary not found" >&2
+            exit 1
+          }
+          cat "$comparison" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo '> GitHub-hosted timing is a screening result only. Release acceptance uses repeated controlled-host measurements.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release screen
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-release-performance-${{ github.run_id }}
+          path: release-performance-screen/
+          if-no-files-found: error
+          retention-days: 30
