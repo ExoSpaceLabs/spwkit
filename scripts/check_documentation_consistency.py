@@ -36,6 +36,7 @@ stale_phrases = [
     "will begin only after the board/test architecture",
     "provisional CCSDSPack",
     "release acceptance: pending",
+    "does not currently claim ECSS conformance",
 ]
 
 package_re = re.compile(r"find_package\(SpWKit\s+(\d+\.\d+)\s+CONFIG\s+REQUIRED\)")
@@ -61,6 +62,31 @@ for rel in ["README.md", "docs/current-status.md", "docs/roadmap.md"]:
 release_note = ROOT / "docs" / "releases" / f"v{VERSION}.md"
 if not release_note.is_file():
     errors.append(f"missing release note: {release_note.relative_to(ROOT)}")
+
+standard = "ECSS-E-ST-50-12C Rev.1"
+for rel in [
+    "docs/compliance.md",
+    "docs/ecss-conformance.md",
+    "tests/compliance/ecss-e-st-50-12c-rev1.md",
+]:
+    path = ROOT / rel
+    if not path.is_file():
+        errors.append(f"missing ECSS conformance artifact: {rel}")
+        continue
+    if standard not in path.read_text(encoding="utf-8"):
+        errors.append(f"{rel}: does not identify normative target {standard}")
+
+traceability = ROOT / "tests/compliance/ecss-e-st-50-12c-rev1.md"
+if traceability.is_file():
+    trace_text = traceability.read_text(encoding="utf-8")
+    for classification in [
+        "Software verified",
+        "Provider/hardware delegated",
+        "Not applicable",
+        "Not implemented / future",
+    ]:
+        if classification not in trace_text:
+            errors.append(f"tests/compliance ECSS matrix: missing classification {classification!r}")
 
 ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 tag_match = re.search(r"CCSDSPACK_TAG:\s*([^\s]+)", ci_text)
