@@ -87,9 +87,42 @@ The public repository defines the portable driver semantics and generic HIL acce
 
 Physical FPGA-backed SpaceWire interoperability remains a later validation layer described in [`hardware-acceptance.md`](hardware-acceptance.md).
 
+## v0.7 development status
+
+The planned v0.7 behavioral/backend-contract engineering scope is now implemented on `develop`:
+
+- the deterministic DRIVER/reference provider executes the reusable public backend contract (#211);
+- the stable threading, lifecycle, error, timeout, resource and zero-copy ownership semantics are defined and executable (#212);
+- the simulator-to-backend behavioral-equivalence matrix and aggregate proof are implemented across SIMULATOR, UDP, DEVICE/VSPD and DRIVER (#214).
+
+This does **not** yet make `v0.7.0` a released version. Final publication is gated by #224.
+
+## ECSS SpaceWire conformance policy
+
+SpWKit targets **ECSS-E-ST-50-12C Rev.1** within the limits of the software/runtime abstraction implemented by this repository.
+
+The project should make positive, evidence-backed conformance claims for applicable software requirements instead of using a blanket disclaimer. A requirement-level applicability/traceability matrix distinguishes:
+
+- software requirements implemented and verified by SpWKit;
+- requirements delegated to a concrete hardware/provider implementation;
+- requirements that are not applicable to the SpWKit software scope;
+- applicable requirements that are not yet implemented and therefore are not claimed.
+
+The private `spwkit-fpga` project is responsible for the FPGA/controller/PHY/electrical conformance evidence that belongs below the public DRIVER boundary. Full end-to-end SpaceWire conformance for a concrete system requires the applicable evidence from both layers.
+
+See [`ecss-conformance.md`](ecss-conformance.md) and #224.
+
+## v0.7.0 release quality gate
+
+Before `v0.7.0` is tagged, the release candidate must satisfy both the software-scope ECSS traceability gate and a performance-regression gate against immutable `v0.6.1`.
+
+Any v0.7 change that can affect a hot path or lifecycle cost must be measured using the existing controlled profiling infrastructure. Reproducible regressions outside normal measurement noise are investigated; avoidable overhead is optimized before release. A regression may be accepted only when it is a necessary correctness/semantic tradeoff, is quantified, and is documented.
+
+Known avoidable release-candidate work is not intentionally deferred to `v0.7.1`. Patch releases remain available for defects discovered after publication, not as a substitute for completing the release candidate.
+
 ## Road to v1.0
 
-The v1.0 objective is a stable software-facing API/backend contract that external applications and future hardware providers can depend on without redesigning the application layer. FPGA RTL, USB adapters, ASICs, router implementation, optional upper layers and blanket ECSS certification do not block that software release boundary.
+The v1.0 objective is a stable software-facing API/backend contract that external applications and future hardware providers can depend on without redesigning the application layer. FPGA RTL, USB adapters, ASICs, router implementation and optional upper layers do not block the generic software release boundary. Software-scope ECSS conformance remains an explicit requirement; physical/provider conformance is evidenced by the corresponding provider implementation.
 
 The planned progression is evidence-driven:
 
@@ -101,7 +134,7 @@ v0.9.x  API freeze, compatibility gates, fuzz/soak and 1.0 RC
 v1.0.0  stable software contract
 ```
 
-See #209 and its tracked workstreams #210-#216 for the pre-v1 contract-hardening plan.
+See #209 and its tracked workstreams #210-#216 plus the v0.7 release gate #224 for the pre-v1 contract-hardening plan.
 
 ## Development flow after v0.6.1
 
