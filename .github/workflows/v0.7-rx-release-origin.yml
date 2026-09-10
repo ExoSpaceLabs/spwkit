@@ -1,0 +1,200 @@
+name: v0.7 RX release origin probe
+
+on:
+  push:
+    branches:
+      - perf-campaign/v0.7.0
+    paths:
+      - .github/workflows/v0.7-rx-release-origin.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolate-rx-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Prepare current, direct-check and bypass variants
+        id: prep
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="23eceeb0389e02d66febf5a0f027cc3e9153b14a"
+          git cat-file -e "${current}^{commit}"
+          cpu="$(python3 - <<'PY'
+          import os
+          print(min(os.sched_getaffinity(0)))
+          PY
+          )"
+          echo "cpu=${cpu}" >> "$GITHUB_OUTPUT"
+          echo "current=${current}" >> "$GITHUB_OUTPUT"
+
+          rm -rf /tmp/spw-rx-current /tmp/spw-rx-direct /tmp/spw-rx-bypass
+          git worktree add --detach /tmp/spw-rx-current "$current"
+          git worktree add --detach /tmp/spw-rx-direct "$current"
+          git worktree add --detach /tmp/spw-rx-bypass "$current"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          direct = Path('/tmp/spw-rx-direct/src/core/port.c')
+          text = direct.read_text()
+          old = '''static bool buffer_owned_by_port(const spw_buffer_t* buffer,
+                                           const spw_port_t* port) {
+              const struct spw_buffer* internal = (const struct spw_buffer*)buffer;
+              return application_owned(buffer) && port != NULL &&
+                     internal->owner_epoch == &port->ownership_epoch;
+          }
+          '''
+          # Match repository indentation exactly, but keep a fallback that is robust
+          # against clang-format's continuation indentation.
+          if old not in text:
+              old = '''static bool buffer_owned_by_port(const spw_buffer_t* buffer,
+                                           const spw_port_t* port) {
+              const struct spw_buffer* internal = (const struct spw_buffer*)buffer;
+              return application_owned(buffer) && port != NULL &&
+                     internal->owner_epoch == &port->ownership_epoch;
+          }
+          '''
+          if old not in text:
+              start = text.index('static bool buffer_owned_by_port(')
+              end = text.index('\n}\n', start) + 3
+              old = text[start:end]
+          new = '''static bool buffer_owned_by_port(const spw_buffer_t* buffer,
+                                           const spw_port_t* port) {
+              const struct spw_buffer* internal = (const struct spw_buffer*)buffer;
+              return internal != NULL && port != NULL &&
+                     internal->state == SPW_BUFFER_STATE_APPLICATION &&
+                     internal->owner_epoch == &port->ownership_epoch &&
+                     internal->epoch == port->ownership_epoch;
+          }
+          '''
+          direct.write_text(text.replace(old, new, 1))
+
+          bypass = Path('/tmp/spw-rx-bypass/src/core/port.c')
+          text = bypass.read_text()
+          marker = 'spw_result_t spw_port_release_rx_buffer('
+          start = text.index(marker)
+          check = '''    if (!buffer_owned_by_port(*inout_buffer, port)) {
+              return SPW_ERR_INVALID_STATE;
+          }
+          '''
+          if check not in text[start:]:
+              # Exact source uses four-space body indentation; locate structurally.
+              check_start = text.index('    if (!buffer_owned_by_port(*inout_buffer, port)) {', start)
+              check_end = text.index('    }\n', check_start) + len('    }\n')
+              text = text[:check_start] + text[check_end:]
+          else:
+              text = text[:start] + text[start:].replace(check, '', 1)
+          bypass.write_text(text)
+          PY
+
+          echo '### Variant source deltas' >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo '```diff' >> "$GITHUB_STEP_SUMMARY"
+          diff -u /tmp/spw-rx-current/src/core/port.c /tmp/spw-rx-direct/src/core/port.c >> "$GITHUB_STEP_SUMMARY" || true
+          diff -u /tmp/spw-rx-current/src/core/port.c /tmp/spw-rx-bypass/src/core/port.c >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build all variants and precondition probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpu='${{ steps.prep.outputs.cpu }}'
+          mkdir -p rx-release-origin
+          for variant in current direct bypass; do
+            root="/tmp/spw-rx-${variant}"
+            taskset -c "$cpu" bash "$root/benchmarks/run_zero_copy_receive_comparison.sh" \
+              --warmup 512 \
+              --iterations 4096 \
+              --payloads '64' \
+              --settle-seconds 1 \
+              --build-dir "$root/build-rx-origin" \
+              --output "rx-release-origin/precondition-${variant}.jsonl" \
+              --calibration-output "rx-release-origin/calibration-${variant}.json" \
+              >/dev/null
+          done
+
+      - name: Run five interleaved measurements on one pinned CPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpu='${{ steps.prep.outputs.cpu }}'
+          : > rx-release-origin/current.jsonl
+          : > rx-release-origin/direct.jsonl
+          : > rx-release-origin/bypass.jsonl
+
+          orders=(
+            'current direct bypass'
+            'direct bypass current'
+            'bypass current direct'
+            'current bypass direct'
+            'direct current bypass'
+          )
+          for order in "${orders[@]}"; do
+            for variant in $order; do
+              binary="/tmp/spw-rx-${variant}/build-rx-origin/spwkit_profile_zero_copy_receive_comparison"
+              taskset -c "$cpu" "$binary" \
+                --warmup 512 --iterations 4096 --payload 64 \
+                >> "rx-release-origin/${variant}.jsonl"
+            done
+          done
+
+      - name: Summarize release-call medians
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee rx-release-origin/summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, statistics
+          from pathlib import Path
+
+          print('### Zero-copy RX release origin probe')
+          print()
+          results = {}
+          for variant in ('current', 'direct', 'bypass'):
+              rows = [json.loads(line) for line in Path(f'rx-release-origin/{variant}.jsonl').read_text().splitlines() if line.strip()]
+              values = [float(row['ownership_statistics']['release']['median']) for row in rows]
+              results[variant] = values
+              print(f'- {variant}: medians={values}; median-of-medians={statistics.median(values):.1f} ticks')
+          print()
+          cur = statistics.median(results['current'])
+          direct = statistics.median(results['direct'])
+          bypass = statistics.median(results['bypass'])
+          print(f'- direct-current delta: {direct-cur:+.1f} ticks')
+          print(f'- bypass-current delta: {bypass-cur:+.1f} ticks')
+          print(f'- current-bypass cost attributable to the v0.7 ownership check: {cur-bypass:+.1f} ticks')
+          PY
+
+      - name: Capture release function disassembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in current direct bypass; do
+            binary="/tmp/spw-rx-${variant}/build-rx-origin/spwkit_profile_zero_copy_receive_comparison"
+            objdump -d -Mintel "$binary" \
+              | sed -n '/<spw_port_release_rx_buffer>:/,/^$/p' \
+              > "rx-release-origin/disassembly-${variant}.txt"
+          done
+          {
+            echo
+            echo '### Release function instruction counts'
+            echo
+            for variant in current direct bypass; do
+              count="$(grep -Ec '^[[:space:]]*[0-9a-f]+:' "rx-release-origin/disassembly-${variant}.txt" || true)"
+              echo "- ${variant}: ${count} disassembled instructions"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload origin-probe evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-v0.7-rx-release-origin-${{ github.run_id }}
+          path: rx-release-origin/
+          retention-days: 90
