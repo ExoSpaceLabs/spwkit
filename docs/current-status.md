@@ -99,26 +99,32 @@ This does **not** yet make `v0.7.0` a released version. Final publication is gat
 
 ## ECSS SpaceWire conformance policy
 
-SpWKit targets **ECSS-E-ST-50-12C Rev.1** within the limits of the software/runtime abstraction implemented by this repository.
+SpWKit targets **ECSS-E-ST-50-12C Rev.1** within the limits of the endpoint/link software abstraction implemented by this repository.
 
-The project should make positive, evidence-backed conformance claims for applicable software requirements instead of using a blanket disclaimer. A requirement-level applicability/traceability matrix distinguishes:
+The v0.7 release candidate now maintains a project-owned applicability/traceability matrix (`tests/compliance/ecss-e-st-50-12c-rev1.md`, revision `v0.7-r2`). It makes positive conformance claims only for the specifically enumerated rows classified **Software verified**. The matrix separately records:
 
 - software requirements implemented and verified by SpWKit;
 - requirements delegated to a concrete hardware/provider implementation;
-- requirements that are not applicable to the SpWKit software scope;
-- applicable requirements that are not yet implemented and therefore are not claimed.
+- requirements that are not applicable to the SpWKit endpoint/link scope;
+- applicable software capabilities that are not yet implemented and therefore are not claimed.
 
-The private `spwkit-fpga` project is responsible for the FPGA/controller/PHY/electrical conformance evidence that belongs below the public DRIVER boundary. Full end-to-end SpaceWire conformance for a concrete system requires the applicable evidence from both layers.
+The current positive software claim covers specifically mapped packet/EOP/EEP/cargo service semantics plus the represented time-code type/value and endpoint time-code service primitive. It does not claim the complete concrete-node time-code register/master/sequence-propagation machinery.
 
-See [`ecss-conformance.md`](ecss-conformance.md) and #224.
+The private `spwkit-fpga` project is responsible for the FPGA/controller/PHY/electrical and other concrete-node conformance evidence that belongs below the public DRIVER boundary. Full end-to-end SpaceWire conformance for a concrete system requires the applicable evidence from both layers.
+
+See [`ecss-conformance.md`](ecss-conformance.md), the [traceability matrix](../tests/compliance/ecss-e-st-50-12c-rev1.md), and #224.
 
 ## v0.7.0 release quality gate
 
 Before `v0.7.0` is tagged, the release candidate must satisfy both the software-scope ECSS traceability gate and a performance-regression gate against immutable `v0.6.1`.
 
+The release-performance tooling now performs paired baseline/candidate measurement and supports repeated-screen aggregation. GitHub-hosted CI executes three independent shortened paired screens and classifies only recurring positive threshold crossings as targets for controlled-host investigation. Hosted repetition remains screening evidence; final acceptance requires repeated measurements on one controlled host using the same machine/toolchain/governor policy.
+
 Any v0.7 change that can affect a hot path or lifecycle cost must be measured using the existing controlled profiling infrastructure. Reproducible regressions outside normal measurement noise are investigated; avoidable overhead is optimized before release. A regression may be accepted only when it is a necessary correctness/semantic tradeoff, is quantified, and is documented.
 
 Known avoidable release-candidate work is not intentionally deferred to `v0.7.1`. Patch releases remain available for defects discovered after publication, not as a substitute for completing the release candidate.
+
+See [`../benchmarks/RELEASE_PERFORMANCE.md`](../benchmarks/RELEASE_PERFORMANCE.md) for the release-performance procedure.
 
 ## Road to v1.0
 
