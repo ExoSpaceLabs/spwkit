@@ -1,6 +1,6 @@
 # Backend Contract Tests
 
-This directory contains the reusable public-API behavioral contract for SpWKit backends. The normative runtime rules exercised here are documented in [`../../docs/runtime-contract.md`](../../docs/runtime-contract.md).
+This directory contains the reusable public-API behavioral contract for SpWKit backends. The normative runtime rules exercised here are documented in [`../../docs/runtime-contract.md`](../../docs/runtime-contract.md). The candidate v1-r1 cross-backend proof is documented in [`../../docs/backend-equivalence.md`](../../docs/backend-equivalence.md).
 
 A backend is not considered compatible merely because it compiles against the internal interface. It must exhibit the same application-visible behavior through `spw_port_*` as every other backend, subject only to explicitly advertised optional capabilities and fixture-declared timing/environment profiles.
 
@@ -24,6 +24,22 @@ contract_suite.hpp/.cpp
 Backend adapters are deliberately small. They provide endpoint setup, teardown, start, stop and reset behavior. The actual behavioral assertions remain in the reusable contract sources and use only the public SpWKit C API.
 
 A loopback backend may map logical endpoints A and B to the same `spw_port_t`. Point-to-point backends such as the local simulator, UDP backend, Linux DEVICE/VSPD fixture and deterministic reference DRIVER map them to distinct peer handles. The shared tests do not depend on that topology detail.
+
+## v1-r1 backend equivalence
+
+`run_backend_contract()` is the canonical application-level portability scenario. SIMULATOR, UDP, DEVICE/VSPD and DRIVER/reference each call that same function; their fixtures only arrange backend-specific setup.
+
+A complete hosted Linux build registers `backend_equivalence_v1_matrix`, which aggregates exactly those four required fixtures:
+
+```bash
+ctest --test-dir build-hosted \
+  -R '^backend_equivalence_v1_matrix$' \
+  --output-on-failure
+```
+
+The aggregate exists only when the build contains all four backend families. Smaller/platform-specific builds continue to run the individual contract fixtures that are actually available instead of manufacturing fake coverage.
+
+Optional behavior inside the shared scenario remains capability-gated. The application assertions do not switch on backend names.
 
 ## Mandatory copied-I/O contract
 
