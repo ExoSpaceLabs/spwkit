@@ -2,11 +2,11 @@
 
 ## Target standard
 
-SpWKit targets the requirements of **ECSS-E-ST-50-12C Rev.1 — SpaceWire — Links, nodes, routers and networks** that are applicable to the public software/runtime abstraction implemented by this repository.
+SpWKit targets the requirements of **ECSS-E-ST-50-12C Rev.1 — SpaceWire — Links, nodes, routers and networks** that are applicable to the public endpoint/link software abstraction implemented by this repository.
 
 The project does **not** use a blanket statement that it makes no ECSS conformance claim. Instead, conformance is claimed requirement by requirement where the requirement is applicable to SpWKit software and supporting evidence exists.
 
-The current project-owned release traceability record is [`../tests/compliance/ecss-e-st-50-12c-rev1.md`](../tests/compliance/ecss-e-st-50-12c-rev1.md). The v0.7.0 release gate is tracked by #224.
+The current project-owned release traceability record is [`../tests/compliance/ecss-e-st-50-12c-rev1.md`](../tests/compliance/ecss-e-st-50-12c-rev1.md). Its current v0.7 matrix revision is `v0.7-r2`. The v0.7.0 release gate is tracked by #224.
 
 ## Claim model
 
@@ -14,33 +14,41 @@ Each relevant ECSS requirement is classified into one of four states:
 
 | Classification | Meaning |
 |---|---|
-| **Software verified** | The requirement is applicable to SpWKit software, is implemented, and has executable or otherwise reproducible evidence. SpWKit may claim conformance for this requirement. |
-| **Provider/hardware delegated** | The public SpWKit contract exposes or maps the behavior, but the concrete controller/FPGA/PHY/electrical implementation must satisfy and evidence the requirement. |
+| **Software verified** | The specifically enumerated requirement/subclause is applicable to SpWKit software, is implemented, and has executable or otherwise reproducible evidence. SpWKit may claim conformance for that row. |
+| **Provider/hardware delegated** | The public SpWKit contract exposes or maps the behavior, but the concrete node/controller/FPGA/PHY implementation must satisfy and evidence the requirement. |
 | **Not applicable** | The requirement is outside the endpoint/link software scope of this repository. |
 | **Not implemented / future** | The requirement is applicable to a possible SpWKit capability but is not currently implemented; no conformance claim is made for it. |
 
 Only **Software verified** rows form the SpWKit software conformance claim.
 
-The traceability record identifies the ECSS clause, project-owned requirement summary, classification, SpWKit implementation surface, executable/documented evidence, limitations, and release target. The normative ECSS text is not copied into the repository.
+The traceability record identifies the ECSS clause/subclause, project-owned requirement summary, classification, SpWKit implementation surface, executable/documented evidence, limitations, and release target. The normative ECSS text is not copied into the repository.
 
 ## Software responsibility
 
-SpWKit owns the software-facing behavior that applications and hardware providers rely on. Applicable verified areas include:
+SpWKit owns the software-facing behavior that applications and hardware providers rely on. Applicable verified areas currently include:
 
-- preservation of complete packet boundaries and arbitrary payload data;
+- preservation of packet cargo through the endpoint packet service;
 - explicit EOP and EEP packet termination semantics;
 - zero-length packet representation at the endpoint service boundary;
-- packet send/receive service semantics;
-- six-bit time-code values and the permitted time-code type/control field;
-- time-code transmit/receive semantics when the capability is advertised;
-- portable lifecycle, error, timeout and state mapping required to expose provider behavior consistently;
-- backend-neutral application packet/link semantics.
+- packet send-request/receive-indication semantics;
+- the represented SpaceWire time-code type and six-bit time-count range;
+- the endpoint-facing time-code service primitive when the capability is advertised.
 
-The exact conformance claim is defined by the rows classified **Software verified** in the traceability record. Broader runtime features are not promoted into ECSS claims merely because SpWKit tests them.
+SpWKit also defines portable lifecycle, error, timeout, ownership and backend-equivalence behavior. Those project contracts are important evidence and provider requirements, but they are not promoted into ECSS conformance claims unless a specific ECSS requirement is enumerated in the matrix.
+
+The exact conformance claim is therefore the set of rows classified **Software verified** in the traceability record, not a prose interpretation of this overview.
+
+## Time-code boundary
+
+The generic SpWKit API can represent, validate, send and receive a SpaceWire time-code service event when `SPW_CAP_TIME_CODE` is advertised. That does **not** mean the generic runtime implements a complete ECSS node/router time-code engine.
+
+In particular, the v0.7 software claim does not cover the concrete-node responsibilities associated with the time-code register, master generation, modulo-64 sequence validation, propagation/forwarding, or node/router handling rules in the later 5.6.4 requirements. Those functions belong to the concrete node/controller/provider when applicable.
+
+This distinction prevents an API capable of carrying a six-bit time-code from being mistaken for evidence that every ECSS time-code mechanism behind that API has been implemented. Humanity has suffered enough from interfaces being confused with implementations.
 
 ## Hardware/provider responsibility
 
-A concrete physical provider owns requirements that depend on its implementation beneath the public DRIVER boundary. For the ExoSpaceLabs hardware path, the private `spwkit-fpga` project is responsible for claiming and evidencing the FPGA/controller/PHY side that it implements.
+A concrete physical provider owns requirements that depend on its implementation beneath the public DRIVER boundary. For the ExoSpaceLabs hardware path, the private `spwkit-fpga` project is responsible for claiming and evidencing the FPGA/controller/PHY/node side that it implements.
 
 Depending on the provider, delegated evidence can include:
 
@@ -51,6 +59,7 @@ Depending on the provider, delegated evidence can include:
 - physical link initialization/state-machine timing implemented in hardware;
 - flow-control implementation below the software abstraction;
 - physical link rate/timing requirements;
+- node time-code register/master/sequence behavior when implemented;
 - FPGA timing closure and controller implementation details;
 - interoperability against an independent physical SpaceWire endpoint.
 
@@ -64,12 +73,12 @@ The intended composition is:
 application
     |
 SpWKit public software contract
-    |   ECSS requirements classified as Software verified
+    |   enumerated ECSS requirements classified as Software verified
     |
 SPW_BACKEND_DRIVER
     |
 physical provider / spwkit-fpga
-        ECSS requirements classified as Provider/hardware delegated
+        remaining applicable ECSS requirements evidenced by provider/system
 ```
 
 A full end-to-end SpaceWire conformance statement for a concrete system requires evidence from **both** applicable layers. SpWKit does not automatically inherit the provider's hardware claim, and a provider does not automatically inherit SpWKit's software evidence without using the conforming public contract.
@@ -78,18 +87,20 @@ A full end-to-end SpaceWire conformance statement for a concrete system requires
 
 SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD are software-development and verification environments. They preserve the applicable application-visible SpaceWire semantics covered by the software contract.
 
-They do not reproduce physical Data-Strobe signalling, cable/electrical behavior, physical character timing or a particular FPGA implementation. That distinction affects which ECSS requirements their evidence can support; it does not make their verified packet/link software semantics non-conformant by definition.
+They do not reproduce physical Data-Strobe signalling, cable/electrical behavior, physical character timing, the complete concrete-node time-code machinery, or a particular FPGA implementation. Their tests can support the specifically mapped software requirements without pretending that a UDP socket has somehow become an LVDS cable through optimism.
 
 ## Current explicit exclusions
 
 The v0.7 traceability record does not claim:
 
 - distributed-interrupt service support;
+- a complete ECSS node-management parameter set;
 - a complete ECSS SpaceWire MIB service;
 - generic routing-switch implementation or router management;
+- a complete node/router time-code register/master/sequence/propagation implementation;
 - physical/encoding/data-link-engine requirements delegated to a concrete provider.
 
-Those exclusions are recorded rather than hidden behind a blanket project disclaimer.
+Those exclusions are recorded explicitly rather than hidden behind a blanket project disclaimer.
 
 ## Terminology
 
