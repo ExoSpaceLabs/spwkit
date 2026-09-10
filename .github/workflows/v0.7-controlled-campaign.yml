@@ -31,7 +31,8 @@ jobs:
           bash -n benchmarks/run_release_profile_comparison.sh
 
           baseline="$(git rev-parse 'v0.6.1^{commit}')"
-          candidate="$(git rev-parse 'refs/remotes/origin/develop^{commit}')"
+          candidate="23eceeb0389e02d66febf5a0f027cc3e9153b14a"
+          git cat-file -e "${candidate}^{commit}"
           campaign_cpu="$(python3 - <<'PY'
           import os
           print(min(os.sched_getaffinity(0)))
