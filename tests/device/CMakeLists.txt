@@ -165,5 +165,22 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
         set_tests_properties(backend_contract_device PROPERTIES
             LABELS "device;contract;integration;process;restart;cpp"
             TIMEOUT 60)
+
+        # Canonical v1-r1 portability proof. The four child tests all execute
+        # the same run_backend_contract() application scenario; only fixture
+        # setup differs. Register this aggregate only when every required
+        # backend family is present in the build.
+        if(SPWKIT_BUILD_SIMULATOR AND SPWKIT_UDP_RUNTIME_SUPPORTED)
+            add_test(
+                NAME backend_equivalence_v1_matrix
+                COMMAND ${CMAKE_CTEST_COMMAND}
+                        --test-dir ${CMAKE_BINARY_DIR}
+                        -R "^(backend_contract_simulator|backend_contract_udp|backend_contract_device|backend_contract_driver)$"
+                        --output-on-failure
+                        --no-tests=error)
+            set_tests_properties(backend_equivalence_v1_matrix PROPERTIES
+                LABELS "contract;equivalence-v1;integration;cpp"
+                TIMEOUT 180)
+        endif()
     endif()
 endif()
