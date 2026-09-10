@@ -82,7 +82,27 @@ Consolidated the v0.6 contract as a patch release without an intentional public 
 - synchronized package, testing, profiling and hardware-evidence documentation;
 - published immutable `v0.6.1` source, multi-architecture Debian packages and the multi-architecture GHCR image through the release-policy workflow.
 
-## Post-v0.6 directions
+## v0.7.0 release candidate
+
+The behavioral/backend-contract engineering planned for v0.7 is implemented on `develop`:
+
+- the deterministic DRIVER/reference provider executes the reusable public backend contract (#211);
+- threading, lifecycle, error, timeout, resource and zero-copy reset/ownership semantics are defined and enforced (#212);
+- simulator-to-backend behavioral equivalence is versioned and executable across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD and DRIVER (#214).
+
+`v0.7.0` is not considered complete merely because those functional changes pass CI. Publication is gated by #224:
+
+1. complete a requirement-level **ECSS-E-ST-50-12C Rev.1** applicability/traceability record and make positive conformance claims for the software requirements SpWKit actually implements and verifies;
+2. delegate controller/PHY/electrical requirements explicitly to the concrete provider, with `spwkit-fpga` responsible for its own hardware-side conformance evidence;
+3. compare the final release candidate against immutable `v0.6.1` using the controlled profiling infrastructure for every affected hot path/lifecycle path;
+4. investigate reproducible regressions and optimize avoidable overhead before the release tag;
+5. accept a performance regression only when it is a necessary correctness/semantic tradeoff, quantified and documented.
+
+Known avoidable release-candidate cleanup is not intentionally deferred to `v0.7.1` simply because a patch number is available.
+
+See [`ecss-conformance.md`](ecss-conformance.md) for the software/provider conformance boundary.
+
+## Post-v0.7 directions
 
 Later work may include:
 
