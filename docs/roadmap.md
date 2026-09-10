@@ -90,17 +90,19 @@ The behavioral/backend-contract engineering planned for v0.7 is implemented on `
 - threading, lifecycle, error, timeout, resource and zero-copy reset/ownership semantics are defined and enforced (#212);
 - simulator-to-backend behavioral equivalence is versioned and executable across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD and DRIVER (#214).
 
-`v0.7.0` is not considered complete merely because those functional changes pass CI. Publication is gated by #224:
+`v0.7.0` is not considered complete merely because those functional changes pass CI. Publication is gated by #224.
 
-1. complete a requirement-level **ECSS-E-ST-50-12C Rev.1** applicability/traceability record and make positive conformance claims for the software requirements SpWKit actually implements and verifies;
-2. delegate controller/PHY/electrical requirements explicitly to the concrete provider, with `spwkit-fpga` responsible for its own hardware-side conformance evidence;
-3. compare the final release candidate against immutable `v0.6.1` using the controlled profiling infrastructure for every affected hot path/lifecycle path;
-4. investigate reproducible regressions and optimize avoidable overhead before the release tag;
-5. accept a performance regression only when it is a necessary correctness/semantic tradeoff, quantified and documented.
+The release gate is now implemented as evidence/tooling on PR #225:
 
-Known avoidable release-candidate cleanup is not intentionally deferred to `v0.7.1` simply because a patch number is available.
+1. ECSS-E-ST-50-12C Rev.1 has a project-owned `v0.7-r2` applicability/traceability matrix with specifically enumerated positive software claims and explicit delegated/future/not-applicable dispositions;
+2. concrete controller/PHY/electrical and complete node time-code-engine requirements are delegated explicitly to the provider, with `spwkit-fpga` responsible for its applicable hardware-side evidence;
+3. release-performance tooling compares immutable `v0.6.1` with the candidate using matched public-operation/native-relative metrics and separate lifecycle evidence;
+4. GitHub-hosted CI repeats the paired screen three times and aggregates only recurring positive threshold crossings as targets for investigation;
+5. final acceptance still requires repeated controlled-host measurements for the release candidate, investigation of reproducible regressions, and optimization of avoidable overhead before the tag.
 
-See [`ecss-conformance.md`](ecss-conformance.md) for the software/provider conformance boundary.
+A performance regression is accepted only when it is a necessary correctness/semantic tradeoff, quantified and documented. Known avoidable release-candidate cleanup is not intentionally deferred to `v0.7.1` simply because a patch number is available.
+
+See [`ecss-conformance.md`](ecss-conformance.md) for the software/provider conformance boundary and [`../benchmarks/RELEASE_PERFORMANCE.md`](../benchmarks/RELEASE_PERFORMANCE.md) for the performance gate.
 
 ## Post-v0.7 directions
 
