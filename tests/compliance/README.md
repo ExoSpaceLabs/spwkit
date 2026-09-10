@@ -1,7 +1,22 @@
-# Compliance Evidence
+# Compliance evidence
 
-This directory will hold project-owned requirement-to-test mappings and generated verification summaries for the ECSS-visible behaviour implemented by SpWKit.
+This directory contains project-owned requirement-to-evidence mappings for standards-visible behavior implemented by SpWKit.
 
-The intent is traceability, not self-certification. Each mapped requirement should identify applicability/tailoring, implementation component, verification method, test identifier, result/evidence, and software/hardware version.
+## ECSS-E-ST-50-12C Rev.1
 
-Electrical, Data-Strobe, analogue, and exact RTL timing requirements are outside the software simulator's verification scope and must point to HDL, electrical, or physical interoperability evidence instead.
+The current release-candidate matrix is:
+
+- [`ecss-e-st-50-12c-rev1.md`](ecss-e-st-50-12c-rev1.md)
+
+It classifies relevant SpaceWire requirements as:
+
+- **Software verified**;
+- **Provider/hardware delegated**;
+- **Not applicable**;
+- **Not implemented / future**.
+
+The positive SpWKit conformance claim is limited to **Software verified** rows. Each such row identifies the public implementation surface and executable repository evidence.
+
+Physical Data-Strobe, electrical, cable, character/FCT/NULL implementation, physical link timing and similar requirements must point to concrete provider evidence. For the ExoSpaceLabs FPGA path that evidence belongs to `spwkit-fpga`.
+
+This directory does not contain copies of ECSS standards. Requirement text is paraphrased and clause identifiers point back to the normative standard.
