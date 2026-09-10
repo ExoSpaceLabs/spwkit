@@ -11,7 +11,26 @@
 extern "C" {
 #endif
 
-/* Result codes. Zero is success; errors are negative. */
+/*
+ * Portable result codes. Zero is success; errors are negative.
+ *
+ * INVALID_ARGUMENT: malformed caller input independent of runtime state.
+ * INVALID_STATE: valid object, but its local lifecycle/ownership state forbids
+ *                the operation.
+ * TIMEOUT: a waitable condition did not become ready within the supplied
+ *          public-operation budget.
+ * UNSUPPORTED: backend/version/build/optional operation is not supported.
+ * RESOURCE_EXHAUSTED: a bounded resource cannot currently accept/represent the
+ *                     requested work without waiting or more capacity.
+ * LINK_UNAVAILABLE: a started/connecting/recovering local endpoint lacks the
+ *                   peer/carrier/link needed for the operation.
+ * BUFFER_TOO_SMALL: supplied/requested storage capacity is insufficient.
+ * INVALID_PACKET: packet metadata/shape is invalid.
+ * BACKEND: provider/protocol/internal failure with no more specific portable
+ *          mapping.
+ *
+ * See docs/runtime-contract.md for full semantics and ownership guarantees.
+ */
 #define SPW_OK                         ((spw_result_t)0)
 #define SPW_ERR_INVALID_ARGUMENT       ((spw_result_t)-1)
 #define SPW_ERR_INVALID_STATE          ((spw_result_t)-2)
@@ -23,6 +42,12 @@ extern "C" {
 #define SPW_ERR_INVALID_PACKET         ((spw_result_t)-8)
 #define SPW_ERR_BACKEND                ((spw_result_t)-9)
 
+/*
+ * Common timeout sentinels. IMMEDIATE performs no deliberate wait. INFINITE
+ * permits an unbounded wait but does not suppress terminal state/link/backend
+ * errors. Finite values are maximum budgets for the whole public operation,
+ * including internal retry/poll/provider work.
+ */
 #define SPW_TIMEOUT_IMMEDIATE ((spw_timeout_us_t)0u)
 #define SPW_TIMEOUT_INFINITE  ((spw_timeout_us_t)UINT64_MAX)
 
