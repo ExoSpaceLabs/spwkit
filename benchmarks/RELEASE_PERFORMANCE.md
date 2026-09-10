@@ -69,6 +69,27 @@ python3 benchmarks/aggregate_release_profile_repeats.py \
 
 This classification is intentionally conservative. It separates repeatable candidates for investigation from isolated scheduler/counter quantization effects. `RECURRING_ATTENTION` is still not an automatic release failure; it tells us where to spend controlled-host measurement effort instead of optimizing random noise with great determination and no useful outcome.
 
+## Current v0.7 hosted screening result
+
+GitHub Actions run `34495962086` completed three independent shortened `v0.6.1` versus v0.7-candidate paired screens. All three pairs reported internally comparable baseline/candidate environments. The aggregate produced four recurring attention rows:
+
+| Metric | Payload | Median release delta | Observed range | Screening disposition |
+|---|---:|---:|---:|---|
+| DEVICE/VSPD RX overhead | 64 B | +10,946 ticks | +91 .. +18,791.5 | controlled-host investigation only |
+| DEVICE/VSPD TX overhead | 1024 B | +481 ticks | +29 .. +1,727 | controlled-host investigation only |
+| DEVICE/VSPD TX overhead | 4096 B | +74 ticks | -93 .. +1,365 | unstable direction; controlled-host investigation only |
+| SIMULATOR RX | 64 B | +26 ticks | 0 .. +26 | small hosted signal; controlled-host confirmation only |
+
+The source-delta review is important when interpreting those rows:
+
+- the Linux DEVICE/VSPD backend runtime itself did **not** change between `v0.6.1` and the current `develop` candidate;
+- the copied SIMULATOR receive implementation is unchanged between the two revisions; its v0.7 backend edits are reset/zero-copy ownership recovery work rather than copied RX hot-path work;
+- common `spw_port_*` runtime validation changed for the v0.7 behavioral contract, but the deterministic DRIVER copied RX differential is flat across the repeated screen and copied TX is effectively flat;
+- DRIVER zero-copy ownership operations show only small/non-recurring changes, with the earlier 24-tick RX-release observations not reproducing as a recurring attention row;
+- LOOPBACK, UDP/VSPW-TP and lifecycle measurements contain no recurring attention rows.
+
+The hosted evidence therefore does **not** justify a speculative optimization patch. DEVICE results retain large scheduler/daemon sensitivity, while the 26-tick SIMULATOR result is too small and insufficiently attributable to modified code to justify weakening or rearranging correctness checks. These four rows remain targets for the authoritative controlled-host campaign. A code change is warranted only if that campaign reproduces a regression and attributes it to a changed SpWKit path.
+
 ## v0.7.0 affected paths
 
 The `v0.7.0` behavioral-contract work added common lifecycle-state checks on application operations and ownership-epoch validation on zero-copy handles. Before release, review at minimum:
