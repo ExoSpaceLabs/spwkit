@@ -63,6 +63,21 @@ The ownership contract is deliberately strict:
 - failed ownership-transfer operations preserve application ownership;
 - buffer tokens/views are valid only according to the documented ownership phase.
 
+## Reset ownership epoch
+
+A successful `spw_port_reset()` starts a new ownership epoch for that port. Every application-visible zero-copy handle and pending completion originating from before the reset becomes stale.
+
+After reset:
+
+- a pre-reset TX/RX handle must not be submitted, released or otherwise reused;
+- pre-reset TX completion state must not be reclaimed as current work;
+- backend/provider bookkeeping must recover the advertised fresh capacity for new acquisitions;
+- applications must reacquire buffers after restarting the port.
+
+This rule is enforced at the common public boundary rather than being a simulator-only convention. `spw_port_stop()` does not itself create a new ownership epoch.
+
+Zero-copy handles may move between application threads/tasks only through an application-defined synchronized ownership handoff. They are not concurrently shared objects. The canonical threading rules are defined in [`runtime-contract.md`](runtime-contract.md).
+
 ## Simulator implementation
 
 The process-local simulator advertises `SPW_CAP_ZERO_COPY`. It uses fixed aligned host-memory slots and may copy internally while preserving the public ownership/completion semantics.
@@ -110,6 +125,6 @@ A current `spw_buffer_t` represents one contiguous logical packet payload. Scatt
 
 ## Verification boundary
 
-Hosted simulator/reference-driver tests verify ownership state, bounded resources, pointer clearing, metadata and completion semantics. Separate physical NUCLEO-H755ZI-Q qualification has also exercised the same public ownership boundary using real DMA2 and explicit Cortex-M7 cache clean/invalidate operations, including copied and zero-copy packet paths and stale-buffer invalidation after reset.
+Hosted simulator/reference-driver tests verify ownership state, bounded resources, pointer clearing, metadata, completion semantics and reset-time invalidation. Separate physical NUCLEO-H755ZI-Q qualification has also exercised the same public ownership boundary using real DMA2 and explicit Cortex-M7 cache clean/invalidate operations, including copied and zero-copy packet paths and stale-buffer invalidation after reset.
 
 That physical-board result is MCU DMA/cache ownership evidence. It does not prove a SpaceWire controller, codec, Data-Strobe/PHY, cable, or electrical link.

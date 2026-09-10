@@ -66,7 +66,7 @@ int main() {
 
     assert(spw_port_send(a, &outgoing, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_TIMEOUT);
 
-    const spw_time_code_t time_code{17u, 1u};
+    const spw_time_code_t time_code{17u, 0u};
     assert(spw_port_send_time_code(a, &time_code, SPW_TIMEOUT_IMMEDIATE) == SPW_ERR_TIMEOUT);
 
     assert(spw_port_send(a, &outgoing, 200000u) == SPW_OK);

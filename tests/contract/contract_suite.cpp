@@ -115,6 +115,57 @@ void test_lifecycle(BackendContractFixture& fixture) {
     require_running(fixture, test);
 }
 
+void require_local_inactive_errors(BackendContractFixture& fixture,
+                                   const spw_capabilities_t& caps,
+                                   const char* test) {
+    std::uint8_t byte = 0x42u;
+    spw_packet_t tx{&byte, 1u, 1u, SPW_TERMINATOR_EOP};
+    spw_packet_t rx{&byte, 0u, 1u, SPW_TERMINATOR_EOP};
+
+    require_result(spw_port_send(fixture.endpoint_a(), &tx, SPW_TIMEOUT_IMMEDIATE),
+                   SPW_ERR_INVALID_STATE, test,
+                   "inactive local TX did not report INVALID_STATE");
+    require_result(spw_port_receive(fixture.endpoint_a(), &rx,
+                                    SPW_TIMEOUT_IMMEDIATE),
+                   SPW_ERR_INVALID_STATE, test,
+                   "inactive local RX did not report INVALID_STATE");
+
+    if ((caps.bits & SPW_CAP_TIME_CODE) != 0u) {
+        spw_time_code_t time_code{1u, 0u};
+        require_result(spw_port_send_time_code(fixture.endpoint_a(), &time_code,
+                                               SPW_TIMEOUT_IMMEDIATE),
+                       SPW_ERR_INVALID_STATE, test,
+                       "inactive time-code TX did not report INVALID_STATE");
+        require_result(spw_port_receive_time_code(fixture.endpoint_a(), &time_code,
+                                                  SPW_TIMEOUT_IMMEDIATE),
+                       SPW_ERR_INVALID_STATE, test,
+                       "inactive time-code RX did not report INVALID_STATE");
+    }
+
+    if ((caps.bits & SPW_CAP_READINESS) != 0u) {
+        spw_ready_events_t ready = SPW_READY_ALL;
+        require_result(spw_port_wait(fixture.endpoint_a(), SPW_READY_RX_PACKET,
+                                     SPW_TIMEOUT_IMMEDIATE, &ready),
+                       SPW_ERR_INVALID_STATE, test,
+                       "inactive readiness did not report INVALID_STATE");
+        require(ready == SPW_READY_NONE, test,
+                "inactive readiness returned event bits");
+    }
+}
+
+void test_local_lifecycle_errors(BackendContractFixture& fixture,
+                                 const spw_capabilities_t& caps_a) {
+    constexpr const char* test = "local-lifecycle-errors";
+
+    fixture.reset_link();
+    require_local_inactive_errors(fixture, caps_a, test);
+
+    fixture.start_link();
+    require_running(fixture, test);
+    fixture.stop_link();
+    require_local_inactive_errors(fixture, caps_a, test);
+}
+
 void test_bidirectional_packets(BackendContractFixture& fixture,
                                 const spw_capabilities_t& caps_a,
                                 const spw_capabilities_t& caps_b) {
@@ -204,7 +255,7 @@ void test_receive_capacity_retention(BackendContractFixture& fixture,
 
     const std::size_t length = std::min<std::size_t>(6u, max_size);
     std::vector<std::uint8_t> tx(length);
-    for (std::size_t i = 0; i < length; ++i) {
+    for (std::size_t i = 0u; i < length; ++i) {
         tx[i] = static_cast<std::uint8_t>(0xa0u + i);
     }
 
@@ -225,6 +276,26 @@ void test_receive_capacity_retention(BackendContractFixture& fixture,
     receive_packet(fixture.endpoint_b(), rx.data(), rx.size(), tx.size(),
                    SPW_TERMINATOR_EEP, test);
     require(rx == tx, test, "packet was consumed or modified after short receive");
+}
+
+void test_invalid_receive_argument_retention(BackendContractFixture& fixture) {
+    constexpr const char* test = "invalid-receive-argument-retention";
+    prepare_running(fixture, test);
+
+    std::uint8_t tx[] = {0x11u, 0x22u, 0x33u, 0x44u};
+    send_packet(fixture.endpoint_a(), tx, sizeof(tx), SPW_TERMINATOR_EOP, test);
+
+    spw_packet_t invalid_rx{nullptr, 0u, sizeof(tx), SPW_TERMINATOR_EOP};
+    require_result(spw_port_receive(fixture.endpoint_b(), &invalid_rx,
+                                    g_transfer_timeout_us),
+                   SPW_ERR_INVALID_ARGUMENT, test,
+                   "null non-empty receive storage was not INVALID_ARGUMENT");
+
+    std::uint8_t rx[sizeof(tx)]{};
+    receive_packet(fixture.endpoint_b(), rx, sizeof(rx), sizeof(tx),
+                   SPW_TERMINATOR_EOP, test);
+    require(std::memcmp(rx, tx, sizeof(tx)) == 0, test,
+            "invalid receive argument consumed or modified the packet");
 }
 
 void test_timeout_and_nonblocking(BackendContractFixture& fixture) {
@@ -349,7 +420,7 @@ void test_bounded_queue(BackendContractFixture& fixture,
 
     std::uint8_t value = 0x5au;
     spw_packet_t tx{&value, 1u, 1u, SPW_TERMINATOR_EOP};
-    for (std::size_t i = 0; i < depth; ++i) {
+    for (std::size_t i = 0u; i < depth; ++i) {
         require_result(spw_port_send(fixture.endpoint_a(), &tx,
                                      SPW_TIMEOUT_IMMEDIATE),
                        SPW_OK, test, "queue filled before advertised depth");
@@ -361,7 +432,7 @@ void test_bounded_queue(BackendContractFixture& fixture,
                 full_result == SPW_ERR_TIMEOUT,
             test, "full queue did not report exhaustion/timeout");
 
-    for (std::size_t i = 0; i < depth; ++i) {
+    for (std::size_t i = 0u; i < depth; ++i) {
         std::uint8_t received = 0u;
         receive_packet(fixture.endpoint_b(), &received, 1u, 1u,
                        SPW_TERMINATOR_EOP, test);
@@ -387,6 +458,18 @@ void test_time_codes(BackendContractFixture& fixture,
     }
 
     prepare_running(fixture, test);
+
+    spw_time_code_t invalid_count{64u, 0u};
+    require_result(spw_port_send_time_code(fixture.endpoint_a(), &invalid_count,
+                                           SPW_TIMEOUT_IMMEDIATE),
+                   SPW_ERR_INVALID_ARGUMENT, test,
+                   "out-of-range time count was accepted");
+    spw_time_code_t invalid_control{1u, 1u};
+    require_result(spw_port_send_time_code(fixture.endpoint_a(), &invalid_control,
+                                           SPW_TIMEOUT_IMMEDIATE),
+                   SPW_ERR_INVALID_ARGUMENT, test,
+                   "reserved control flags were accepted");
+
     spw_time_code_t tx{37u, 0u};
     spw_time_code_t rx{};
     require_result(spw_port_send_time_code(fixture.endpoint_a(), &tx,
@@ -436,6 +519,53 @@ void test_statistics(BackendContractFixture& fixture,
             "RX statistics did not advance");
 }
 
+void test_zero_copy_reset_epoch(BackendContractFixture& fixture,
+                                const spw_capabilities_t& caps_a,
+                                const spw_capabilities_t& caps_b) {
+    constexpr const char* test = "zero-copy-reset-epoch";
+    const bool advertised =
+        (caps_a.bits & SPW_CAP_ZERO_COPY) != 0u &&
+        (caps_b.bits & SPW_CAP_ZERO_COPY) != 0u;
+    if (!advertised) {
+        std::cout << "[contract][SKIP] " << test
+                  << ": capability not advertised\n";
+        return;
+    }
+
+    prepare_running(fixture, test);
+    spw_buffer_t* stale = nullptr;
+    require_result(spw_port_acquire_tx_buffer(fixture.endpoint_a(), 4u,
+                                              SPW_TIMEOUT_IMMEDIATE, &stale),
+                   SPW_OK, test, "failed to acquire pre-reset TX buffer");
+    require(stale != nullptr, test, "pre-reset TX acquisition returned null");
+
+    spw_buffer_view_t view{};
+    require_result(spw_buffer_get_view(stale, &view), SPW_OK, test,
+                   "pre-reset TX buffer is not application-owned");
+
+    fixture.reset_link();
+    require_result(spw_buffer_get_view(stale, &view), SPW_ERR_INVALID_STATE, test,
+                   "pre-reset buffer remained valid after reset");
+
+    spw_buffer_t* stale_copy = stale;
+    require_result(spw_port_release_tx_buffer(fixture.endpoint_a(), &stale_copy),
+                   SPW_ERR_INVALID_STATE, test,
+                   "stale buffer release was accepted after reset");
+    require(stale_copy == stale, test,
+            "failed stale release changed the application handle");
+
+    fixture.start_link();
+    require_running(fixture, test);
+    spw_buffer_t* fresh = nullptr;
+    require_result(spw_port_acquire_tx_buffer(fixture.endpoint_a(), 4u,
+                                              SPW_TIMEOUT_IMMEDIATE, &fresh),
+                   SPW_OK, test, "zero-copy capacity did not recover after reset");
+    require(fresh != nullptr, test, "post-reset TX acquisition returned null");
+    require_result(spw_port_release_tx_buffer(fixture.endpoint_a(), &fresh),
+                   SPW_OK, test, "failed to release post-reset TX buffer");
+    require(fresh == nullptr, test, "successful release retained fresh handle");
+}
+
 void test_optional_zero_copy(BackendContractFixture& fixture,
                              const spw_capabilities_t& caps_a,
                              const spw_capabilities_t& caps_b) {
@@ -452,6 +582,17 @@ void test_optional_zero_copy(BackendContractFixture& fixture,
     require(fixture.has_zero_copy_contract(), test,
             "backend advertises ZERO_COPY but fixture has no ownership contract");
     fixture.run_zero_copy_contract();
+    test_zero_copy_reset_epoch(fixture, caps_a, caps_b);
+}
+
+void test_public_buffer_arguments() {
+    constexpr const char* test = "public-buffer-arguments";
+    spw_buffer_view_t view{};
+    require_result(spw_buffer_get_view(nullptr, &view), SPW_ERR_INVALID_ARGUMENT,
+                   test, "null buffer view input was not INVALID_ARGUMENT");
+    require_result(spw_buffer_set_packet(nullptr, 0u, SPW_TERMINATOR_EOP),
+                   SPW_ERR_INVALID_ARGUMENT, test,
+                   "null buffer metadata input was not INVALID_ARGUMENT");
 }
 
 void print_profile(const BackendContractFixture& fixture,
@@ -476,11 +617,14 @@ int run_backend_contract(BackendContractFixture& fixture) {
     const spw_capabilities_t caps_b = capabilities(fixture.endpoint_b(), "capabilities");
     print_profile(fixture, caps_a, caps_b);
 
+    test_public_buffer_arguments();
     test_lifecycle(fixture);
+    test_local_lifecycle_errors(fixture, caps_a);
     test_bidirectional_packets(fixture, caps_a, caps_b);
     test_zero_length_packet(fixture);
     test_large_packet(fixture, caps_a, caps_b);
     test_receive_capacity_retention(fixture, caps_a, caps_b);
+    test_invalid_receive_argument_retention(fixture);
     test_timeout_and_nonblocking(fixture);
     test_readiness(fixture, caps_a, caps_b);
     test_bounded_queue(fixture, caps_a, caps_b);
