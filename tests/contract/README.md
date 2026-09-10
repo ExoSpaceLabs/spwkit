@@ -1,6 +1,6 @@
 # Backend Contract Tests
 
-This directory contains the reusable public-API behavioral contract for SpWKit backends.
+This directory contains the reusable public-API behavioral contract for SpWKit backends. The normative runtime rules exercised here are documented in [`../../docs/runtime-contract.md`](../../docs/runtime-contract.md).
 
 A backend is not considered compatible merely because it compiles against the internal interface. It must exhibit the same application-visible behavior through `spw_port_*` as every other backend, subject only to explicitly advertised optional capabilities and fixture-declared timing/environment profiles.
 
@@ -10,7 +10,7 @@ A backend is not considered compatible merely because it compiles against the in
 contract_suite.hpp/.cpp
         |
         +-- shared lifecycle, packet, timeout, queue, statistics,
-        |   time-code, capacity and capability assertions
+        |   time-code, capacity, state/error and capability assertions
         |
         +-- distributed_contract.cpp                    reusable peer-loss/restart extension
         +-- loopback_contract.cpp                       loopback fixture
@@ -30,25 +30,29 @@ A loopback backend may map logical endpoints A and B to the same `spw_port_t`. P
 The common suite verifies:
 
 - initial/reset lifecycle and transition to `SPW_LINK_RUN` where applicable;
+- locally stopped/reset transfer operations report `SPW_ERR_INVALID_STATE`;
 - A-to-B and B-to-A packet transfer;
 - EOP and capability-gated EEP preservation;
 - zero-length packets;
 - deterministic large-packet transfer up to the advertised backend limit used by the common suite;
 - insufficient receive capacity without packet consumption or silent truncation;
+- invalid receive arguments without consuming the pending packet;
 - immediate and finite receive timeout behavior;
 - bounded queue exhaustion and recovery when queue depth is advertised;
-- capability-gated time-code transfer;
+- capability-gated time-code transfer and public metadata validation;
 - capability-gated statistics progression;
 - capability-gated readiness behavior;
 - backend/capability/timing profile reporting in test output.
 
 Successful transfer operations use the fixture's `transfer_timeout_us()` profile. The default is `SPW_TIMEOUT_IMMEDIATE`, so loopback, the process-local simulator and deterministic reference DRIVER retain strict immediate-observation behavior. A distributed fixture may provide a finite budget because kernel/network delivery can be asynchronous even when the logical SpaceWire event is valid. Explicit non-blocking and finite-timeout assertions remain fixed by the common suite and are not weakened by this profile.
 
+The threading precondition itself is not tested by intentionally creating same-handle data races. The suite instead validates the observable state/error/resource rules that remain deterministic under the documented application serialization contract.
+
 ## Optional capabilities
 
 Optional tests are selected from `spw_capabilities_t`.
 
-The process-local simulator and deterministic reference DRIVER advertise `SPW_CAP_ZERO_COPY`. The shared contract requires a corresponding ownership fixture whenever that capability is advertised. It verifies acquire/fill/submit/reclaim/release, RX acquire/release, capacity/alignment constraints, pool exhaustion, ownership preservation on failed operations, and copied/zero-copy interoperability where applicable.
+The process-local simulator and deterministic reference DRIVER advertise `SPW_CAP_ZERO_COPY`. The shared contract requires a corresponding ownership fixture whenever that capability is advertised. It verifies acquire/fill/submit/reclaim/release, RX acquire/release, capacity/alignment constraints, pool exhaustion, ownership preservation on failed operations, copied/zero-copy interoperability where applicable, and reset-time invalidation/recovery of pre-reset ownership state.
 
 For DRIVER, the reference fixture additionally proves through the public `spw_buffer_*` surface that application views map driver-owned fixed storage. Dedicated lower-level driver/DMA tests remain responsible for provider callback, token, coherency-hook and cache/ownership mechanics that are below the common application contract.
 
