@@ -210,5 +210,14 @@ cat > "$run_root/release-profile.json" <<EOF
 }
 EOF
 
+# The release artifact needs raw benchmark evidence, not disposable CMake trees.
+# Removing the build directories keeps CI artifacts small without discarding any
+# campaign JSON/JSONL, summaries, calibration data, lifecycle data or metadata.
+rm -rf -- \
+  "$run_root/baseline/build-profile" \
+  "$run_root/baseline/build-lifecycle" \
+  "$run_root/candidate/build-profile" \
+  "$run_root/candidate/build-lifecycle"
+
 echo
 echo "Release comparison directory: $run_root"
