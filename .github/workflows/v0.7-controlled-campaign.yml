@@ -1,0 +1,107 @@
+name: v0.7 controlled release campaign
+
+on:
+  push:
+    branches:
+      - 'perf-campaign/v0.7.0'
+    paths:
+      - '.github/workflows/v0.7-controlled-campaign.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  campaign:
+    name: Three-pair same-runner campaign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate tooling and resolve immutable refs
+        id: params
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 benchmarks/test_compare_release_profiles.py
+          python3 benchmarks/test_aggregate_release_profile_repeats.py
+          bash -n benchmarks/run_release_profile_comparison.sh
+
+          baseline="$(git rev-parse 'v0.6.1^{commit}')"
+          candidate="$(git rev-parse 'refs/remotes/origin/develop^{commit}')"
+          campaign_cpu="$(python3 - <<'PY'
+          import os
+          print(min(os.sched_getaffinity(0)))
+          PY
+          )"
+
+          printf 'baseline=%s\n' "$baseline" >> "$GITHUB_OUTPUT"
+          printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
+          printf 'cpu=%s\n' "$campaign_cpu" >> "$GITHUB_OUTPUT"
+
+          {
+            echo '# v0.7.0 controlled same-runner campaign'
+            echo
+            echo "- Baseline: \`${baseline}\`"
+            echo "- Candidate: \`${candidate}\`"
+            echo "- Runner: \`${RUNNER_NAME}\`"
+            echo "- OS: \`${RUNNER_OS}\` / \`${RUNNER_ARCH}\`"
+            echo "- Pinned CPU: \`${campaign_cpu}\` for all three pairs"
+            echo '- Warmup iterations: `256`'
+            echo '- Measured iterations: `1024`'
+            echo '- Payloads: `0 1 8 64 256 1024 4096`'
+            echo '- Precondition before each campaign step: `2 s`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run three paired comparisons sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -s 8192
+          rm -rf release-performance-controlled
+          mkdir -p release-performance-controlled
+
+          for replica in 1 2 3; do
+            echo "::group::controlled pair ${replica}/3"
+            bash benchmarks/run_release_profile_comparison.sh \
+              --baseline-ref "${{ steps.params.outputs.baseline }}" \
+              --candidate-ref "${{ steps.params.outputs.candidate }}" \
+              --warmup 256 \
+              --iterations 1024 \
+              --payloads "0 1 8 64 256 1024 4096" \
+              --cpu "${{ steps.params.outputs.cpu }}" \
+              --precondition-seconds 2 \
+              --governor keep \
+              --type controlled-same-runner-release-campaign \
+              --relative-threshold 5 \
+              --absolute-threshold 20 \
+              --output-root "release-performance-controlled/run-${replica}"
+            echo "::endgroup::"
+          done
+
+      - name: Aggregate controlled campaign
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 benchmarks/aggregate_release_profile_repeats.py \
+            release-performance-controlled \
+            --expected-runs 3 \
+            --min-attention-runs 2 \
+            --output-json release-performance-controlled/repeat-summary.json \
+            --output-markdown release-performance-controlled/repeat-summary.md
+          cat release-performance-controlled/repeat-summary.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo '> All three baseline/candidate pairs ran sequentially in this one job on the same runner and pinned logical CPU. Raw campaign metadata remains the final comparability record.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload controlled evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-v0.7-controlled-campaign-${{ github.run_id }}
+          path: release-performance-controlled/
+          if-no-files-found: error
+          retention-days: 90
