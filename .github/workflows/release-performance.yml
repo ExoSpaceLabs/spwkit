@@ -8,6 +8,11 @@ on:
       - 'src/**'
       - 'benchmarks/**'
       - '.github/workflows/release-performance.yml'
+  push:
+    branches:
+      - 'perf-campaign/**'
+    paths:
+      - '.github/workflows/release-performance.yml'
   workflow_dispatch:
     inputs:
       baseline_ref:
@@ -35,6 +40,14 @@ on:
         required: true
         default: '0 1 8 64 256 1024 4096'
         type: string
+      campaign_mode:
+        description: Release performance mode
+        required: true
+        default: screen
+        type: choice
+        options:
+          - screen
+          - controlled
 
 permissions:
   contents: read
@@ -58,6 +71,7 @@ jobs:
 
   hosted-screen:
     name: v0.6.1 to candidate hosted screen ${{ matrix.replica }}/3
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.campaign_mode == 'screen')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -148,6 +162,7 @@ jobs:
   hosted-screen-summary:
     name: Repeated hosted screen summary
     needs: [tooling, hosted-screen]
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.campaign_mode == 'screen')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -184,3 +199,113 @@ jobs:
           path: release-performance-summary/
           if-no-files-found: error
           retention-days: 30
+
+  controlled-campaign:
+    name: Controlled same-runner release campaign
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.campaign_mode == 'controlled')
+    needs: tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve campaign parameters
+        id: params
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_BASELINE: ${{ github.event.inputs.baseline_ref }}
+          DISPATCH_CANDIDATE: ${{ github.event.inputs.candidate_ref }}
+          DISPATCH_WARMUP: ${{ github.event.inputs.warmup }}
+          DISPATCH_ITERATIONS: ${{ github.event.inputs.iterations }}
+          DISPATCH_PAYLOADS: ${{ github.event.inputs.payloads }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            baseline="${DISPATCH_BASELINE}"
+            candidate="${DISPATCH_CANDIDATE}"
+            warmup="${DISPATCH_WARMUP}"
+            iterations="${DISPATCH_ITERATIONS}"
+            payloads="${DISPATCH_PAYLOADS}"
+          else
+            baseline="v0.6.1"
+            candidate="develop"
+            warmup="256"
+            iterations="1024"
+            payloads="0 1 8 64 256 1024 4096"
+          fi
+          campaign_cpu="$(python3 - <<'PY'
+          import os
+          print(min(os.sched_getaffinity(0)))
+          PY
+          )"
+          printf 'baseline=%s\n' "$baseline" >> "$GITHUB_OUTPUT"
+          printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
+          printf 'warmup=%s\n' "$warmup" >> "$GITHUB_OUTPUT"
+          printf 'iterations=%s\n' "$iterations" >> "$GITHUB_OUTPUT"
+          printf 'payloads=%s\n' "$payloads" >> "$GITHUB_OUTPUT"
+          printf 'cpu=%s\n' "$campaign_cpu" >> "$GITHUB_OUTPUT"
+          {
+            echo '# Controlled same-runner release campaign'
+            echo
+            echo "- Runner: \`${RUNNER_NAME}\`"
+            echo "- OS: \`${RUNNER_OS}\` / \`${RUNNER_ARCH}\`"
+            echo "- CPU: \`${campaign_cpu}\` for every baseline/candidate pair"
+            echo "- Baseline: \`${baseline}\`"
+            echo "- Candidate: \`${candidate}\`"
+            echo "- Warmup: \`${warmup}\`"
+            echo "- Iterations: \`${iterations}\`"
+            echo "- Payloads: \`${payloads}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run three paired comparisons sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -s 8192
+          rm -rf release-performance-controlled
+          mkdir -p release-performance-controlled
+          for replica in 1 2 3; do
+            echo "::group::controlled pair ${replica}/3"
+            bash benchmarks/run_release_profile_comparison.sh \
+              --baseline-ref "${{ steps.params.outputs.baseline }}" \
+              --candidate-ref "${{ steps.params.outputs.candidate }}" \
+              --warmup "${{ steps.params.outputs.warmup }}" \
+              --iterations "${{ steps.params.outputs.iterations }}" \
+              --payloads "${{ steps.params.outputs.payloads }}" \
+              --cpu "${{ steps.params.outputs.cpu }}" \
+              --precondition-seconds 2 \
+              --governor keep \
+              --type controlled-same-runner-release-campaign \
+              --relative-threshold 5 \
+              --absolute-threshold 20 \
+              --output-root "release-performance-controlled/run-${replica}"
+            echo "::endgroup::"
+          done
+
+      - name: Aggregate controlled campaign
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 benchmarks/aggregate_release_profile_repeats.py \
+            release-performance-controlled \
+            --expected-runs 3 \
+            --min-attention-runs 2 \
+            --output-json release-performance-controlled/repeat-summary.json \
+            --output-markdown release-performance-controlled/repeat-summary.md
+          cat release-performance-controlled/repeat-summary.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo '> All three paired comparisons above ran sequentially in this single job on the same runner and pinned CPU. The environment metadata in each raw campaign remains authoritative for comparability review.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload controlled campaign
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-controlled-release-campaign-${{ github.run_id }}
+          path: release-performance-controlled/
+          if-no-files-found: error
+          retention-days: 90
