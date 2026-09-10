@@ -12,6 +12,19 @@ extern "C" {
 #endif
 
 /**
+ * Port concurrency/lifetime contract.
+ *
+ * Distinct spw_port_t handles may be operated concurrently. Public operations
+ * on one handle must be serialized by the application; this includes TX/RX,
+ * waits, queries, lifecycle and zero-copy port operations. spw_port_close(),
+ * spw_port_stop() and spw_port_reset() are not cancellation primitives and
+ * must not race another call on the same handle. No operation may use a handle
+ * after spw_port_close() begins.
+ *
+ * See docs/runtime-contract.md for the complete 1.x runtime contract.
+ */
+
+/**
  * Storage requirements for constructing a port without dynamic allocation.
  *
  * The caller must provide at least `size` bytes whose base address is aligned
@@ -38,9 +51,16 @@ spw_result_t spw_port_open_in_place(const spw_port_config_t* config,
 /** Hosted convenience open. May allocate dynamically when enabled. */
 spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_port);
 
+/** Close a port. Requires no in-flight or future operation on this handle. */
 spw_result_t spw_port_close(spw_port_t* port);
 spw_result_t spw_port_start(spw_port_t* port);
 spw_result_t spw_port_stop(spw_port_t* port);
+/**
+ * Reset the local endpoint to ERROR_RESET.
+ *
+ * A successful reset begins a new zero-copy ownership epoch; pre-reset buffer
+ * handles/completions from this port are stale and must not be reused.
+ */
 spw_result_t spw_port_reset(spw_port_t* port);
 
 spw_result_t spw_port_get_link_state(const spw_port_t* port,
