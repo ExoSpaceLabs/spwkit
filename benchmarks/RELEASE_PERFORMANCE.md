@@ -11,7 +11,7 @@ For `v0.7.0`, the baseline is `v0.6.1`.
 Run from a Linux checkout containing the release-comparison tooling:
 
 ```bash
-benchmarks/run_release_profile_comparison.sh \
+bash benchmarks/run_release_profile_comparison.sh \
   --baseline-ref v0.6.1 \
   --candidate-ref HEAD \
   --cpu auto \
@@ -26,7 +26,8 @@ The runner:
 4. runs the same clean serial profiling campaign for each revision;
 5. runs lifecycle profiling separately for each revision;
 6. compares matching rows with `compare_release_profiles.py`;
-7. writes machine-readable and Markdown comparison artifacts.
+7. writes machine-readable and Markdown comparison artifacts;
+8. removes disposable CMake build trees while retaining the raw measurements, calibration data and metadata.
 
 The comparison uses:
 
@@ -47,9 +48,26 @@ For release acceptance:
 - use the same CPU, compiler/toolchain policy, build type, payload set and benchmark parameters;
 - prefer a fixed performance governor where the system permits it;
 - retain all campaign metadata and raw JSONL results;
-- investigate an attention row only when the direction/magnitude is reproducible across runs rather than a one-off scheduler excursion.
+- investigate a suspected regression only when its direction/magnitude is reproducible across runs rather than a one-off scheduler excursion.
 
 The comparator's default attention rule requires both a positive delta above 20 ticks and a positive relative change above 5%. These defaults are **triage thresholds**, not a normative allowance to regress by 5% or 20 ticks. A smaller but stable regression can still require investigation; a larger one-off can still be noise.
+
+## Repeated-screen aggregation
+
+`aggregate_release_profile_repeats.py` groups equivalent rows from repeated `comparison.json` reports. The default release-screen policy expects three paired runs and marks a row `RECURRING_ATTENTION` when it crosses the triage threshold with the same positive direction in at least two of the three runs.
+
+Example:
+
+```bash
+python3 benchmarks/aggregate_release_profile_repeats.py \
+  build/release-performance-repeats \
+  --expected-runs 3 \
+  --min-attention-runs 2 \
+  --output-json repeat-summary.json \
+  --output-markdown repeat-summary.md
+```
+
+This classification is intentionally conservative. It separates repeatable candidates for investigation from isolated scheduler/counter quantization effects. `RECURRING_ATTENTION` is still not an automatic release failure; it tells us where to spend controlled-host measurement effort instead of optimizing random noise with great determination and no useful outcome.
 
 ## v0.7.0 affected paths
 
@@ -80,6 +98,6 @@ A known avoidable regression is not intentionally deferred to `v0.7.1`. Patch re
 
 ## GitHub-hosted screen
 
-`.github/workflows/release-performance.yml` runs the comparator self-test and a shortened same-runner `v0.6.1` versus candidate screen on relevant pull requests. It uploads the complete comparison artifact.
+`.github/workflows/release-performance.yml` validates both comparator tools and executes **three independent shortened `v0.6.1` versus candidate paired screens** on GitHub-hosted runners. Each repetition keeps baseline and candidate on the same runner/CPU for its pair. The workflow then aggregates all three reports and publishes recurring versus one-off attention signals.
 
-GitHub-hosted timing is screening evidence only. It is useful for detecting obvious changes and validating the comparison mechanics, but the release decision uses repeated controlled-host results.
+The hosted aggregate is screening evidence only. Independent runners improve our ability to reject one-machine accidents, but they are intentionally not required to have identical absolute timing environments across replicas. Release acceptance still uses repeated baseline/candidate measurements on one controlled host with the same machine/toolchain/governor policy.
