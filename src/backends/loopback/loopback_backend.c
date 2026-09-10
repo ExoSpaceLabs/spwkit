@@ -52,10 +52,6 @@ typedef struct spw_loopback_backend {
     spw_statistics_t statistics;
 } spw_loopback_backend_t;
 
-static bool valid_terminator(spw_terminator_t terminator) {
-    return terminator == SPW_TERMINATOR_EOP || terminator == SPW_TERMINATOR_EEP;
-}
-
 static bool valid_time_code(const spw_time_code_t* time_code) {
     return time_code != NULL && time_code->time_count <= 63u &&
            time_code->control_flags == 0u;
@@ -135,14 +131,8 @@ static spw_result_t loopback_send(void* context,
     if (backend->state != SPW_LINK_RUN) {
         return SPW_ERR_INVALID_STATE;
     }
-    if (!valid_terminator(packet->terminator) ||
-        packet->length > SPW_LOOPBACK_MAX_PACKET_SIZE) {
-        return SPW_ERR_INVALID_PACKET;
-    }
-    if (packet->length > 0u && packet->data == NULL) {
-        return SPW_ERR_INVALID_ARGUMENT;
-    }
-    if (packet->capacity != 0u && packet->capacity < packet->length) {
+    /* Generic packet shape is validated by spw_port_send(). */
+    if (packet->length > SPW_LOOPBACK_MAX_PACKET_SIZE) {
         return SPW_ERR_INVALID_PACKET;
     }
     if (backend->packets.count == SPW_LOOPBACK_PACKET_QUEUE_DEPTH) {
