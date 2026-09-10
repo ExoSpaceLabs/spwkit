@@ -36,6 +36,7 @@ stale_phrases = [
     "will begin only after the board/test architecture",
     "provisional CCSDSPack",
     "release acceptance: pending",
+    "does not currently claim ECSS conformance",
 ]
 
 package_re = re.compile(r"find_package\(SpWKit\s+(\d+\.\d+)\s+CONFIG\s+REQUIRED\)")
@@ -61,6 +62,83 @@ for rel in ["README.md", "docs/current-status.md", "docs/roadmap.md"]:
 release_note = ROOT / "docs" / "releases" / f"v{VERSION}.md"
 if not release_note.is_file():
     errors.append(f"missing release note: {release_note.relative_to(ROOT)}")
+
+standard = "ECSS-E-ST-50-12C Rev.1"
+for rel in [
+    "docs/compliance.md",
+    "docs/ecss-conformance.md",
+    "tests/compliance/ecss-e-st-50-12c-rev1.md",
+]:
+    path = ROOT / rel
+    if not path.is_file():
+        errors.append(f"missing ECSS conformance artifact: {rel}")
+        continue
+    if standard not in path.read_text(encoding="utf-8"):
+        errors.append(f"{rel}: does not identify normative target {standard}")
+
+traceability = ROOT / "tests/compliance/ecss-e-st-50-12c-rev1.md"
+if traceability.is_file():
+    trace_text = traceability.read_text(encoding="utf-8")
+    for classification in [
+        "Software verified",
+        "Provider/hardware delegated",
+        "Not applicable",
+        "Not implemented / future",
+    ]:
+        if classification not in trace_text:
+            errors.append(f"tests/compliance ECSS matrix: missing classification {classification!r}")
+
+    target_match = re.search(r"^- SpWKit release target: `v(\d+\.\d+\.\d+)`$", trace_text, re.MULTILINE)
+    revision_match = re.search(r"^- Matrix revision: `v(\d+\.\d+)-r(\d+)`$", trace_text, re.MULTILINE)
+    if not target_match:
+        errors.append("tests/compliance ECSS matrix: missing parseable release target")
+    else:
+        target = tuple(int(part) for part in target_match.group(1).split("."))
+        current = tuple(int(part) for part in VERSION.split("."))
+        if target < current:
+            errors.append(
+                "tests/compliance ECSS matrix: release target "
+                f"v{target_match.group(1)} predates current project v{VERSION}"
+            )
+        if revision_match and revision_match.group(1) != ".".join(target_match.group(1).split(".")[:2]):
+            errors.append(
+                "tests/compliance ECSS matrix: matrix revision minor does not match release target"
+            )
+    if not revision_match:
+        errors.append("tests/compliance ECSS matrix: missing parseable matrix revision")
+
+    positive_rows = [
+        line for line in trace_text.splitlines()
+        if re.match(r"^\| SW-SPW-\d{3} \|", line)
+    ]
+    if not positive_rows:
+        errors.append("tests/compliance ECSS matrix: no Software verified requirement rows found")
+    ids: list[str] = []
+    for line in positive_rows:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != 6:
+            errors.append(f"tests/compliance ECSS matrix: malformed Software verified row: {line}")
+            continue
+        requirement_id, clause, summary, surface, evidence, classification = cells
+        ids.append(requirement_id)
+        if not clause or not summary or not surface or not evidence:
+            errors.append(f"tests/compliance ECSS matrix: incomplete row {requirement_id}")
+        if classification != "**Software verified**":
+            errors.append(
+                f"tests/compliance ECSS matrix: positive row {requirement_id} has classification {classification!r}"
+            )
+    if len(ids) != len(set(ids)):
+        errors.append("tests/compliance ECSS matrix: duplicate Software verified requirement IDs")
+
+    required_boundary_markers = [
+        "## Clause-family review coverage",
+        "5.6.4.3-5.6.4.8",
+        "specifically enumerated",
+        "spwkit-fpga",
+    ]
+    for marker in required_boundary_markers:
+        if marker not in trace_text:
+            errors.append(f"tests/compliance ECSS matrix: missing boundary marker {marker!r}")
 
 ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 tag_match = re.search(r"CCSDSPACK_TAG:\s*([^\s]+)", ci_text)
