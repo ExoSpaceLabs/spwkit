@@ -313,9 +313,11 @@ The tag-triggered Release workflow requires the tagged commit to be the exact `m
 
 ## Standards scope
 
-The primary design reference is **ECSS-E-ST-50-12C Rev.1, SpaceWire - Links, nodes, routers and networks (15 May 2019)**. Related ECSS SpaceWire standards cover protocol identification, RMAP, and CCSDS packet transfer.
+The primary design and conformance reference is **ECSS-E-ST-50-12C Rev.1, SpaceWire - Links, nodes, routers and networks (15 May 2019)**. Related ECSS SpaceWire standards cover protocol identification, RMAP, and CCSDS packet transfer.
 
-SpWKit uses these standards as design references. The project does **not** claim formal ECSS conformance or certification until implemented behavior is backed by explicit requirements traceability and verification evidence.
+For the v0.7 software boundary, SpWKit makes **scoped, requirement-by-requirement conformance claims only for the ECSS requirements/subclauses explicitly marked `Software verified` in the project traceability matrix**. Physical, encoding, concrete-node/link-engine, router, and electrical requirements remain delegated, not applicable, or unimplemented as recorded by that matrix. Full end-to-end conformance for a concrete SpaceWire system additionally requires evidence from its physical provider.
+
+See the [ECSS conformance boundary](docs/ecss-conformance.md) and [ECSS-E-ST-50-12C Rev.1 traceability matrix](tests/compliance/ecss-e-st-50-12c-rev1.md).
 
 ## Documentation
 
@@ -335,12 +337,13 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [CUSE presenter](docs/cuse.md)
 - [Driver backend](docs/driver-backend.md)
 - [Hardware acceptance](docs/hardware-acceptance.md)
+- [ECSS conformance boundary](docs/ecss-conformance.md)
 - [Testing](docs/testing.md)
 - [Roadmap](docs/roadmap.md)
 
 ## Scope of compliance claims
 
-SpWKit models and transports software-visible SpaceWire packet/link semantics and now has real MCU driver/DMA/cache evidence. Automated simulation, transport, RTOS, package, compile/link, and STM32 DMA evidence are not substitutes for physical SpaceWire electrical interoperability or formal qualification. No claim of real FPGA SpaceWire HIL is made until matching hardware exists and the corresponding HIL suite is executed against it.
+SpWKit's ECSS software-conformance claim is limited to the explicitly enumerated `Software verified` rows in the release traceability matrix. Automated simulation, transport, RTOS, package, compile/link, STM32 DMA, and software-contract evidence support their stated boundaries but are not substitutes for physical SpaceWire electrical interoperability, provider-side requirements, or formal product qualification. No claim of real FPGA SpaceWire HIL is made until matching hardware exists and the corresponding HIL suite is executed against it.
 
 ## License
 
