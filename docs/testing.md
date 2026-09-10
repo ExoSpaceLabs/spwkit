@@ -44,7 +44,7 @@ Key active evidence includes:
 - HardRT `0.4.0` POSIX and Cortex-M7 integration;
 - driver backend, DMA/ownership and deterministic reference-driver tests;
 - physical NUCLEO-H755ZI-Q DMA/cache qualification through the public driver boundary;
-- CCSDSPack `v2.0.0` installed-package and two-node Compose integration.
+- CCSDSPack `v2.0.0` installed-package integration plus the separate reproducible two-node Compose harness.
 
 ## Pure-C runtime gate
 
@@ -144,9 +144,9 @@ The namespace topology uses a real veth/IP boundary. Compose adds deployment-sha
 
 The v0.6 integration builds CCSDSPack and SpWKit as independent installed packages and verifies byte-exact PUS-C TC/TM exchange over SpWKit.
 
-The two-node Compose test requires PASS from both peers and keeps EOP separate from CCSDS packet bytes.
+The consolidated CI gate independently checks out immutable CCSDSPack `v2.0.0`, verifies commit `c2f318c330c564429bcc565a8acbff22728b2851`, builds both installed packages separately, and executes the UDP peer exchange. A moving `CCSDSPack/develop` branch is not release evidence.
 
-The accepted immutable external baseline is `CCSDSPack v2.0.0`, commit `c2f318c330c564429bcc565a8acbff22728b2851`. A moving `CCSDSPack/develop` branch is not release evidence.
+The separate `integrations/ccsdspack_v2/run_compose.sh` harness repeats the same public integration in two isolated containers. It requires PASS from both peers and keeps EOP separate from CCSDS packet bytes. Its default Docker/Compose baseline is the same immutable `v2.0.0` release.
 
 ## Linux virtual device
 
@@ -173,7 +173,7 @@ CUSE/libfuse remains outside the public `libspwkit` ABI.
 
 ## Driver / DMA
 
-v0.6 host/reference-driver tests verify:
+The stable v0.6 line verifies:
 
 - required callback/capability consistency;
 - lifecycle and copied DATA mapping;
@@ -182,7 +182,8 @@ v0.6 host/reference-driver tests verify:
 - cache hook ordering;
 - stale/foreign token rejection;
 - bounded wrapper slots;
-- no-heap/freestanding driver use.
+- no-heap/freestanding driver use;
+- the deterministic reference provider through the same reusable public backend contract as virtual backends.
 
 These are software driver-contract tests. The separate NUCLEO-H755ZI-Q qualification adds physical MCU DMA/cache evidence but still does not prove a SpaceWire controller or PHY.
 
@@ -223,7 +224,7 @@ find_package(SpWKit 0.6 CONFIG REQUIRED)
 target_link_libraries(cpp_app PRIVATE spwkit::cpp)
 ```
 
-The stable consumer examples request the compatible v0.6 line. Post-v0.6 work on `develop` is being consolidated for v0.6.1 without an intentional public-contract break.
+Stable v0.6.1 remains compatible with consumers requesting the v0.6 package line. Subsequent work belongs on `develop`; the immutable v0.6.1 tag remains the release evidence boundary.
 
 ## Determinism rules
 

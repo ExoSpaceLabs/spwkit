@@ -3,8 +3,8 @@
 FROM ubuntu:24.04 AS build
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG CCSDSPACK_REF=develop
-ARG CCSDSPACK_SHA=4e198ae4c7f730737d78c1ea2f71ec3ce42ca7eb
+ARG CCSDSPACK_REF=v2.0.0
+ARG CCSDSPACK_SHA=c2f318c330c564429bcc565a8acbff22728b2851
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -17,10 +17,9 @@ RUN apt-get update \
 
 WORKDIR /src
 
-# Keep the packet dependency independent from the SpWKit source tree. During
-# CCSDSPack finalization, develop is the provisional API baseline while the
-# exact SHA makes this CI evidence deterministic rather than following a moving
-# branch silently.
+# Keep the packet dependency independent from the SpWKit source tree. The
+# immutable release tag plus exact commit keeps this integration deterministic
+# and prevents a moving CCSDSPack branch from changing the evidence silently.
 RUN git clone --depth 1 --branch "${CCSDSPACK_REF}" \
         https://github.com/ExoSpaceLabs/CCSDSPack.git ccsdspack \
     && test "$(git -C ccsdspack rev-parse HEAD)" = "${CCSDSPACK_SHA}"

@@ -18,7 +18,7 @@ cmake -S examples/distributed -B build-distributed \
 cmake --build build-distributed --parallel
 ```
 
-The example currently requires a POSIX host because the v0.2 UDP runtime backend is POSIX-only.
+The C example currently requires a POSIX host because its small retry/wait helper uses POSIX `nanosleep()`. This is an example-program limitation, **not** a limitation of `SPW_BACKEND_UDP`: stable SpWKit provides the same public VSPW-TP/UDP backend on POSIX and native Winsock on Windows. The C++ distributed peer uses standard C++ timing primitives and can consume the Windows UDP runtime as well.
 
 ## One-host, two-process example
 

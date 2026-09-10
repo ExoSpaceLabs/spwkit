@@ -1,0 +1,20 @@
+name: Documentation consistency
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  consistency:
+    name: Active docs and dependency baselines
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check active documentation
+        run: python3 scripts/check_documentation_consistency.py

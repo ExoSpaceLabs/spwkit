@@ -10,13 +10,13 @@ flowchart TB
     ROOT --> VIRT[virtual<br/>process-local simulator]
     ROOT --> ETH[ethernet<br/>VSPW-TP + POSIX/Winsock UDP]
     ROOT --> DEV[device<br/>Linux VSPD client backend]
-    ROOT --> DRIVER[driver<br/>v0.6 portable callback/DMA boundary]
+    ROOT --> DRIVER[driver<br/>portable callback/DMA boundary]
     ROOT --> LINUX[linux<br/>platform integration notes]
     ROOT --> BARE[baremetal<br/>embedded integration notes]
     ROOT --> HRT[hardrt<br/>RTOS integration notes]
 ```
 
-The Linux DEVICE/VSPD runtime and `vspwd` shipped in v0.4; production CUSE `/dev/vspwX` and native Winsock UDP shipped in v0.5. The portable DRIVER backend and DMA ownership mapping are v0.6 development work.
+The Linux DEVICE/VSPD runtime and `vspwd` shipped in v0.4; production CUSE `/dev/vspwX` and native Winsock UDP shipped in v0.5. The portable DRIVER backend, DMA ownership mapping, deterministic reference provider, and STM32H755 DMA/cache evidence shipped across the v0.6 line and are part of stable v0.6.1.
 
 Backend-specific concepts remain below the common application API. Native socket handles, file descriptors, CUSE/FUSE handles, AXI/register maps, DMA descriptors and RTOS primitives are implementation details rather than SpaceWire packet/link concepts.
 

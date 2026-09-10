@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(spwkit_distributed_peer LANGUAGES C)
 
 if(NOT UNIX)
-    message(FATAL_ERROR "The VSPW-TP/UDP runtime backend currently requires a POSIX host")
+    message(FATAL_ERROR "This C distributed example currently requires a POSIX host for its nanosleep-based wait helper")
 endif()
 
 find_package(SpWKit 0.6 CONFIG REQUIRED)
@@ -16,4 +16,5 @@ target_link_libraries(spwkit_udp_peer PRIVATE spwkit::spwkit)
 set_target_properties(spwkit_udp_peer PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED YES
+    C_EXTENSIONS OFF
 )

@@ -86,7 +86,7 @@ Unix sockets and daemon framing stay private. v0.5 additionally ships `spwcuse`,
 
 ## Portable driver backend
 
-`SPW_BACKEND_DRIVER` is the v0.6 boundary for vendor, MCU, RTOS and future FPGA drivers. SpWKit calls a user-supplied `spw_driver_ops_t` over a caller-owned driver context.
+`SPW_BACKEND_DRIVER` is the v0.6 boundary, retained in stable v0.6.1, for vendor, MCU, RTOS and future FPGA drivers. SpWKit calls a user-supplied `spw_driver_ops_t` over a caller-owned driver context.
 
 Driver ABI v2 maps driver-owned DMA buffers onto the existing public zero-copy ownership lifecycle. CPU-visible data views and opaque tokens may cross the driver callback boundary; physical addresses and native descriptors do not enter the public application ABI.
 
@@ -114,4 +114,4 @@ Timeouts use the common microsecond type. Backend implementations may wait throu
 
 Every backend reuses the shared public backend contract for each capability it advertises. Additional tests may verify implementation-specific concerns such as VSPW-TP framing, VSPD protocol behavior, CUSE record presentation or DMA ownership, but they do not replace the common contract.
 
-Current CI exercises loopback, simulator, POSIX/Winsock UDP, Linux DEVICE/VSPD, the portable reference driver, no-heap profiles and installed C/C++ consumers. Physical STM32/FPGA/HIL evidence remains a separate claim.
+Current CI exercises loopback, simulator, POSIX/Winsock UDP, Linux DEVICE/VSPD, the deterministic reference DRIVER, no-heap profiles and installed C/C++ consumers. Physical STM32H755 phase-7 execution separately qualifies the portable DRIVER DMA/cache ownership path on MCU silicon. Physical SpaceWire controller, FPGA/PHY and electrical HIL remain a distinct future evidence layer and are not implied by either hosted CI or the STM32 DMA/cache result.

@@ -50,7 +50,7 @@ flowchart LR
     DRIVER --> DMA[DMA/zero-copy mapping]
     DMA --> REF[Reference-driver evidence]
     REF --> STM[STM32H755 physical DMA/cache evidence]
-    REF --> FPGA[Public FPGA/driver boundary]
+    REF --> FPGA[Public future-FPGA provider boundary]
     VIRT --> CCSDS[CCSDSPack v2.0.0 integration]
     STM --> REL[v0.6.0]
     FPGA --> REL
@@ -67,10 +67,20 @@ Delivered evidence includes:
 - immutable CCSDSPack `v2.0.0` baseline at `c2f318c330c564429bcc565a8acbff22728b2851`;
 - installed-package CCSDSPack PUS-C interoperability over UDP and Linux DEVICE/VSPD;
 - two-node Docker Compose CCSDSPack-over-VSPW-TP/UDP exchange;
-- proprietary-safe FPGA/driver boundary documentation and generic HIL acceptance criteria;
+- proprietary-safe future FPGA/provider boundary documentation and generic HIL acceptance criteria;
 - physical NUCLEO-H755ZI-Q validation with real DMA2, Cortex-M7 cache synchronization and reset-time stale-buffer invalidation.
 
 The STM32 qualification is real MCU DMA/cache/zero-copy evidence. It is not SpaceWire electrical or PHY interoperability evidence.
+
+### v0.6.1
+
+Consolidated the v0.6 contract as a patch release without an intentional public API/ABI break:
+
+- finalized profiling backend discovery plus host/build/counter metadata;
+- retained the accepted VSPW-TP reassembly optimization, including the controlled 4096-byte RX paired-overhead reduction from 60,281 to 25,032 invariant-TSC ticks;
+- reduced avoidable readiness overhead in POSIX UDP and Linux DEVICE/VSPD while preserving timeout/error semantics;
+- synchronized package, testing, profiling and hardware-evidence documentation;
+- published immutable `v0.6.1` source, multi-architecture Debian packages and the multi-architecture GHCR image through the release-policy workflow.
 
 ## Post-v0.6 directions
 
