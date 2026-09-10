@@ -100,7 +100,7 @@ jobs:
           set -euo pipefail
           ulimit -s 8192
           rm -rf release-performance-screen
-          benchmarks/run_release_profile_comparison.sh \
+          bash benchmarks/run_release_profile_comparison.sh \
             --baseline-ref "${{ steps.params.outputs.baseline }}" \
             --candidate-ref "${{ steps.params.outputs.candidate }}" \
             --warmup "${{ steps.params.outputs.warmup }}" \
