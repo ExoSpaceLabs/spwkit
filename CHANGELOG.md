@@ -2,6 +2,42 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
+## v0.7.0 — 2026-09-11
+
+Behavioral/backend-contract hardening release. v0.7 defines the software-visible semantics that virtual and future physical providers must preserve, adds requirement-level ECSS SpaceWire software-conformance traceability, and makes performance-regression acceptance an explicit release gate.
+
+### Added
+
+- reusable public backend-contract execution for the deterministic DRIVER/reference provider (#211);
+- versioned backend behavioral-equivalence matrix `v1-r1` and aggregate proof across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD and DRIVER (#214);
+- project-owned ECSS-E-ST-50-12C Rev.1 applicability/traceability matrix `v0.7-r2`, with seven specifically enumerated `Software verified` requirements and explicit provider/hardware-delegated, not-applicable and not-implemented/future dispositions;
+- release-performance comparison tooling against immutable release baselines, repeated hosted screening and controlled same-runner aggregation;
+- explicit pre-v1 ECSS-E-ST-40 and ECSS-Q-ST-80 sequencing in the v0.8/v0.9 roadmap.
+
+### Changed
+
+- defined and enforced same-handle serialization expectations, distinct-handle concurrency scope, lifecycle behavior, complete-operation timeout semantics, canonical result meanings, bounded-resource semantics and reset-safe zero-copy ownership epochs (#212);
+- constrained the represented ECSS time-code profile to six-bit counts with `control_flags == 0`;
+- removed duplicate generic packet-shape validation from the LOOPBACK backend after the public core validation path became authoritative;
+- retained the zero-copy ownership guard after controlled batched measurement isolated its actual cost at approximately **+2.06 invariant-counter ticks per acquire+release pair**, while a semantics-preserving direct rewrite measured slightly slower;
+- aligned package/API versioning and installed consumer requirements on the `0.7` package line.
+
+### Verification
+
+- common backend-contract evidence covers copied packet paths, zero-length packets, EOP/EEP, receive capacity retention, time codes, zero-copy interoperability, lifecycle, timeout/error/resource semantics and reset ownership behavior across the applicable backend families;
+- controlled v0.7 performance campaigns compare against immutable `v0.6.1` at `03869c0b3bc9e895e0fe61a36f24cff2ace7d527` on matched hosts/toolchains/counters;
+- post-cleanup controlled measurements show no recurring LOOPBACK regression, no recurring significant UDP regression, effectively flat DRIVER copied/lifecycle behavior, and DEVICE variation consistent with hosted measurement noise rather than a reproducible source-correlated regression;
+- the existing NUCLEO-H755ZI-Q DMA2/Cortex-M7 cache qualification and immutable CCSDSPack `v2.0.0` integration baseline remain part of the provider/integration evidence;
+- scoped ECSS conformance claims are backed by executable tests and limited to the requirement rows explicitly marked `Software verified`.
+
+### Scope
+
+- SpWKit v0.7.0 conforms to the specifically enumerated ECSS-E-ST-50-12C Rev.1 requirements/subclauses marked `Software verified` in the release matrix for the tested endpoint/link software abstraction;
+- physical-layer, encoding, concrete controller/link-engine, flow-control, link-initialization/recovery, electrical and complete node time-code-engine requirements remain delegated to concrete providers/hardware;
+- distributed interrupts, standardized node-management parameters and the SpaceWire MIB/service are not part of the v0.7 positive claim and are evaluated before the v1.0 API freeze;
+- generic router implementation remains outside the core endpoint/link product scope;
+- ECSS-E-ST-40 and ECSS-Q-ST-80 applicability/compliance work is planned for v0.8/v0.9 and is not claimed by v0.7.0.
+
 ## v0.6.1 — 2026-09-10
 
 Maintenance and performance-consolidation release on the v0.6 line. It preserves the existing public application/backend contract while recording the completed profiling infrastructure, accepted performance optimizations, and synchronized post-v0.6 documentation.

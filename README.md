@@ -28,9 +28,9 @@ The runtime is C11. The optional C++17 layer is header-only and forwards to the 
 
 ## Project status
 
-### Stable: v0.6.1
+### Stable: v0.7.0
 
-`v0.6.1` is a maintenance and performance-consolidation release on the v0.6 software contract. It preserves the public application/backend API while completing profiling metadata, incorporating accepted transport/readiness optimizations, and synchronizing the post-v0.6 documentation.
+`v0.7.0` hardens the software-visible backend contract before the planned v0.8 API/ABI cleanup phase. It defines stable threading, lifecycle, timeout, error, resource, and zero-copy ownership semantics; makes simulator-to-backend behavioral equivalence executable; introduces scoped ECSS-E-ST-50-12C Rev.1 software-conformance traceability; and closes the release with a controlled performance-regression gate against immutable `v0.6.1`.
 
 Highlights:
 
@@ -41,20 +41,23 @@ Highlights:
 - packet EOP/EEP preservation, time codes, link lifecycle/state, readiness, statistics, deterministic timing/fault support, and optional zero-copy ownership;
 - C11 authoritative runtime with caller-owned/no-heap construction;
 - optional header-only C++17 consumer layer;
-- portable `SPW_BACKEND_DRIVER` callback/configuration contract;
+- portable `SPW_BACKEND_DRIVER` callback/configuration contract with a reusable public backend-contract test suite;
 - DMA-capable driver ownership mapped onto the existing `spw_buffer_t` API;
 - deterministic reference-driver and freestanding/no-heap evidence;
+- explicit same-handle serialization, distinct-handle concurrency, complete-operation timeout, result-code, reset, and zero-copy ownership-epoch semantics;
+- versioned `v1-r1` backend behavioral-equivalence evidence across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD, and DRIVER;
+- scoped ECSS-E-ST-50-12C Rev.1 `v0.7-r2` traceability with seven specifically enumerated `Software verified` requirements and explicit delegated/future/not-applicable boundaries;
 - accepted CCSDSPack `v2.0.0` baseline at `c2f318c330c564429bcc565a8acbff22728b2851`;
 - CCSDSPack PUS-C TC/TM interoperability over installed-package UDP, Linux DEVICE/VSPD, and a two-node Docker Compose topology;
-- physical NUCLEO-H755ZI-Q Cortex-M7 DMA/cache/zero-copy qualification;
-- completed profiling host/build/counter metadata and explicit backend coverage classification;
-- controlled VSPW-TP 4096-byte RX paired overhead reduction from 60,281 to 25,032 invariant-TSC ticks (58.5%) after reassembly optimization;
+- physical NUCLEO-H755ZI-Q Cortex-M7 DMA/cache/zero-copy qualification through the public driver boundary;
+- controlled release-performance comparison against immutable `v0.6.1`, including removal of duplicate LOOPBACK validation and quantified retention of the reset-safe zero-copy ownership guard;
+- controlled VSPW-TP 4096-byte RX paired overhead reduction from 60,281 to 25,032 invariant-TSC ticks (58.5%) retained from the v0.6 performance work;
 - POSIX UDP and Linux DEVICE/VSPD optimistic-ready I/O paths that remove avoidable poll-first work while preserving timeout/error semantics;
-- Debian/GHCR publication for `amd64`, `arm64`, `armhf`, and `riscv64` hosted targets.
+- Debian/GHCR publication support for `amd64`, `arm64`, `armhf`, and `riscv64` hosted targets.
 
-See the [v0.6.1 release notes](docs/releases/v0.6.1.md) and [current project status](docs/current-status.md).
+See the [v0.7.0 release notes](docs/releases/v0.7.0.md), [current project status](docs/current-status.md), and [ECSS conformance boundary](docs/ecss-conformance.md).
 
-The v0.6 public boundary deliberately stops before proprietary FPGA/HDL implementation details and before physical SpaceWire PHY/electrical interoperability claims. Hosted profiling values are reference evidence for their named environments, not physical SpaceWire performance specifications.
+The public software claim deliberately stops before proprietary FPGA/HDL implementation details and before physical SpaceWire controller/PHY/electrical interoperability claims. Hosted profiling values are reference evidence for their named environments, not physical SpaceWire performance specifications.
 
 ## Supported backends
 
@@ -213,7 +216,7 @@ This is real MCU DMA/cache evidence. It is not SpaceWire PHY/electrical HIL.
 
 CCSDSPack is an optional upper-layer integration dependency, not a dependency of `libspwkit`.
 
-SpWKit v0.6 pins the interoperability fixture to:
+SpWKit v0.7 pins the interoperability fixture to:
 
 ```text
 CCSDSPack v2.0.0
@@ -256,17 +259,17 @@ cmake --build build-freestanding
 
 ## Installation and consumers
 
-Stable v0.6 consumers use the exported C target:
+Stable v0.7 consumers use the exported C target:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE spwkit::spwkit)
 ```
 
 When the package was built with `SPWKIT_ENABLE_CPP=ON`:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 target_link_libraries(my_cpp_app PRIVATE spwkit::cpp)
 ```
 
@@ -274,7 +277,7 @@ Standalone installed-package examples live under `examples/installed*`, distribu
 
 ## Binary releases
 
-`v0.6.1` publishes Debian packages for:
+`v0.7.0` publishes Debian packages for:
 
 ```text
 amd64
