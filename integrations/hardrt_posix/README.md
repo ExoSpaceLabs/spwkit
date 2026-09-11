@@ -24,7 +24,7 @@ The integration consumes installed CMake packages only:
 
 ```cmake
 find_package(HardRT 0.4 CONFIG REQUIRED)
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 ```
 
 Two HardRT POSIX tasks each own an independent SpWKit loopback port and validate:
