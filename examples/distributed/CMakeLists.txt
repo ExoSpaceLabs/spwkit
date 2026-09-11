@@ -5,7 +5,7 @@ if(NOT UNIX)
     message(FATAL_ERROR "This C distributed example currently requires a POSIX host for its nanosleep-based wait helper")
 endif()
 
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 
 if(NOT SpWKit_UDP_RUNTIME_SUPPORTED)
     message(FATAL_ERROR "Installed SpWKit package does not provide the UDP runtime")
