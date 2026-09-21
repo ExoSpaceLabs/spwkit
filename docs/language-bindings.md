@@ -109,20 +109,20 @@ A pure-C consumer can use `CXX=/bin/false`. The optional wrapper target is insta
 C consumer:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE spwkit::spwkit)
 ```
 
 C++ wrapper consumer:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE spwkit::cpp)
 ```
 
 ## Platform/backend behavior
 
-The wrapper does not create platform-specific behavior. `SPW_BACKEND_UDP` uses POSIX sockets or Winsock beneath the same C API; `SPW_BACKEND_DEVICE` remains Linux-specific; stable v0.6.1 `SPW_BACKEND_DRIVER` is portable to hosted and embedded targets according to the selected driver implementation.
+The wrapper does not create platform-specific behavior. `SPW_BACKEND_UDP` uses POSIX sockets or Winsock beneath the same C API; `SPW_BACKEND_DEVICE` remains Linux-specific; stable v0.7.0 `SPW_BACKEND_DRIVER` is portable to hosted and embedded targets according to the selected driver implementation.
 
 A wrapper method may therefore return `SPW_ERR_UNSUPPORTED` for a capability or backend that is unavailable in the selected build, exactly as the C call would.
 

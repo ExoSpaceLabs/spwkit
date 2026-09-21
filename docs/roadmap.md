@@ -82,27 +82,22 @@ Consolidated the v0.6 contract as a patch release without an intentional public 
 - synchronized package, testing, profiling and hardware-evidence documentation;
 - published immutable `v0.6.1` source, multi-architecture Debian packages and the multi-architecture GHCR image through the release-policy workflow.
 
-## v0.7.0 release candidate
+### v0.7.0
 
-The behavioral/backend-contract engineering planned for v0.7 is implemented on `develop`:
+Hardened the software-visible behavioral/backend contract before the planned v0.8 API/ABI cleanup phase:
 
 - the deterministic DRIVER/reference provider executes the reusable public backend contract (#211);
 - threading, lifecycle, error, timeout, resource and zero-copy reset/ownership semantics are defined and enforced (#212);
-- simulator-to-backend behavioral equivalence is versioned and executable across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD and DRIVER (#214).
+- simulator-to-backend behavioral equivalence is versioned and executable across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD and DRIVER (#214);
+- ECSS-E-ST-50-12C Rev.1 has a project-owned `v0.7-r2` applicability/traceability matrix with specifically enumerated positive software claims and explicit delegated/future/not-applicable dispositions;
+- concrete controller/PHY/electrical and complete node time-code-engine requirements are delegated explicitly to the provider, with `spwkit-fpga` responsible for its applicable hardware-side evidence;
+- release-performance tooling compares immutable `v0.6.1` with the candidate using matched public-operation/native-relative metrics and separate lifecycle evidence;
+- repeated hosted and same-runner campaigns distinguish reproducible regressions from counter/scheduler noise;
+- avoidable LOOPBACK duplicate validation was removed before release, while the reset-safe zero-copy ownership guard was retained after its real cost was isolated at approximately two architectural counter ticks per acquire+release pair.
 
-`v0.7.0` is not considered complete merely because those functional changes pass CI. Publication is gated by #224.
+A performance regression is accepted only when it is a necessary correctness/semantic tradeoff, quantified and documented. Known avoidable release-candidate cleanup is not intentionally deferred to a patch release merely because a patch number is available.
 
-The release gate is implemented as project-owned evidence/tooling:
-
-1. ECSS-E-ST-50-12C Rev.1 has a project-owned `v0.7-r2` applicability/traceability matrix with specifically enumerated positive software claims and explicit delegated/future/not-applicable dispositions;
-2. concrete controller/PHY/electrical and complete node time-code-engine requirements are delegated explicitly to the provider, with `spwkit-fpga` responsible for its applicable hardware-side evidence;
-3. release-performance tooling compares immutable `v0.6.1` with the candidate using matched public-operation/native-relative metrics and separate lifecycle evidence;
-4. repeated hosted and same-runner campaigns are used to distinguish reproducible regressions from counter/scheduler noise;
-5. avoidable LOOPBACK duplicate validation was removed before release, while the reset-safe zero-copy ownership guard was retained after its real cost was isolated at approximately two architectural counter ticks per acquire+release pair.
-
-A performance regression is accepted only when it is a necessary correctness/semantic tradeoff, quantified and documented. Known avoidable release-candidate cleanup is not intentionally deferred to `v0.7.1` simply because a patch number is available.
-
-See [`ecss-conformance.md`](ecss-conformance.md) for the software/provider conformance boundary and [`../benchmarks/RELEASE_PERFORMANCE.md`](../benchmarks/RELEASE_PERFORMANCE.md) for the performance gate.
+Release tagging remains governed by the exact-candidate evidence gate in #224 and the repository release-policy workflow. See [`ecss-conformance.md`](ecss-conformance.md) for the software/provider conformance boundary and [`../benchmarks/v0.7.0-performance-evidence.md`](../benchmarks/v0.7.0-performance-evidence.md) for the performance acceptance record.
 
 ## v0.8.x contract and ECSS architecture phase
 

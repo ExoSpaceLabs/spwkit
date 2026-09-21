@@ -9,8 +9,8 @@ extern "C" {
 #endif
 
 #define SPWKIT_API_VERSION_MAJOR 0u
-#define SPWKIT_API_VERSION_MINOR 6u
-#define SPWKIT_API_VERSION_PATCH 1u
+#define SPWKIT_API_VERSION_MINOR 7u
+#define SPWKIT_API_VERSION_PATCH 0u
 
 /** Result value returned by the public C API. */
 typedef int32_t spw_result_t;

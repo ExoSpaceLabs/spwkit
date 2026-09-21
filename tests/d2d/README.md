@@ -33,10 +33,10 @@ examples/distributed      C11 public API       -> spwkit::spwkit
 examples/distributed_cpp  C++17 wrapper        -> spwkit::cpp
 ```
 
-Both request the stable-compatible v0.6 package line:
+Both request the stable-compatible v0.7 package line:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 ```
 
 The C consumer is configured with `CXX=/bin/false`. Neither application can reach source-private VSPW-TP/backend targets.
@@ -71,7 +71,7 @@ The application packet is 8 KiB while the veth MTU remains 1500 bytes, so succes
 
 ## Docker Compose host topology
 
-`compose.yml` and `run_compose.sh` add a deployment-style two-host simulation. A single container image is built from the repository, but SpWKit is first installed to `/opt/spwkit`; only then are the standalone C and C++ peers configured through `find_package(SpWKit 0.6 CONFIG REQUIRED)`.
+`compose.yml` and `run_compose.sh` add a deployment-style two-host simulation. A single container image is built from the repository, but SpWKit is first installed to `/opt/spwkit`; only then are the standalone C and C++ peers configured through `find_package(SpWKit 0.7 CONFIG REQUIRED)`.
 
 Compose runs two containers on an isolated bridge network with distinct IPv4 addresses. Each container has its own process and network namespace. The same four language combinations are exercised:
 

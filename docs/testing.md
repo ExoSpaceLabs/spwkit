@@ -142,7 +142,7 @@ The namespace topology uses a real veth/IP boundary. Compose adds deployment-sha
 
 ## CCSDSPack integration
 
-The v0.6 integration builds CCSDSPack and SpWKit as independent installed packages and verifies byte-exact PUS-C TC/TM exchange over SpWKit.
+The v0.7 integration builds CCSDSPack and SpWKit as independent installed packages and verifies byte-exact PUS-C TC/TM exchange over SpWKit.
 
 The consolidated CI gate independently checks out immutable CCSDSPack `v2.0.0`, verifies commit `c2f318c330c564429bcc565a8acbff22728b2851`, builds both installed packages separately, and executes the UDP peer exchange. A moving `CCSDSPack/develop` branch is not release evidence.
 
@@ -165,7 +165,7 @@ VSPD/`vspwd` verification covers:
 
 ## CUSE
 
-The early `cuse-feasibility.md` work is retained as a historical design record. v0.5 subsequently shipped production `spwcuse`, and the stable v0.6 line retains it. CI includes a live `/dev/cuse` character-device contract where the runner exposes CUSE.
+The early `cuse-feasibility.md` work is retained as a historical design record. v0.5 shipped production `spwcuse`, and the stable v0.7 line retains it. CI includes a live `/dev/cuse` character-device contract where the runner exposes CUSE.
 
 The contract checks packet-record behavior, DATA/EOP/EEP/time codes, zero-length packets, non-consuming short reads, non-blocking empty reads, poll/readiness and endpoint ownership.
 
@@ -173,12 +173,12 @@ CUSE/libfuse remains outside the public `libspwkit` ABI.
 
 ## Driver / DMA
 
-The stable v0.6 line verifies:
+The stable v0.7 line verifies:
 
 - required callback/capability consistency;
 - lifecycle and copied DATA mapping;
 - zero-copy DMA acquire/submit/reclaim/release;
-- pointer/ownership transitions;
+- pointer/ownership transitions and reset-safe ownership epochs;
 - cache hook ordering;
 - stale/foreign token rejection;
 - bounded wrapper slots;
@@ -213,18 +213,18 @@ The HIL workflow remains explicit/manual and must not be satisfied by hosted sim
 Consumers are configured as independent projects using exported targets only:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 target_link_libraries(c_app PRIVATE spwkit::spwkit)
 ```
 
 Optional C++:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 target_link_libraries(cpp_app PRIVATE spwkit::cpp)
 ```
 
-Stable v0.6.1 remains compatible with consumers requesting the v0.6 package line. Subsequent work belongs on `develop`; the immutable v0.6.1 tag remains the release evidence boundary.
+Stable v0.7.0 consumers request the v0.7 package line. The immutable v0.7.0 tag is the release evidence boundary for that package version.
 
 ## Determinism rules
 
@@ -237,4 +237,4 @@ Stable v0.6.1 remains compatible with consumers requesting the v0.6 package line
 
 ## Compliance evidence
 
-Automated tests are engineering evidence, not automatic ECSS certification. Electrical, Data-Strobe, exact timing and physical interoperability requirements remain outside packet-level software simulation and require corresponding hardware verification.
+Automated tests are engineering evidence supporting the explicitly scoped software-conformance matrix; they are not automatic whole-system ECSS certification. Electrical, Data-Strobe, exact timing and physical interoperability requirements remain outside packet-level software simulation and require corresponding hardware verification.
