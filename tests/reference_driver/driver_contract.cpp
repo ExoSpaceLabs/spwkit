@@ -151,6 +151,26 @@ public:
                        "release reclaimed TX buffer");
         require(reclaimed == nullptr,
                 "successful TX release retained application handle");
+
+        /* Copied I/O must remain usable after the zero-copy ownership path. */
+        std::array<std::uint8_t, 3> copied_payload{0x31u, 0x32u, 0x33u};
+        spw_packet_t copied_tx{copied_payload.data(), copied_payload.size(),
+                               copied_payload.size(), SPW_TERMINATOR_EOP};
+        require_result(spw_port_send(port_a_, &copied_tx, SPW_TIMEOUT_IMMEDIATE),
+                       "copied send after zero-copy");
+
+        std::array<std::uint8_t, 3> copied_storage{};
+        spw_packet_t copied_rx{copied_storage.data(), 0u, copied_storage.size(),
+                               SPW_TERMINATOR_EEP};
+        require_result(spw_port_receive(port_b_, &copied_rx,
+                                        SPW_TIMEOUT_IMMEDIATE),
+                       "copied receive after zero-copy");
+        require(copied_rx.length == copied_payload.size(),
+                "copied RX length mismatch after zero-copy");
+        require(copied_rx.terminator == SPW_TERMINATOR_EOP,
+                "copied RX terminator mismatch after zero-copy");
+        require(copied_storage == copied_payload,
+                "copied payload mismatch after zero-copy");
     }
 
 private:

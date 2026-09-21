@@ -27,14 +27,14 @@ flowchart LR
     NS --> COMPOSE[Docker Compose nodes]
 ```
 
-The v0.6 CCSDSPack integration also runs a two-container PUS-C TC/TM exchange over VSPW-TP/UDP.
+The v0.6 line also added the CCSDSPack v2.0.0 two-container PUS-C TC/TM exchange over VSPW-TP/UDP.
 
 ## Embedded and driver evidence
 
 `embedded` is an active evidence layer, not future placeholder text. CI includes freestanding/no-heap builds and HardRT Cortex-M7 compile/link integration.
 
-`develop` additionally includes `SPW_BACKEND_DRIVER`, driver/DMA ownership tests and a deterministic host reference driver.
+Stable v0.6.1 includes `SPW_BACKEND_DRIVER`, driver/DMA ownership tests, and a deterministic fixed-storage reference driver that also executes the reusable public backend contract.
 
-STM32H755 runtime evidence remains pending #119 and physical SpaceWire HIL remains a later distinct layer.
+Physical STM32H755 phase-7 DMA/cache qualification is complete and remains a distinct MCU evidence layer. Physical SpaceWire controller/PHY/electrical HIL remains future work.
 
 See [docs/testing.md](../docs/testing.md) for execution policy, CI gates and evidence boundaries.

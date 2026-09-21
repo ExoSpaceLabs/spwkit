@@ -8,7 +8,8 @@ Current repository evidence includes:
 
 - executed installed-package HardRT POSIX + SpWKit integration;
 - Cortex-M7/ARMv7E-M no-heap compile/link integration with the HardRT `cortex_m` port;
-- separation of HardRT task/scheduler types from the SpWKit public API.
+- separation of HardRT task/scheduler types from the SpWKit public API;
+- separate physical STM32H755 DMA/cache qualification through the portable DRIVER contract.
 
 ```mermaid
 flowchart LR
@@ -17,6 +18,6 @@ flowchart LR
     HRT[HardRT 0.4.0] -. scheduling / timing .-> TASK
 ```
 
-Future physical driver integration may use HardRT events/semaphores/ISR notification below `SPW_BACKEND_DRIVER`, but those mechanisms must remain driver/platform details.
+Future physical SpaceWire-driver integration may use HardRT events/semaphores/ISR notification below `SPW_BACKEND_DRIVER`, but those mechanisms must remain driver/platform details.
 
-The Cortex-M7 integration is compile/link evidence; STM32H755 runtime DMA/cache evidence is tracked separately under v0.6 #119.
+The HardRT Cortex-M7 fixture remains compile/link evidence. The completed STM32H755 qualification is a separate MCU DMA/cache runtime evidence layer and is not physical SpaceWire controller/PHY HIL.

@@ -164,7 +164,6 @@ The default OpenOCD script root is `/usr/share/openocd/scripts`; override it wit
 
 The scripted pass criteria are exactly the `g_stm32h755_spwkit_evidence` values documented above. This is MCU DMA/cache evidence, not SpaceWire electrical/physical-link HIL.
 
-
 ## Physical DWT profiling
 
 The Debug correctness firmware above and the performance firmware are intentionally separate. Physical profiling uses an optimized Release build, DWT `CYCCNT`, fixed/no-heap sample storage, and a clean rebuild/flash for every compiled probe pair.
@@ -198,15 +197,23 @@ Results are written under `build/profile-results/stm32h755-<UTC>-<commit>/` and 
 
 These measurements characterize the SpWKit software/provider/DMA/cache path on STM32H755. DMA2 is used as a concrete hardware-backed provider boundary, but there is still no SpaceWire controller, codec, PHY, cable, or link serialization in this fixture. Do not report these values as SpaceWire link latency.
 
-## Acceptance record for #119
+## Accepted phase-7 record for #119
 
-When run on the board, record in issue #119:
+The physical NUCLEO-H755ZI-Q campaign completed the MCU DMA/cache evidence requirement, including reset-time stale-buffer invalidation. The accepted correctness record is:
 
-- NUCLEO-H755ZI-Q board/revision if known;
-- ST-LINK/OpenOCD/GDB versions;
-- SpWKit commit SHA;
-- compiler version;
-- the complete `g_stm32h755_spwkit_evidence` values, including `reset_stale_invalidated`;
-- pass/fail and any observed errata.
+```text
+magic                   = 0x53505736
+phase                   = 0x0000700d
+result                  = 0x00000000
+sync_to_device          > 0
+sync_from_device        > 0
+dma_transfers           = 2
+rx_packets              = 2
+tx_packets              = 2
+reset_stale_invalidated = 1
+RESULT: PASS
+```
 
-A successful run closes the MCU DMA/cache evidence requirement only when the phase-7 stale-buffer invalidation field also passes. It must **not** be described as SpaceWire electrical or physical-link HIL; that remains a separate future evidence layer described in `docs/hardware-acceptance.md`.
+Future qualification reruns should record the board/revision when known, ST-LINK/OpenOCD/GDB versions, SpWKit commit SHA, compiler version, complete evidence structure and any observed errata. A rerun is accepted only when the stale-buffer invalidation field also passes.
+
+This closes the MCU DMA/cache evidence layer only. It must **not** be described as SpaceWire electrical or physical-link HIL; that remains a separate future evidence layer described in `docs/hardware-acceptance.md`.

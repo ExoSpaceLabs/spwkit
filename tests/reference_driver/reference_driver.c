@@ -161,7 +161,10 @@ static spw_result_t reference_send(void* raw,
     if (endpoint == NULL || packet == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    if (!endpoint_running(endpoint) || !endpoint_running(endpoint->peer)) {
+    if (!endpoint_running(endpoint)) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    if (!endpoint_running(endpoint->peer)) {
         return SPW_ERR_LINK_UNAVAILABLE;
     }
     if (packet->length != 0u && packet->data == NULL) {
@@ -231,8 +234,11 @@ static spw_result_t reference_send_time_code(
     if (endpoint == NULL || time_code == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
+    if (!endpoint_running(endpoint)) {
+        return SPW_ERR_INVALID_STATE;
+    }
     peer = endpoint->peer;
-    if (!endpoint_running(endpoint) || !endpoint_running(peer)) {
+    if (!endpoint_running(peer)) {
         return SPW_ERR_LINK_UNAVAILABLE;
     }
     if (peer->rx_time_code_count >= SPW_REFERENCE_QUEUE_DEPTH) {
@@ -356,7 +362,7 @@ static spw_result_t reference_acquire_tx_buffer(
         return SPW_ERR_INVALID_STATE;
     }
     if (min_capacity > SPW_REFERENCE_PACKET_CAPACITY) {
-        return SPW_ERR_RESOURCE_EXHAUSTED;
+        return SPW_ERR_BUFFER_TOO_SMALL;
     }
 
     for (i = 0u; i < SPW_REFERENCE_DMA_SLOTS; ++i) {
@@ -394,7 +400,10 @@ static spw_result_t reference_submit_tx_buffer(
     if (endpoint == NULL || buffer == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    if (!endpoint_running(endpoint) || !endpoint_running(endpoint->peer)) {
+    if (!endpoint_running(endpoint)) {
+        return SPW_ERR_INVALID_STATE;
+    }
+    if (!endpoint_running(endpoint->peer)) {
         return SPW_ERR_LINK_UNAVAILABLE;
     }
     tx_slot = find_dma_token(endpoint->tx_dma, buffer->token);

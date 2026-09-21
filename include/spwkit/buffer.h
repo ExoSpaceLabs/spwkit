@@ -8,6 +8,16 @@
 extern "C" {
 #endif
 
+/**
+ * Zero-copy lifetime/threading rule.
+ *
+ * An application-owned buffer may be handed between threads/tasks only through
+ * application synchronization; one thread/task owns and accesses it at a time.
+ * A successful reset of the originating port invalidates every pre-reset
+ * buffer handle/completion from that port. Closing the port invalidates all
+ * remaining buffer handles and views.
+ */
+
 /** Read the current application-owned view of an opaque buffer. */
 spw_result_t spw_buffer_get_view(const spw_buffer_t* buffer,
                                  spw_buffer_view_t* out_view);

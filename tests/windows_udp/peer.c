@@ -102,7 +102,7 @@ static int verify_payload(const uint8_t* data, char sender, unsigned round) {
 static spw_time_code_t make_time_code(char sender, unsigned round) {
     spw_time_code_t code;
     code.time_count = (uint8_t)(10u + round + (sender == 'A' ? 0u : 20u));
-    code.control_flags = (uint8_t)(sender == 'A' ? 1u : 2u);
+    code.control_flags = 0u;
     return code;
 }
 

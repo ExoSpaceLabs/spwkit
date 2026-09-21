@@ -295,6 +295,8 @@ static void initialize_zero_copy_buffers(spw_simulator_backend_t* backend) {
         descriptor->direction = SPW_BUFFER_DIRECTION_TX;
         descriptor->state = SPW_BUFFER_STATE_FREE;
         descriptor->token = i;
+        descriptor->owner_epoch = NULL;
+        descriptor->epoch = 0u;
     }
 
     backend->rx_buffer.data = backend->rx_storage.bytes;
@@ -305,6 +307,9 @@ static void initialize_zero_copy_buffers(spw_simulator_backend_t* backend) {
     backend->rx_buffer.direction = SPW_BUFFER_DIRECTION_RX;
     backend->rx_buffer.state = SPW_BUFFER_STATE_FREE;
     backend->rx_buffer.token = 0u;
+    backend->rx_buffer.owner_epoch = NULL;
+    backend->rx_buffer.epoch = 0u;
+    backend->rx_buffer_acquired = false;
 }
 
 static spw_result_t simulator_construct(void* context,
@@ -418,6 +423,12 @@ static spw_result_t simulator_reset(void* context) {
     }
     spw_host_condition_broadcast(&backend->link->condition);
     spw_host_mutex_unlock(&backend->link->mutex);
+
+    /* Reset also clears backend-side zero-copy ownership/completions. */
+    spw_host_mutex_lock(&backend->zero_copy_mutex);
+    initialize_zero_copy_buffers(backend);
+    spw_host_condition_broadcast(&backend->zero_copy_condition);
+    spw_host_mutex_unlock(&backend->zero_copy_mutex);
     return SPW_OK;
 }
 

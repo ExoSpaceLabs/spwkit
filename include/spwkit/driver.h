@@ -44,6 +44,18 @@ typedef uint32_t spw_driver_sync_direction_t;
  *
  * DMA/zero-copy support is optional but atomic: when any DMA ownership
  * callback is supplied, all six ownership callbacks must be supplied.
+ *
+ * Synchronization/reentrancy contract:
+ * - public operations on one spw_port_t are serialized by the application;
+ * - SpWKit does not add a hidden provider lock around these callbacks;
+ * - a callback must not re-enter a public operation on the same SpWKit port;
+ * - providers sharing native state across multiple DRIVER ports must protect
+ *   that shared state themselves or require provider-specific serialization;
+ * - timeout-aware callbacks receive the remaining budget of the enclosing
+ *   public operation and must not restart an independent full timeout per
+ *   internal retry.
+ *
+ * See docs/runtime-contract.md for the complete portable 1.x behavior model.
  */
 typedef struct spw_driver_ops {
     uint32_t struct_size;

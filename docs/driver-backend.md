@@ -46,6 +46,21 @@ SpWKit does not require these providers to share a register map, bus, descriptor
 
 Applications therefore depend on the public SpaceWire contract rather than the controller implementation.
 
+## Threading and callback reentrancy
+
+The canonical rules are defined in [`runtime-contract.md`](runtime-contract.md). For DRIVER providers, the important obligations are explicit:
+
+- SpWKit invokes a provider callback synchronously from the public operation that caused it;
+- the portable application contract serializes overlapping calls on one `spw_port_t`, so a provider is not required to make one port context internally reentrant;
+- a callback must not call back into the same SpWKit port;
+- different SpWKit port handles may be operated concurrently;
+- when multiple DRIVER ports share one native controller, DMA engine, interrupt source, SDK object or provider context, synchronization of that shared native resource belongs to the provider;
+- SpWKit does not place a hidden global/provider mutex around callbacks;
+- timeout-aware callbacks receive the remaining budget of the public operation and must not restart a fresh full timeout indefinitely;
+- `stop`, `reset` and `close` are not concurrent cancellation primitives and must not race another public call on the same handle.
+
+This deliberately avoids imposing POSIX locking on bare-metal/RTOS providers while still defining what portable applications may assume.
+
 ## Efficiency model
 
 Portability must not require a lowest-common-denominator datapath.
@@ -91,6 +106,8 @@ The driver returns an opaque token plus CPU-visible pointer/capacity/alignment. 
 
 Native physical addresses, descriptor layouts and vendor handles never become public application fields.
 
+A successful `spw_port_reset()` begins a new public ownership epoch. Any application-visible zero-copy handle or pending completion from before the reset is stale afterward. Providers must reset or otherwise invalidate their corresponding native ownership state so fresh acquisitions can recover the advertised capacity.
+
 ### Cache synchronization
 
 Optional driver cache callbacks can prepare a buffer for device access or CPU readback. Their implementation is platform-specific and may be a no-op on coherent systems.
@@ -116,6 +133,8 @@ The mechanism is private; the observable behavior is not.
 
 The driver maps native completion/errors into `spw_result_t`. Hardware-specific diagnostic detail may remain in the driver/vendor layer, but common application control flow must remain possible through portable result values and statistics.
 
+In particular, providers must preserve the portable distinction between local lifecycle misuse (`SPW_ERR_INVALID_STATE`), an active endpoint whose required link/peer is unavailable (`SPW_ERR_LINK_UNAVAILABLE`), exhausted bounded capacity (`SPW_ERR_RESOURCE_EXHAUSTED`), and expiration of a wait budget (`SPW_ERR_TIMEOUT`). Provider-specific error values must not leak through the public API.
+
 ## Reference-driver evidence
 
 `tests/reference_driver` provides a deterministic host-side driver implementation that exercises the public driver backend and callback contract without claiming physical hardware.
@@ -129,6 +148,8 @@ The main v0.6 CI also covers:
 - stale/foreign handle rejection;
 - bounded wrapper resources;
 - no-heap/freestanding compatibility.
+
+The v0.7 contract-hardening work additionally runs the deterministic DRIVER through the same executable result, timeout, lifecycle, resource and reset-ownership rules used by the reusable backend contract.
 
 ## STM32H755 evidence boundary
 

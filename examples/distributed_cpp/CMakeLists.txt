@@ -1,11 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(spwkit_distributed_cpp_peer LANGUAGES CXX)
 
-if(NOT UNIX)
-    message(FATAL_ERROR "The VSPW-TP/UDP runtime backend currently requires a POSIX host")
-endif()
-
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 
 if(NOT SpWKit_UDP_RUNTIME_SUPPORTED)
     message(FATAL_ERROR "Installed SpWKit package does not provide the UDP runtime")

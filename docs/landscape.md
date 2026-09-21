@@ -47,11 +47,11 @@ local virtual link
      |
 distributed Ethernet simulation
      |
-embedded virtual target
+embedded/MCU provider validation
      |
 hardware-in-the-loop
      |
-physical SpaceWire backend
+physical SpaceWire provider
 ```
 
 The same application-facing API should remain usable across the path.
@@ -65,8 +65,8 @@ The same application-facing API should remain usable across the path.
                                   |
              +--------------------+--------------------+
              |                    |                    |
-        simulator             Linux HW             embedded HW
-          vspw0                 spw0                 AXI/DMA
+        simulator          Linux device path      DRIVER provider
+      current/stable        current/stable      MCU qualified; FPGA future
 ```
 
 ## Primary differentiators
@@ -77,7 +77,7 @@ Applications operate on SpaceWire ports and packets rather than sockets, UDP end
 
 ### Virtual device semantics
 
-The simulator is intended to expose virtual SpaceWire endpoints with behaviour analogous in purpose to Linux `vcan`: useful software-level fidelity without pretending to be an analogue/electrical simulator.
+The simulator exposes virtual SpaceWire endpoints with behaviour analogous in purpose to Linux `vcan`: useful software-level fidelity without pretending to be an analogue/electrical simulator.
 
 ### Distributed simulation
 
@@ -85,7 +85,7 @@ Two virtual ports may be connected over real Ethernet, allowing separate hosts, 
 
 ### Embedded-first portability
 
-The core is intended to support Linux, bare metal, HardRT, and eventually FreeRTOS and RTEMS without requiring POSIX facilities or heap allocation.
+The core supports no-heap/freestanding builds and a portable DRIVER provider boundary. Current evidence includes HardRT integration plus physical STM32H755 DMA/cache qualification; additional RTOS/platform providers can be added without changing the common application API.
 
 ### Simulator-to-hardware continuity
 
@@ -107,6 +107,8 @@ SpWKit does not aim to replace:
 - proven SpaceWire codec/router IP;
 - the ECSS standards themselves.
 
+Generic SpaceWire router implementation is also outside the core SpWKit scope. A SpWKit endpoint may communicate through an external router or a provider that handles routing information; the toolkit does not need to become that router.
+
 The project is successful if those technologies become easier to integrate behind one portable software API.
 
 ## Comparison model
@@ -119,9 +121,9 @@ The project is successful if those technologies become easier to integrate behin
 | Virtual link over Ethernet | product-specific | no | sometimes | yes |
 | Bare-metal target | device-specific | n/a | no | yes |
 | RTOS target | device-specific | n/a | no | yes |
-| Physical FPGA backend | yes | DUT-oriented | no | yes |
+| Physical FPGA provider | yes | DUT-oriented | no | future provider below stable DRIVER contract |
 | Electrical fidelity | hardware | potentially signal-level | no | no |
-| Router/network studies | hardware dependent | possible | yes | planned |
+| Generic router/network simulation | hardware dependent | possible | yes | out of core scope |
 
 This table describes solution categories rather than every product. Individual products may provide capabilities beyond the general patterns shown here.
 

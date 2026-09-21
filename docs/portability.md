@@ -66,7 +66,7 @@ Applications can therefore choose either the linked DEVICE API or a `/dev/vspwX`
 
 ## Portable driver boundary
 
-v0.6 `SPW_BACKEND_DRIVER` accepts a versioned `spw_driver_ops_t` callback table and caller-owned driver context. This supports host reference drivers, bare metal, RTOS devices, vendor SDKs and future FPGA controllers while keeping platform-native mechanism types below the application API.
+The v0.6 `SPW_BACKEND_DRIVER` contract, retained in stable v0.6.1, accepts a versioned `spw_driver_ops_t` callback table and caller-owned driver context. This supports host reference drivers, bare metal, RTOS devices, vendor SDKs and future FPGA controllers while keeping platform-native mechanism types below the application API.
 
 The driver/DMA callback layer may handle cache synchronization, descriptor submission and completion internally. The application still sees opaque `spw_buffer_t` ownership transitions.
 
@@ -84,11 +84,11 @@ Current evidence distinguishes:
 flowchart LR
     C[Freestanding C / no heap] --> H[HardRT Cortex-M7 compile/link]
     H --> D[Portable driver/DMA contract]
-    D --> STM[STM32H755 runtime evidence<br/>pending]
-    STM --> PHY[Physical SpaceWire HIL<br/>future]
+    D --> STM[STM32H755 DMA/cache runtime<br/>qualified]
+    STM --> PHY[Physical SpaceWire controller/PHY HIL<br/>future]
 ```
 
-The HardRT baseline is release `0.4.0`. Cortex-M7 compile/link evidence is not a claim of execution on STM32H755, and the driver/DMA host tests are not a claim of cache/coherency correctness on physical silicon.
+The HardRT baseline is release `0.4.0`. Cortex-M7 compile/link evidence remains distinct from runtime evidence. Physical STM32H755 phase-7 execution has qualified the portable DRIVER DMA/cache ownership and stale-buffer invalidation path on MCU silicon; that still does **not** constitute a physical SpaceWire controller, FPGA/PHY or electrical-interoperability claim.
 
 ## Verification rule
 

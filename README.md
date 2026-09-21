@@ -28,9 +28,9 @@ The runtime is C11. The optional C++17 layer is header-only and forwards to the 
 
 ## Project status
 
-### Stable: v0.6.1
+### Stable: v0.7.0
 
-`v0.6.1` is a maintenance and performance-consolidation release on the v0.6 software contract. It preserves the public application/backend API while completing profiling metadata, incorporating accepted transport/readiness optimizations, and synchronizing the post-v0.6 documentation.
+`v0.7.0` hardens the software-visible backend contract before the planned v0.8 API/ABI cleanup phase. It defines stable threading, lifecycle, timeout, error, resource, and zero-copy ownership semantics; makes simulator-to-backend behavioral equivalence executable; introduces scoped ECSS-E-ST-50-12C Rev.1 software-conformance traceability; and closes the release with a controlled performance-regression gate against immutable `v0.6.1`.
 
 Highlights:
 
@@ -41,20 +41,23 @@ Highlights:
 - packet EOP/EEP preservation, time codes, link lifecycle/state, readiness, statistics, deterministic timing/fault support, and optional zero-copy ownership;
 - C11 authoritative runtime with caller-owned/no-heap construction;
 - optional header-only C++17 consumer layer;
-- portable `SPW_BACKEND_DRIVER` callback/configuration contract;
+- portable `SPW_BACKEND_DRIVER` callback/configuration contract with a reusable public backend-contract test suite;
 - DMA-capable driver ownership mapped onto the existing `spw_buffer_t` API;
 - deterministic reference-driver and freestanding/no-heap evidence;
+- explicit same-handle serialization, distinct-handle concurrency, complete-operation timeout, result-code, reset, and zero-copy ownership-epoch semantics;
+- versioned `v1-r1` backend behavioral-equivalence evidence across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD, and DRIVER;
+- scoped ECSS-E-ST-50-12C Rev.1 `v0.7-r2` traceability with seven specifically enumerated `Software verified` requirements and explicit delegated/future/not-applicable boundaries;
 - accepted CCSDSPack `v2.0.0` baseline at `c2f318c330c564429bcc565a8acbff22728b2851`;
 - CCSDSPack PUS-C TC/TM interoperability over installed-package UDP, Linux DEVICE/VSPD, and a two-node Docker Compose topology;
-- physical NUCLEO-H755ZI-Q Cortex-M7 DMA/cache/zero-copy qualification;
-- completed profiling host/build/counter metadata and explicit backend coverage classification;
-- controlled VSPW-TP 4096-byte RX paired overhead reduction from 60,281 to 25,032 invariant-TSC ticks (58.5%) after reassembly optimization;
+- physical NUCLEO-H755ZI-Q Cortex-M7 DMA/cache/zero-copy qualification through the public driver boundary;
+- controlled release-performance comparison against immutable `v0.6.1`, including removal of duplicate LOOPBACK validation and quantified retention of the reset-safe zero-copy ownership guard;
+- controlled VSPW-TP 4096-byte RX paired overhead reduction from 60,281 to 25,032 invariant-TSC ticks (58.5%) retained from the v0.6 performance work;
 - POSIX UDP and Linux DEVICE/VSPD optimistic-ready I/O paths that remove avoidable poll-first work while preserving timeout/error semantics;
-- Debian/GHCR publication for `amd64`, `arm64`, `armhf`, and `riscv64` hosted targets.
+- Debian/GHCR publication support for `amd64`, `arm64`, `armhf`, and `riscv64` hosted targets.
 
-See the [v0.6.1 release notes](docs/releases/v0.6.1.md) and [current project status](docs/current-status.md).
+See the [v0.7.0 release notes](docs/releases/v0.7.0.md), [current project status](docs/current-status.md), and [ECSS conformance boundary](docs/ecss-conformance.md).
 
-The v0.6 public boundary deliberately stops before proprietary FPGA/HDL implementation details and before physical SpaceWire PHY/electrical interoperability claims. Hosted profiling values are reference evidence for their named environments, not physical SpaceWire performance specifications.
+The public software claim deliberately stops before proprietary FPGA/HDL implementation details and before physical SpaceWire controller/PHY/electrical interoperability claims. Hosted profiling values are reference evidence for their named environments, not physical SpaceWire performance specifications.
 
 ## Supported backends
 
@@ -213,7 +216,7 @@ This is real MCU DMA/cache evidence. It is not SpaceWire PHY/electrical HIL.
 
 CCSDSPack is an optional upper-layer integration dependency, not a dependency of `libspwkit`.
 
-SpWKit v0.6 pins the interoperability fixture to:
+SpWKit v0.7 pins the interoperability fixture to:
 
 ```text
 CCSDSPack v2.0.0
@@ -256,17 +259,17 @@ cmake --build build-freestanding
 
 ## Installation and consumers
 
-Stable v0.6 consumers use the exported C target:
+Stable v0.7 consumers use the exported C target:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE spwkit::spwkit)
 ```
 
 When the package was built with `SPWKIT_ENABLE_CPP=ON`:
 
 ```cmake
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 target_link_libraries(my_cpp_app PRIVATE spwkit::cpp)
 ```
 
@@ -274,7 +277,7 @@ Standalone installed-package examples live under `examples/installed*`, distribu
 
 ## Binary releases
 
-`v0.6.1` publishes Debian packages for:
+`v0.7.0` publishes Debian packages for:
 
 ```text
 amd64
@@ -313,9 +316,11 @@ The tag-triggered Release workflow requires the tagged commit to be the exact `m
 
 ## Standards scope
 
-The primary design reference is **ECSS-E-ST-50-12C Rev.1, SpaceWire - Links, nodes, routers and networks (15 May 2019)**. Related ECSS SpaceWire standards cover protocol identification, RMAP, and CCSDS packet transfer.
+The primary design and conformance reference is **ECSS-E-ST-50-12C Rev.1, SpaceWire - Links, nodes, routers and networks (15 May 2019)**. Related ECSS SpaceWire standards cover protocol identification, RMAP, and CCSDS packet transfer.
 
-SpWKit uses these standards as design references. The project does **not** claim formal ECSS conformance or certification until implemented behavior is backed by explicit requirements traceability and verification evidence.
+For the v0.7 software boundary, SpWKit makes **scoped, requirement-by-requirement conformance claims only for the ECSS requirements/subclauses explicitly marked `Software verified` in the project traceability matrix**. Physical, encoding, concrete-node/link-engine, router, and electrical requirements remain delegated, not applicable, or unimplemented as recorded by that matrix. Full end-to-end conformance for a concrete SpaceWire system additionally requires evidence from its physical provider.
+
+See the [ECSS conformance boundary](docs/ecss-conformance.md) and [ECSS-E-ST-50-12C Rev.1 traceability matrix](tests/compliance/ecss-e-st-50-12c-rev1.md).
 
 ## Documentation
 
@@ -335,12 +340,13 @@ SpWKit uses these standards as design references. The project does **not** claim
 - [CUSE presenter](docs/cuse.md)
 - [Driver backend](docs/driver-backend.md)
 - [Hardware acceptance](docs/hardware-acceptance.md)
+- [ECSS conformance boundary](docs/ecss-conformance.md)
 - [Testing](docs/testing.md)
 - [Roadmap](docs/roadmap.md)
 
 ## Scope of compliance claims
 
-SpWKit models and transports software-visible SpaceWire packet/link semantics and now has real MCU driver/DMA/cache evidence. Automated simulation, transport, RTOS, package, compile/link, and STM32 DMA evidence are not substitutes for physical SpaceWire electrical interoperability or formal qualification. No claim of real FPGA SpaceWire HIL is made until matching hardware exists and the corresponding HIL suite is executed against it.
+SpWKit's ECSS software-conformance claim is limited to the explicitly enumerated `Software verified` rows in the release traceability matrix. Automated simulation, transport, RTOS, package, compile/link, STM32 DMA, and software-contract evidence support their stated boundaries but are not substitutes for physical SpaceWire electrical interoperability, provider-side requirements, or formal product qualification. No claim of real FPGA SpaceWire HIL is made until matching hardware exists and the corresponding HIL suite is executed against it.
 
 ## License
 

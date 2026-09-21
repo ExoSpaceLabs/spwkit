@@ -1,6 +1,6 @@
 # Local virtual SpaceWire simulator
 
-The original v0.1 simulator is a process-local implementation of the same backend contract used by `libspwkit` for loopback, distributed UDP, Linux virtual devices, and future physical transports.
+The original v0.1 simulator is a process-local implementation of the same backend contract used by `libspwkit` for loopback, distributed UDP, Linux virtual devices, and physical-provider adapters.
 
 Applications do not call simulator-specific transport functions. They select the simulator through `spw_port_config_t` and continue to use the normal `spw_port_*` API.
 
@@ -143,7 +143,7 @@ This is intentional. A DMA-capable backend can map the same API to coherent or p
 
 ## Simulation and virtual-device stack today
 
-The process-local simulator remains the deterministic behavioral reference, but it is no longer the only virtual SpaceWire path. Stable `v0.5.0` includes the distributed VSPW-TP/UDP backend, Linux VSPD virtual-device service, `vspwd`, management/monitoring tools, and optional CUSE `/dev/vspwX` presentation. `develop` additionally carries the v0.6 portable hardware-driver/DMA boundary.
+Stable v0.6.1 includes the complete software-development stack: the process-local simulator, distributed VSPW-TP/UDP on POSIX and Winsock, Linux VSPD/`vspwd`, management and passive-monitoring tools, optional CUSE `/dev/vspwX`, and the portable DRIVER/DMA boundary. Physical STM32H755 phase-7 execution has additionally qualified the DRIVER DMA/cache ownership path on MCU silicon.
 
 ```mermaid
 flowchart TB
@@ -152,7 +152,7 @@ flowchart TB
     API --> SIM["SPW_BACKEND_SIMULATOR<br/>process-local deterministic link"]
     API --> UDP["SPW_BACKEND_UDP<br/>VSPW-TP / UDP"]
     API --> DEV["SPW_BACKEND_DEVICE<br/>VSPD client"]
-    API --> DRIVER["SPW_BACKEND_DRIVER<br/>v0.6 portable driver boundary"]
+    API --> DRIVER["SPW_BACKEND_DRIVER<br/>portable provider boundary"]
 
     UDP --> REMOTE["Independent process / host / container"]
 
@@ -164,8 +164,8 @@ flowchart TB
     DEVNODE --> CUSE["spwcuse<br/>CUSE presenter"]
     CUSE --> DEV
 
-    DRIVER --> RTOS["RTOS / bare-metal driver"]
-    DRIVER --> FPGA["future MMIO / DMA FPGA driver"]
+    DRIVER --> MCU["STM32 / RTOS DMA provider"]
+    DRIVER --> FPGA["future MMIO / DMA FPGA provider"]
     FPGA --> PHY["future physical SpaceWire implementation"]
 ```
 
@@ -184,13 +184,13 @@ flowchart LR
     API --> VIRTUAL["VSPD / vspwd / /dev/vspwX"]
     API --> DIST["VSPW-TP / UDP"]
     API --> DRIVER["Portable driver backend"]
-    DRIVER --> MCU["STM32 / RTOS DMA validation"]
+    DRIVER --> MCU["STM32 DMA/cache qualification"]
     DRIVER --> FPGA["Future FPGA MMIO / DMA driver"]
     FPGA --> CORE["Future SpaceWire HDL / IP core"]
     CORE --> LINK["Physical SpaceWire link"]
 ```
 
-The current STM32 work therefore validates the public driver and DMA ownership boundary, not the SpaceWire electrical layer. A future FPGA implementation can replace the lower hardware-specific portion without changing application code or the `spw_port_*` API.
+The completed STM32 evidence validates the public driver and DMA/cache ownership boundary, not the SpaceWire electrical layer. A future FPGA/physical implementation can replace the lower hardware-specific portion without changing application code or the `spw_port_*` API.
 
 ## What this simulator is not
 
