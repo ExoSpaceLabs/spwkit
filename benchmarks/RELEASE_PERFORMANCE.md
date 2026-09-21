@@ -105,6 +105,10 @@ The `v0.7.0` behavioral-contract work added common lifecycle-state checks on app
 
 `#214` added tests/documentation and does not itself add a packet hot-path layer, but its final candidate is still measured as part of the release commit.
 
+## Transport-refactor baseline
+
+The immutable pre-#229 VSPW-TP/UDP reference is recorded in [v0.7.0-vspw-udp-baseline.md](v0.7.0-vspw-udp-baseline.md). Post-#229 controlled comparisons use `v0.7.0` as the baseline ref rather than the older `v0.6.1` release-acceptance baseline.
+
 ## Acceptance
 
 A release candidate passes this gate when:
