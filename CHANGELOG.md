@@ -2,7 +2,7 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
-## v0.7.0 — 2026-09-11
+## v0.7.0 — 2026-09-21
 
 Behavioral/backend-contract hardening release. v0.7 defines the software-visible semantics that virtual and future physical providers must preserve, adds requirement-level ECSS SpaceWire software-conformance traceability, and makes performance-regression acceptance an explicit release gate.
 
