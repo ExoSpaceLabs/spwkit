@@ -20,39 +20,38 @@ application
 SpWKit must not depend directly on a board-support package, MCU SDK or RTOS.
 A board-support package must not know about SpWKit.
 
-## Current coupling audit
+## Implemented separation
 
-The v0.7 source already keeps the VSPW-TP wire codec in
-`vspw_tp.c/.h`, but `udp_backend.c` still owns both carrier mechanics and
-protocol-engine behavior.
+The transport/provider boundary is now implemented.
 
-Protocol/session behavior currently living in the UDP backend includes:
+`vspw_engine.c/.h` owns carrier-independent protocol behavior:
 
 - session identity and remote-session rollover;
 - VSPW sequence/message IDs;
 - DATA/TIME_CODE/KEEPALIVE/ACK construction;
-- ACK matching and retry state;
-- duplicate suppression;
-- packet fragmentation orchestration;
-- fragment reassembly and delivery;
-- EOP/EEP preservation;
-- time-code queues;
+- ACK matching, retry and duplicate suppression;
+- packet fragmentation/reassembly;
+- EOP/EEP and time-code semantics;
 - keepalive/liveness state;
-- virtual timing and deterministic fault handling.
+- virtual-link timing and deterministic VSPW fault state;
+- VSPW-visible statistics.
 
-Carrier/platform behavior currently mixed into the same implementation
-includes:
+`udp_transport_provider.c/.h` owns UDP carrier mechanics:
 
-- socket creation/bind/address handling;
-- peer identity represented as IP address/port;
+- socket creation, bind and destruction;
+- IPv4/port addressing and opaque peer identity;
 - `sendto()` / `recvfrom()`;
 - readiness polling and socket error translation;
-- UDP datagram-size constraints;
-- host monotonic clock access used by retry/liveness scheduling.
+- UDP carrier MTU and timeout conversion.
 
-The extraction must move only true carrier mechanics below the provider
-boundary. Reliability, fragmentation and SpaceWire-visible semantics remain in
-the VSPW engine.
+`udp_backend.c` is the composition adapter. It validates the public UDP
+configuration, creates the provider/runtime bindings, translates public UDP
+fault rules into the private VSPW fault model and forwards backend operations
+to the engine.
+
+The engine validates its configured VSPW fragment size against the selected
+provider MTU. VSPW-TP protocol limits are therefore no longer derived from the
+UDP datagram ceiling.
 
 ## Carrier contract requirements
 
@@ -153,14 +152,17 @@ on socket APIs.
 
 ## Extraction sequence
 
-1. Freeze the pre-refactor UDP baseline (#230).
+1. Freeze the pre-refactor UDP baseline (#230). **Complete.**
 2. Define private provider/runtime contracts and deterministic test provider.
-3. Move carrier-independent VSPW session/reliability state out of
-   `udp_backend.c` without changing behavior.
-4. Adapt the existing POSIX/Winsock UDP implementation to the provider
-   contract.
+   **Complete.**
+3. Adapt the existing POSIX/Winsock UDP implementation to the provider
+   contract. **Complete.**
+4. Extract carrier-independent VSPW session/reliability/reassembly state.
+   **Complete in the current refactor workstream.**
 5. Prove current UDP tests and backend-equivalence tests unchanged.
-6. Measure provider-dispatch overhead against the frozen baseline.
+   **Continuous CI gate.**
+6. Measure the refactored UDP path and provider-dispatch cost against the
+   frozen `v0.7.0` baseline. **Current performance gate.**
 7. Add PC raw-Ethernet provider and controlled comparison.
 8. Add embedded raw-Ethernet binding when board-driver support is ready.
 
