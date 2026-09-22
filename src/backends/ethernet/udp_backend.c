@@ -16,7 +16,6 @@
 #include <spwkit/udp.h>
 
 #include <errno.h>
-#include <limits.h>
 #include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -162,15 +161,6 @@ static bool valid_terminator(spw_terminator_t terminator) {
 static bool valid_time_code(const spw_time_code_t* time_code) {
     return time_code != NULL && time_code->time_count <= 63u &&
            time_code->control_flags <= 3u;
-}
-
-static int timeout_ms(spw_timeout_us_t timeout_us) {
-    uint64_t rounded;
-    if (timeout_us == SPW_TIMEOUT_INFINITE) {
-        return -1;
-    }
-    rounded = (timeout_us + 999u) / 1000u;
-    return rounded > (uint64_t)INT_MAX ? INT_MAX : (int)rounded;
 }
 
 static spw_timeout_us_t min_timeout(spw_timeout_us_t lhs,
