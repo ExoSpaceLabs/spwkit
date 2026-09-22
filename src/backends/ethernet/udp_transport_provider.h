@@ -13,13 +13,13 @@
 extern "C" {
 #endif
 
-struct sockaddr_in;
-
 typedef struct spw_udp_transport {
     int socket_fd;
     bool started;
-    struct sockaddr_in* local_address_storage;
-    struct sockaddr_in* remote_address_storage;
+    uint32_t local_ipv4_network_order;
+    uint16_t local_port_network_order;
+    uint32_t remote_ipv4_network_order;
+    uint16_t remote_port_network_order;
     spw_transport_peer_id_t remote_peer;
 } spw_udp_transport_t;
 
