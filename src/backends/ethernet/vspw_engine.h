@@ -70,10 +70,10 @@ typedef struct spw_vspw_engine {
     uint32_t next_sequence;
     uint32_t next_message_id;
 
-    uint8_t tx_message[SPW_VSPW_TP_MAX_UDP_PAYLOAD];
-    uint8_t rx_message[SPW_VSPW_TP_MAX_UDP_PAYLOAD];
+    uint8_t tx_message[SPW_VSPW_TP_MAX_CARRIER_MESSAGE_SIZE];
+    uint8_t rx_message[SPW_VSPW_TP_MAX_CARRIER_MESSAGE_SIZE];
     uint8_t control_message[SPW_VSPW_CONTROL_MESSAGE_SIZE];
-    uint8_t reordered_message[SPW_VSPW_TP_MAX_UDP_PAYLOAD];
+    uint8_t reordered_message[SPW_VSPW_TP_MAX_CARRIER_MESSAGE_SIZE];
     size_t reordered_message_size;
     bool reordered_message_valid;
 
