@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-baseline_ref="v0.6.1"
+baseline_ref="v0.7.0"
 candidate_ref="HEAD"
 cases="all"
 warmup="256"
@@ -28,7 +28,7 @@ comparison. This is the preferred release-candidate command when run on a
 controlled host. Repeat suspect rows before accepting a performance change.
 
 Options:
-  --baseline-ref REF         baseline revision (default: v0.6.1)
+  --baseline-ref REF         baseline revision (default: v0.7.0)
   --candidate-ref REF        candidate revision (default: HEAD)
   --cases LIST               profiling cases (default: all)
   --warmup N                 warmup iterations (default: 256)
