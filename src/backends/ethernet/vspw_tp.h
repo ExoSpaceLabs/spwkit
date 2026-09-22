@@ -14,8 +14,18 @@ extern "C" {
 #define SPW_VSPW_TP_VERSION_MAJOR 1u
 #define SPW_VSPW_TP_VERSION_MINOR 0u
 #define SPW_VSPW_TP_HEADER_SIZE 40u
+/*
+ * VSPW-TP itself is carrier-neutral. payload_size is a uint16_t on the wire,
+ * so the protocol can represent up to UINT16_MAX payload bytes in one carrier
+ * message. Individual providers impose their own smaller MTU.
+ */
+#define SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD UINT16_MAX
+#define SPW_VSPW_TP_MAX_CARRIER_MESSAGE_SIZE \
+    (SPW_VSPW_TP_HEADER_SIZE + SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD)
+
+/* IPv4 UDP provider limit; not a VSPW-TP protocol limit. */
 #define SPW_VSPW_TP_MAX_UDP_PAYLOAD 65507u
-#define SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD \
+#define SPW_VSPW_TP_MAX_UDP_FRAGMENT_PAYLOAD \
     (SPW_VSPW_TP_MAX_UDP_PAYLOAD - SPW_VSPW_TP_HEADER_SIZE)
 #define SPW_VSPW_TP_MAX_PACKET_SIZE (16u * 1024u * 1024u)
 #define SPW_VSPW_TP_TIME_CODE_PAYLOAD_SIZE 2u
