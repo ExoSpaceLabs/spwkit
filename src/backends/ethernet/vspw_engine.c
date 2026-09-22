@@ -885,6 +885,7 @@ spw_result_t spw_vspw_engine_init(
     const spw_transport_peer_id_t* remote_peer,
     const spw_vspw_runtime_t* runtime,
     const spw_deterministic_fault_injector_t* fault_template) {
+    size_t carrier_mtu = 0u;
     if (backend == NULL || config == NULL || transport == NULL ||
         remote_peer == NULL || runtime == NULL ||
         !spw_transport_provider_valid(transport) ||
@@ -895,6 +896,13 @@ spw_result_t spw_vspw_engine_init(
         config->max_retries == 0u || config->ack_timeout_ms == 0u ||
         config->keepalive_interval_ms == 0u ||
         config->peer_timeout_ms <= config->keepalive_interval_ms) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (spw_transport_provider_get_mtu(transport, &carrier_mtu) != SPW_OK ||
+        carrier_mtu < SPW_VSPW_TP_HEADER_SIZE + SPW_VSPW_TP_ACK_PAYLOAD_SIZE ||
+        carrier_mtu > SPW_VSPW_TP_MAX_CARRIER_MESSAGE_SIZE ||
+        (size_t)config->fragment_payload_size >
+            carrier_mtu - SPW_VSPW_TP_HEADER_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
 
