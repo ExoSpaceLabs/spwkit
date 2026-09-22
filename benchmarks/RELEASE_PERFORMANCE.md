@@ -6,6 +6,11 @@ A SpWKit release is not accepted merely because functional CI is green. Changes 
 
 For `v0.7.0`, the baseline is `v0.6.1`.
 
+For post-`v0.7.0` development, including the transport-provider refactor,
+the current immutable baseline is `v0.7.0`. Pull-request hosted screens and
+the comparison runner default therefore use `v0.7.0`; historical v0.7.0
+release evidence below remains anchored to `v0.6.1`.
+
 ## Controlled release comparison
 
 Run from a Linux checkout containing the release-comparison tooling:
