@@ -89,7 +89,7 @@ static spw_result_t udp_construct(void* context,
         config->struct_size < sizeof(spw_udp_config_t) ||
         config->remote_port == 0u || config->link_id == 0u ||
         config->fragment_payload_size < 256u ||
-        config->fragment_payload_size > SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD ||
+        config->fragment_payload_size > SPW_VSPW_TP_MAX_UDP_FRAGMENT_PAYLOAD ||
         config->max_retries == 0u || config->ack_timeout_ms == 0u ||
         config->keepalive_interval_ms == 0u ||
         config->peer_timeout_ms <= config->keepalive_interval_ms ||
