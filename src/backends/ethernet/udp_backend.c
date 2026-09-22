@@ -16,6 +16,7 @@
 #include <spwkit/udp.h>
 
 #include <errno.h>
+#include <limits.h>
 #include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -484,6 +485,376 @@ static spw_result_t send_datagram(spw_udp_backend_t* backend,
 }
 
 static spw_result_t pump_one(spw_udp_backend_t* backend,
+                             spw_timeout_us_t timeout_us);
+static spw_result_t service_pending_tx(spw_udp_backend_t* backend);
+static spw_result_t send_keepalive(spw_udp_backend_t* backend,
+                                   spw_timeout_us_t timeout_us);
+
+static void maybe_send_keepalive(spw_udp_backend_t* backend) {
+    const uint64_t now = now_us();
+    const uint64_t interval =
+        (uint64_t)backend->config.keepalive_interval_ms * UINT64_C(1000);
+    if (!transport_is_up(backend) || backend->local_session_id == 0u ||
+        (backend->state != SPW_LINK_CONNECTING &&
+         backend->state != SPW_LINK_RUN &&
+         backend->state != SPW_LINK_ERROR_WAIT)) {
+        return;
+    }
+    if (backend->last_keepalive_tx_us == 0u ||
+        (now >= backend->last_keepalive_tx_us &&
+         now - backend->last_keepalive_tx_us >= interval)) {
+        (void)send_keepalive(backend, SPW_TIMEOUT_IMMEDIATE);
+    }
+}
+
+static spw_result_t wait_virtual_link_delay(spw_udp_backend_t* backend,
+                                            uint64_t delay_us,
+                                            spw_timeout_us_t timeout_us) {
+    spw_udp_deadline_t deadline;
+    uint64_t target;
+    if (delay_us == 0u) {
+        return SPW_OK;
+    }
+    if (timeout_us != SPW_TIMEOUT_INFINITE && timeout_us < delay_us) {
+        return SPW_ERR_TIMEOUT;
+    }
+
+    deadline = deadline_make(timeout_us);
+    target = now_us() + delay_us;
+    while (now_us() < target) {
+        const uint64_t now = now_us();
+        const uint64_t remaining = target > now ? target - now : 0u;
+        const spw_timeout_us_t timing_slice =
+            remaining == 0u ? SPW_TIMEOUT_IMMEDIATE : remaining;
+        const spw_result_t result = pump_one(
+            backend, min_timeout(deadline_remaining(&deadline), timing_slice));
+        if (result != SPW_OK && result != SPW_ERR_TIMEOUT &&
+            result != SPW_ERR_RESOURCE_EXHAUSTED) {
+            return result;
+        }
+        if (now_us() >= target) {
+            return SPW_OK;
+        }
+        if (deadline_expired(&deadline)) {
+            return SPW_ERR_TIMEOUT;
+        }
+    }
+    return SPW_OK;
+}
+
+static spw_result_t send_ack(spw_udp_backend_t* backend,
+                             uint32_t message_id) {
+    spw_vspw_tp_header_t header = SPW_VSPW_TP_HEADER_INITIALIZER;
+    if (message_id == 0u) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (backend->remote_session_id == 0u) {
+        return SPW_ERR_INVALID_STATE;
+    }
+
+    header.type = SPW_VSPW_TP_ACK;
+    header.payload_size = SPW_VSPW_TP_ACK_PAYLOAD_SIZE;
+    header.link_id = backend->config.link_id;
+    header.session_id = backend->local_session_id;
+    header.sequence = take_nonzero(&backend->next_sequence);
+    header.message_id = message_id;
+    header.total_size = SPW_VSPW_TP_ACK_PAYLOAD_SIZE;
+    if (!spw_vspw_tp_encode_header(&header, backend->control_datagram,
+                                   sizeof(backend->control_datagram)) ||
+        !spw_vspw_tp_encode_ack_payload(
+            backend->remote_session_id,
+            backend->control_datagram + SPW_VSPW_TP_HEADER_SIZE,
+            SPW_VSPW_TP_ACK_PAYLOAD_SIZE)) {
+        return SPW_ERR_BACKEND;
+    }
+    return send_datagram(backend, backend->control_datagram,
+                         SPW_VSPW_TP_HEADER_SIZE +
+                             SPW_VSPW_TP_ACK_PAYLOAD_SIZE,
+                         SPW_TIMEOUT_IMMEDIATE);
+}
+
+static spw_result_t send_keepalive(spw_udp_backend_t* backend,
+                                   spw_timeout_us_t timeout_us) {
+    spw_vspw_tp_header_t header = SPW_VSPW_TP_HEADER_INITIALIZER;
+    spw_result_t result;
+    header.type = SPW_VSPW_TP_KEEPALIVE;
+    header.link_id = backend->config.link_id;
+    header.session_id = backend->local_session_id;
+    header.sequence = take_nonzero(&backend->next_sequence);
+    if (!spw_vspw_tp_encode_header(&header, backend->control_datagram,
+                                   sizeof(backend->control_datagram))) {
+        return SPW_ERR_BACKEND;
+    }
+    result = send_datagram(backend, backend->control_datagram,
+                           SPW_VSPW_TP_HEADER_SIZE, timeout_us);
+    if (result == SPW_OK) {
+        backend->last_keepalive_tx_us = now_us();
+    }
+    return result;
+}
+
+static spw_result_t transmit_pending(spw_udp_backend_t* backend,
+                                     spw_timeout_us_t timeout_us) {
+    size_t offset;
+    size_t fragment_size;
+    bool fragmented;
+
+    if (backend->pending_tx_kind == SPW_UDP_PENDING_NONE ||
+        backend->pending_tx_message_id == 0u) {
+        return SPW_OK;
+    }
+
+    if (backend->pending_tx_kind == SPW_UDP_PENDING_TIME_CODE) {
+        spw_vspw_tp_header_t header = SPW_VSPW_TP_HEADER_INITIALIZER;
+        spw_result_t result;
+        header.type = SPW_VSPW_TP_TIME_CODE;
+        header.flags = SPW_VSPW_TP_FLAG_ACK_REQUIRED;
+        header.payload_size = SPW_VSPW_TP_TIME_CODE_PAYLOAD_SIZE;
+        header.link_id = backend->config.link_id;
+        header.session_id = backend->local_session_id;
+        header.sequence = take_nonzero(&backend->next_sequence);
+        header.message_id = backend->pending_tx_message_id;
+        header.total_size = SPW_VSPW_TP_TIME_CODE_PAYLOAD_SIZE;
+        if (!spw_vspw_tp_encode_header(&header, backend->tx_datagram,
+                                       sizeof(backend->tx_datagram))) {
+            return SPW_ERR_BACKEND;
+        }
+        backend->tx_datagram[SPW_VSPW_TP_HEADER_SIZE] =
+            backend->pending_tx_time_code.time_count;
+        backend->tx_datagram[SPW_VSPW_TP_HEADER_SIZE + 1u] =
+            backend->pending_tx_time_code.control_flags;
+        result = send_datagram(
+            backend, backend->tx_datagram,
+            SPW_VSPW_TP_HEADER_SIZE + SPW_VSPW_TP_TIME_CODE_PAYLOAD_SIZE,
+            timeout_us);
+        if (result == SPW_OK) {
+            backend->pending_tx_last_send_us = now_us();
+        }
+        return result;
+    }
+
+    fragment_size = backend->config.fragment_payload_size;
+    fragmented = backend->pending_tx_packet_size > fragment_size;
+    offset = 0u;
+    do {
+        const size_t remaining = backend->pending_tx_packet_size - offset;
+        const size_t payload_size =
+            fragmented
+                ? (fragment_size < remaining ? fragment_size : remaining)
+                : remaining;
+        spw_vspw_tp_header_t header = SPW_VSPW_TP_HEADER_INITIALIZER;
+        spw_result_t result;
+
+        header.type = SPW_VSPW_TP_DATA;
+        header.flags = terminator_flag(backend->pending_tx_terminator) |
+                       SPW_VSPW_TP_FLAG_ACK_REQUIRED;
+        if (fragmented && offset == 0u) {
+            header.flags |= SPW_VSPW_TP_FLAG_FRAGMENT_START;
+        }
+        if (fragmented && offset + payload_size ==
+                              backend->pending_tx_packet_size) {
+            header.flags |= SPW_VSPW_TP_FLAG_FRAGMENT_END;
+        }
+        header.payload_size = (uint16_t)payload_size;
+        header.link_id = backend->config.link_id;
+        header.session_id = backend->local_session_id;
+        header.sequence = take_nonzero(&backend->next_sequence);
+        header.message_id = backend->pending_tx_message_id;
+        header.fragment_offset = (uint32_t)offset;
+        header.total_size = (uint32_t)backend->pending_tx_packet_size;
+
+        if (!spw_vspw_tp_encode_header(&header, backend->tx_datagram,
+                                       sizeof(backend->tx_datagram))) {
+            return SPW_ERR_INVALID_PACKET;
+        }
+        if (payload_size != 0u) {
+            memcpy(backend->tx_datagram + SPW_VSPW_TP_HEADER_SIZE,
+                   backend->pending_tx_packet + offset, payload_size);
+        }
+        result = send_datagram(
+            backend, backend->tx_datagram,
+            SPW_VSPW_TP_HEADER_SIZE + payload_size, timeout_us);
+        if (result != SPW_OK) {
+            return result;
+        }
+        offset += payload_size;
+    } while (offset < backend->pending_tx_packet_size);
+
+    backend->pending_tx_last_send_us = now_us();
+    return SPW_OK;
+}
+
+static spw_result_t service_pending_tx(spw_udp_backend_t* backend) {
+    const uint64_t now = now_us();
+    const uint64_t ack_timeout =
+        (uint64_t)backend->config.ack_timeout_ms * UINT64_C(1000);
+    spw_result_t result;
+
+    if (backend->pending_tx_kind == SPW_UDP_PENDING_NONE) {
+        return SPW_OK;
+    }
+    if (backend->pending_tx_last_send_us != 0u &&
+        now >= backend->pending_tx_last_send_us &&
+        now - backend->pending_tx_last_send_us < ack_timeout) {
+        return SPW_OK;
+    }
+    if (backend->pending_tx_retries >= backend->config.max_retries) {
+        if (!backend->pending_tx_failed) {
+            backend->pending_tx_failed = true;
+            ++backend->statistics.dropped_packets;
+        }
+        mark_peer_lost(backend);
+        return SPW_ERR_LINK_UNAVAILABLE;
+    }
+
+    result = transmit_pending(backend, SPW_TIMEOUT_IMMEDIATE);
+    if (result == SPW_OK) {
+        ++backend->pending_tx_retries;
+    }
+    return result;
+}
+
+static spw_result_t process_ack(spw_udp_backend_t* backend,
+                                const spw_vspw_tp_header_t* header,
+                                const uint8_t* payload) {
+    uint64_t acknowledged_session_id = 0u;
+    if (!spw_vspw_tp_decode_ack_payload(payload, header->payload_size,
+                                        &acknowledged_session_id)) {
+        ++backend->statistics.dropped_packets;
+        return SPW_OK;
+    }
+    if (acknowledged_session_id != backend->local_session_id) {
+        return SPW_OK;
+    }
+    if (backend->pending_tx_kind != SPW_UDP_PENDING_NONE &&
+        header->message_id == backend->pending_tx_message_id) {
+        clear_pending_tx(backend);
+    }
+    return SPW_OK;
+}
+
+static spw_result_t process_keepalive(spw_udp_backend_t* backend,
+                                      const spw_vspw_tp_header_t* header) {
+    (void)reset_remote_session(backend, header->session_id);
+    return SPW_OK;
+}
+
+static spw_result_t process_time_code(spw_udp_backend_t* backend,
+                                      const spw_vspw_tp_header_t* header,
+                                      const uint8_t* payload) {
+    const bool ack_required =
+        (header->flags & SPW_VSPW_TP_FLAG_ACK_REQUIRED) != 0u;
+    spw_time_code_t time_code;
+    size_t index;
+
+    if (ack_required && recently_delivered(
+                            backend, SPW_VSPW_TP_TIME_CODE,
+                            header->message_id)) {
+        (void)send_ack(backend, header->message_id);
+        return SPW_OK;
+    }
+    if (backend->time_code_count == SPW_UDP_TIME_CODE_QUEUE_DEPTH) {
+        return SPW_ERR_RESOURCE_EXHAUSTED;
+    }
+
+    time_code.time_count = payload[0];
+    time_code.control_flags = payload[1];
+    if (!valid_time_code(&time_code)) {
+        ++backend->statistics.dropped_packets;
+        return SPW_OK;
+    }
+
+    index = (backend->time_code_head + backend->time_code_count) %
+            SPW_UDP_TIME_CODE_QUEUE_DEPTH;
+    backend->time_codes[index] = time_code;
+    ++backend->time_code_count;
+    if (ack_required) {
+        remember_delivered(backend, SPW_VSPW_TP_TIME_CODE, header->message_id);
+        (void)send_ack(backend, header->message_id);
+    }
+    return SPW_OK;
+}
+
+static spw_result_t process_data(spw_udp_backend_t* backend,
+                                 const spw_vspw_tp_header_t* header,
+                                 const uint8_t* payload) {
+    const bool ack_required =
+        (header->flags & SPW_VSPW_TP_FLAG_ACK_REQUIRED) != 0u;
+    const bool fragmented = header->total_size != header->payload_size;
+    const spw_terminator_t terminator =
+        (header->flags & SPW_VSPW_TP_FLAG_EEP) != 0u
+            ? SPW_TERMINATOR_EEP
+            : SPW_TERMINATOR_EOP;
+
+    if (ack_required && recently_delivered(
+                            backend, SPW_VSPW_TP_DATA,
+                            header->message_id)) {
+        (void)send_ack(backend, header->message_id);
+        return SPW_OK;
+    }
+
+    if (!fragmented) {
+        if (backend->pending_packet_valid) {
+            return SPW_ERR_RESOURCE_EXHAUSTED;
+        }
+        if (header->payload_size != 0u) {
+            memcpy(backend->pending_packet, payload, header->payload_size);
+        }
+        backend->pending_packet_size = header->payload_size;
+        backend->pending_packet_terminator = terminator;
+        backend->pending_packet_valid = true;
+        SPW_PROFILE_RX_PROVIDER_BOUNDARY();
+        if (ack_required) {
+            remember_delivered(backend, SPW_VSPW_TP_DATA, header->message_id);
+            (void)send_ack(backend, header->message_id);
+        }
+        return SPW_OK;
+    }
+
+    expire_reassembly(backend);
+    {
+        const spw_reassembly_result_t result =
+            spw_fragment_reassembler_push(&backend->reassembly, header, payload);
+        if (result == SPW_REASSEMBLY_INVALID ||
+            result == SPW_REASSEMBLY_CONFLICT) {
+            ++backend->statistics.dropped_packets;
+            return SPW_OK;
+        }
+        backend->reassembly_last_fragment_us = now_us();
+        if (result != SPW_REASSEMBLY_COMPLETE) {
+            return SPW_OK;
+        }
+    }
+
+    if (backend->pending_packet_valid) {
+        return SPW_ERR_RESOURCE_EXHAUSTED;
+    }
+
+    if (backend->reassembly.total_size != 0u) {
+        memcpy(backend->pending_packet, backend->reassembly.data,
+               backend->reassembly.total_size);
+    }
+    backend->pending_packet_size = backend->reassembly.total_size;
+    backend->pending_packet_terminator =
+        (backend->reassembly.terminator_flags & SPW_VSPW_TP_FLAG_EEP) != 0u
+            ? SPW_TERMINATOR_EEP
+            : SPW_TERMINATOR_EOP;
+    backend->pending_packet_valid = true;
+    SPW_PROFILE_RX_PROVIDER_BOUNDARY();
+    {
+        const uint32_t completed_message_id = backend->reassembly.message_id;
+        const bool completed_ack_required = backend->reassembly.ack_required;
+        clear_reassembly(backend);
+        if (completed_ack_required) {
+            remember_delivered(backend, SPW_VSPW_TP_DATA,
+                               completed_message_id);
+            (void)send_ack(backend, completed_message_id);
+        }
+    }
+    return SPW_OK;
+}
+
+static spw_result_t pump_one(spw_udp_backend_t* backend,
                              spw_timeout_us_t timeout_us) {
     spw_timeout_us_t keepalive_slice;
     spw_timeout_us_t service_slice;
@@ -738,7 +1109,6 @@ static spw_result_t udp_start(void* context) {
 
 static spw_result_t udp_stop(void* context) {
     spw_udp_backend_t* backend = (spw_udp_backend_t*)context;
-    spw_result_t result;
 
     backend->state = SPW_LINK_READY;
     clear_reassembly(backend);
@@ -752,13 +1122,11 @@ static spw_result_t udp_stop(void* context) {
     backend->peer_seen = false;
     backend->remote_session_id = 0u;
 
-    result = spw_transport_provider_stop(&backend->transport);
-    return result;
+    return spw_transport_provider_stop(&backend->transport);
 }
 
 static spw_result_t udp_reset(void* context) {
     spw_udp_backend_t* backend = (spw_udp_backend_t*)context;
-    spw_result_t result;
 
     spw_fault_injector_reset(&backend->fault_injector);
     backend->state = SPW_LINK_ERROR_RESET;
@@ -773,8 +1141,7 @@ static spw_result_t udp_reset(void* context) {
     backend->peer_seen = false;
     backend->remote_session_id = 0u;
 
-    result = spw_transport_provider_reset(&backend->transport);
-    return result;
+    return spw_transport_provider_reset(&backend->transport);
 }
 
 static spw_result_t udp_get_link_state(const void* context,
