@@ -256,6 +256,7 @@ endif()
 
 if(SPWKIT_UDP_RUNTIME_SUPPORTED)
     list(APPEND SPWKIT_SOURCES
+        src/backends/ethernet/udp_transport_provider.c
         src/backends/ethernet/udp_backend.c
     )
     if(WIN32)
