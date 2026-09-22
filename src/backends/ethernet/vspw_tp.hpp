@@ -17,8 +17,13 @@ inline constexpr std::uint32_t kMagic = SPW_VSPW_TP_MAGIC;
 inline constexpr std::uint8_t kVersionMajor = SPW_VSPW_TP_VERSION_MAJOR;
 inline constexpr std::uint8_t kVersionMinor = SPW_VSPW_TP_VERSION_MINOR;
 inline constexpr std::size_t kHeaderSize = SPW_VSPW_TP_HEADER_SIZE;
+inline constexpr std::size_t kMaxCarrierMessageSize =
+    SPW_VSPW_TP_MAX_CARRIER_MESSAGE_SIZE;
+inline constexpr std::size_t kMaxFragmentPayload =
+    SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD;
 inline constexpr std::size_t kMaxUdpPayload = SPW_VSPW_TP_MAX_UDP_PAYLOAD;
-inline constexpr std::size_t kMaxFragmentPayload = SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD;
+inline constexpr std::size_t kMaxUdpFragmentPayload =
+    SPW_VSPW_TP_MAX_UDP_FRAGMENT_PAYLOAD;
 inline constexpr std::uint32_t kMaxPacketSize = SPW_VSPW_TP_MAX_PACKET_SIZE;
 inline constexpr std::size_t kTimeCodePayloadSize = SPW_VSPW_TP_TIME_CODE_PAYLOAD_SIZE;
 inline constexpr std::size_t kAckPayloadSize = SPW_VSPW_TP_ACK_PAYLOAD_SIZE;
