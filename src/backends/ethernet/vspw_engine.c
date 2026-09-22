@@ -892,7 +892,6 @@ spw_result_t spw_vspw_engine_init(
         !spw_vspw_runtime_valid(runtime) || remote_peer->size == 0u ||
         remote_peer->size > SPW_TRANSPORT_PEER_ID_MAX_SIZE ||
         config->link_id == 0u || config->fragment_payload_size < 256u ||
-        config->fragment_payload_size > SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD ||
         config->max_retries == 0u || config->ack_timeout_ms == 0u ||
         config->keepalive_interval_ms == 0u ||
         config->peer_timeout_ms <= config->keepalive_interval_ms) {
