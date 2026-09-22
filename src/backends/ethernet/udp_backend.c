@@ -75,6 +75,7 @@ static spw_result_t udp_construct(void* context,
     const spw_udp_config_t* config =
         (const spw_udp_config_t*)port_config->backend_config;
     spw_vspw_engine_config_t engine_config;
+    spw_vspw_fault_rule_t fault_rules[SPW_VSPW_FAULT_RULE_COUNT];
     spw_result_t result;
     size_t i;
 
@@ -96,8 +97,18 @@ static spw_result_t udp_construct(void* context,
         config->reserved != 0u) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
+    _Static_assert(SPW_UDP_FAULT_RULE_COUNT == SPW_VSPW_FAULT_RULE_COUNT,
+                   "UDP/VSPW fault rule counts must remain compatible");
     for (i = 0u; i < SPW_UDP_FAULT_RULE_COUNT; ++i) {
-        if (!spw_fault_rule_valid(&config->fault_rules[i])) {
+        const spw_udp_fault_rule_t* source = &config->fault_rules[i];
+        spw_vspw_fault_rule_t* destination = &fault_rules[i];
+        destination->action = (spw_vspw_fault_action_t)source->action;
+        destination->target = (spw_vspw_fault_target_t)source->target;
+        destination->probability_per_10000 = source->probability_per_10000;
+        destination->max_events = source->max_events;
+        destination->delay_us = source->delay_us;
+        destination->reserved = source->reserved;
+        if (!spw_fault_rule_valid(destination)) {
             return SPW_ERR_INVALID_ARGUMENT;
         }
     }
@@ -117,7 +128,8 @@ static spw_result_t udp_construct(void* context,
 
     backend->runtime.ops = &UDP_RUNTIME_OPS;
     backend->runtime.context = backend;
-    spw_fault_injector_init(&backend->fault_template, config);
+    spw_fault_injector_init(&backend->fault_template, fault_rules,
+                            SPW_VSPW_FAULT_RULE_COUNT, config->fault_seed);
 
     memset(&engine_config, 0, sizeof(engine_config));
     engine_config.link_id = config->link_id;
