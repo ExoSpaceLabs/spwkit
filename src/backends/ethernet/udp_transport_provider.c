@@ -13,7 +13,6 @@
 #include <poll.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <time.h>
@@ -136,7 +135,7 @@ static spw_result_t udp_provider_send(void* context,
                                       size_t message_size,
                                       spw_timeout_us_t timeout_us) {
     spw_udp_transport_t* transport = (spw_udp_transport_t*)context;
-    const struct sockaddr_in* remote;
+    struct sockaddr_in remote;
     if (transport == NULL || peer == NULL ||
         (message_size != 0u && message == NULL)) {
         return SPW_ERR_INVALID_ARGUMENT;
@@ -150,7 +149,10 @@ static spw_result_t udp_provider_send(void* context,
     if (message_size > SPW_VSPW_TP_MAX_UDP_PAYLOAD) {
         return SPW_ERR_BUFFER_TOO_SMALL;
     }
-    remote = transport->remote_address_storage;
+    memset(&remote, 0, sizeof(remote));
+    remote.sin_family = AF_INET;
+    remote.sin_addr.s_addr = transport->remote_ipv4_network_order;
+    remote.sin_port = transport->remote_port_network_order;
 
 #if defined(MSG_DONTWAIT)
     {
@@ -158,7 +160,7 @@ static spw_result_t udp_provider_send(void* context,
         for (;;) {
             const ssize_t sent = sendto(
                 transport->socket_fd, message, message_size, MSG_DONTWAIT,
-                (const struct sockaddr*)remote, sizeof(*remote));
+                (const struct sockaddr*)&remote, sizeof(remote));
             if (sent == (ssize_t)message_size) {
                 return SPW_OK;
             }
@@ -193,7 +195,7 @@ static spw_result_t udp_provider_send(void* context,
             return wait_result;
         }
         sent = sendto(transport->socket_fd, message, message_size, 0,
-                      (const struct sockaddr*)remote, sizeof(*remote));
+                      (const struct sockaddr*)&remote, sizeof(remote));
         return sent == (ssize_t)message_size ? SPW_OK : SPW_ERR_BACKEND;
     }
 #endif
@@ -349,8 +351,8 @@ static const spw_transport_provider_ops_t UDP_PROVIDER_OPS = {
 
 spw_result_t spw_udp_transport_init(spw_udp_transport_t* transport,
                                     const spw_udp_config_t* config) {
-    struct sockaddr_in* local;
-    struct sockaddr_in* remote;
+    struct sockaddr_in local;
+    struct sockaddr_in remote;
     int reuse = 1;
 
     if (transport == NULL || config == NULL) {
@@ -359,23 +361,15 @@ spw_result_t spw_udp_transport_init(spw_udp_transport_t* transport,
     memset(transport, 0, sizeof(*transport));
     transport->socket_fd = -1;
 
-    local = (struct sockaddr_in*)calloc(1u, sizeof(*local));
-    remote = (struct sockaddr_in*)calloc(1u, sizeof(*remote));
-    if (local == NULL || remote == NULL) {
-        free(local);
-        free(remote);
-        return SPW_ERR_RESOURCE_EXHAUSTED;
-    }
-    transport->local_address_storage = local;
-    transport->remote_address_storage = remote;
-
-    local->sin_family = AF_INET;
-    local->sin_port = htons(config->local_port);
-    remote->sin_family = AF_INET;
-    remote->sin_port = htons(config->remote_port);
-    if (inet_pton(AF_INET, config->local_address, &local->sin_addr) != 1 ||
-        inet_pton(AF_INET, config->remote_address, &remote->sin_addr) != 1 ||
-        !peer_from_sockaddr(remote, &transport->remote_peer)) {
+    memset(&local, 0, sizeof(local));
+    memset(&remote, 0, sizeof(remote));
+    local.sin_family = AF_INET;
+    local.sin_port = htons(config->local_port);
+    remote.sin_family = AF_INET;
+    remote.sin_port = htons(config->remote_port);
+    if (inet_pton(AF_INET, config->local_address, &local.sin_addr) != 1 ||
+        inet_pton(AF_INET, config->remote_address, &remote.sin_addr) != 1 ||
+        !peer_from_sockaddr(&remote, &transport->remote_peer)) {
         spw_udp_transport_destroy(transport);
         return SPW_ERR_INVALID_ARGUMENT;
     }
@@ -387,11 +381,15 @@ spw_result_t spw_udp_transport_init(spw_udp_transport_t* transport,
     }
     (void)setsockopt(transport->socket_fd, SOL_SOCKET, SO_REUSEADDR,
                      &reuse, sizeof(reuse));
-    if (bind(transport->socket_fd, (const struct sockaddr*)local,
-             sizeof(*local)) != 0) {
+    if (bind(transport->socket_fd, (const struct sockaddr*)&local,
+             sizeof(local)) != 0) {
         spw_udp_transport_destroy(transport);
         return SPW_ERR_BACKEND;
     }
+    transport->local_ipv4_network_order = local.sin_addr.s_addr;
+    transport->local_port_network_order = local.sin_port;
+    transport->remote_ipv4_network_order = remote.sin_addr.s_addr;
+    transport->remote_port_network_order = remote.sin_port;
     return SPW_OK;
 }
 
@@ -400,10 +398,10 @@ void spw_udp_transport_destroy(spw_udp_transport_t* transport) {
         return;
     }
     close_socket(transport);
-    free(transport->local_address_storage);
-    free(transport->remote_address_storage);
-    transport->local_address_storage = NULL;
-    transport->remote_address_storage = NULL;
+    transport->local_ipv4_network_order = 0u;
+    transport->local_port_network_order = 0u;
+    transport->remote_ipv4_network_order = 0u;
+    transport->remote_port_network_order = 0u;
     transport->started = false;
     transport->remote_peer =
         (spw_transport_peer_id_t)SPW_TRANSPORT_PEER_ID_INITIALIZER;
