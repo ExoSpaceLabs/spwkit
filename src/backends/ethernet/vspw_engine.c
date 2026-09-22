@@ -9,6 +9,11 @@
 #include <stdint.h>
 #include <string.h>
 
+typedef struct spw_vspw_deadline {
+    bool infinite;
+    uint64_t end_us;
+} spw_vspw_deadline_t;
+
 static uint64_t now_us(const spw_vspw_engine_t* backend) {
     return spw_vspw_runtime_now_us(&backend->runtime);
 }
@@ -994,9 +999,10 @@ spw_result_t spw_vspw_engine_get_link_state(
     return SPW_OK;
 }
 
-static spw_result_t spw_vspw_engine_get_capabilities(const spw_vspw_engine_t* backend,
-                                         spw_capabilities_t* out_capabilities) {
-    (void)context;
+spw_result_t spw_vspw_engine_get_capabilities(
+    const spw_vspw_engine_t* backend,
+    spw_capabilities_t* out_capabilities) {
+    (void)backend;
     out_capabilities->bits = SPW_CAP_EEP | SPW_CAP_TIME_CODE |
                              SPW_CAP_STATISTICS | SPW_CAP_RATE_CONTROL |
                              SPW_CAP_FAULT_INJECTION;
@@ -1071,7 +1077,7 @@ spw_result_t spw_vspw_engine_send(
         clear_pending_tx(backend);
         return result;
     }
-    /* All fragments of this logical packet have been handed to UDP. */
+    /* All fragments of this logical packet have been handed to the carrier. */
     SPW_PROFILE_TX_PROVIDER_BOUNDARY();
 
     ++backend->statistics.tx_packets;
