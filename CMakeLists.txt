@@ -242,6 +242,9 @@ set(SPWKIT_SOURCES
     src/backends/ethernet/fragment_reassembler.c
     src/backends/ethernet/virtual_link_timing.c
     src/backends/ethernet/deterministic_faults.c
+    src/backends/ethernet/transport_provider.c
+    src/backends/ethernet/vspw_runtime.c
+    src/backends/ethernet/in_memory_transport.c
 )
 
 if(SPWKIT_BUILD_SIMULATOR)
