@@ -5,20 +5,26 @@
 #include "backends/ethernet/deterministic_faults.h"
 #include "backends/ethernet/vspw_tp.hpp"
 
+#include <array>
+#include <cstdint>
+
 namespace spwkit::ethernet {
 
 class DeterministicFaultInjector {
 public:
+    using Rule = spw_vspw_fault_rule_t;
+    using Rules = std::array<Rule, SPW_VSPW_FAULT_RULE_COUNT>;
+
     struct Decision {
-        spw_udp_fault_action_t action{SPW_UDP_FAULT_ACTION_NONE};
+        spw_vspw_fault_action_t action{SPW_VSPW_FAULT_ACTION_NONE};
         std::uint32_t delay_us{0u};
         constexpr bool injected() const noexcept {
-            return action != SPW_UDP_FAULT_ACTION_NONE;
+            return action != SPW_VSPW_FAULT_ACTION_NONE;
         }
     };
 
-    explicit DeterministicFaultInjector(const spw_udp_config_t& config) noexcept {
-        spw_fault_injector_init(&state_, &config);
+    DeterministicFaultInjector(const Rules& rules, std::uint64_t seed) noexcept {
+        spw_fault_injector_init(&state_, rules.data(), rules.size(), seed);
     }
 
     void reset() noexcept { spw_fault_injector_reset(&state_); }
@@ -33,7 +39,7 @@ public:
         return spw_fault_inject_spacewire_eep(&state_);
     }
 
-    static bool valid_rule(const spw_udp_fault_rule_t& rule) noexcept {
+    static bool valid_rule(const Rule& rule) noexcept {
         return spw_fault_rule_valid(&rule);
     }
 
