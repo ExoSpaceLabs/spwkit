@@ -74,7 +74,6 @@ static bool validate_fragment(const spw_vspw_tp_header_t* header) {
     const bool end = has_flag(header->flags, SPW_VSPW_TP_FLAG_FRAGMENT_END);
 
     if (header->total_size > SPW_VSPW_TP_MAX_PACKET_SIZE ||
-        header->payload_size > SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD ||
         header->fragment_offset > header->total_size ||
         (uint64_t)header->fragment_offset + header->payload_size >
             header->total_size) {
@@ -193,8 +192,7 @@ spw_vspw_tp_decode_result_t spw_vspw_tp_decode_header(
     if (header.header_size != SPW_VSPW_TP_HEADER_SIZE) {
         return SPW_VSPW_TP_DECODE_INVALID_HEADER_SIZE;
     }
-    if (header.payload_size > SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD ||
-        source_size < SPW_VSPW_TP_HEADER_SIZE + header.payload_size) {
+    if (source_size < SPW_VSPW_TP_HEADER_SIZE + header.payload_size) {
         return SPW_VSPW_TP_DECODE_INVALID_PAYLOAD_SIZE;
     }
     if (header.session_id == 0u) {
