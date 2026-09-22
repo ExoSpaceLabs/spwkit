@@ -320,19 +320,19 @@ static spw_result_t send_datagram(spw_vspw_engine_t* backend,
 
     decision = spw_fault_inject_transport(&backend->fault_injector, header.type);
     switch (decision.action) {
-    case SPW_UDP_FAULT_ACTION_TRANSPORT_DROP:
+    case SPW_VSPW_FAULT_ACTION_TRANSPORT_DROP:
         ++backend->fault_statistics.transport_drops;
         ++backend->statistics.dropped_packets;
         return SPW_OK;
 
-    case SPW_UDP_FAULT_ACTION_TRANSPORT_DUPLICATE:
+    case SPW_VSPW_FAULT_ACTION_TRANSPORT_DUPLICATE:
         ++backend->fault_statistics.transport_duplicates;
         result = send_datagram_raw(backend, bytes, size, timeout_us);
         return result == SPW_OK
                    ? send_datagram_raw(backend, bytes, size, timeout_us)
                    : result;
 
-    case SPW_UDP_FAULT_ACTION_TRANSPORT_REORDER:
+    case SPW_VSPW_FAULT_ACTION_TRANSPORT_REORDER:
         ++backend->fault_statistics.transport_reorders;
         if (size > sizeof(backend->reordered_message)) {
             return SPW_ERR_BACKEND;
@@ -342,15 +342,15 @@ static spw_result_t send_datagram(spw_vspw_engine_t* backend,
         backend->reordered_message_valid = true;
         return SPW_OK;
 
-    case SPW_UDP_FAULT_ACTION_TRANSPORT_DELAY:
+    case SPW_VSPW_FAULT_ACTION_TRANSPORT_DELAY:
         ++backend->fault_statistics.transport_delays;
         result = wait_transport_fault_delay(backend, decision.delay_us, timeout_us);
         return result == SPW_OK
                    ? send_datagram_raw(backend, bytes, size, timeout_us)
                    : result;
 
-    case SPW_UDP_FAULT_ACTION_NONE:
-    case SPW_UDP_FAULT_ACTION_SPACEWIRE_EEP:
+    case SPW_VSPW_FAULT_ACTION_NONE:
+    case SPW_VSPW_FAULT_ACTION_SPACEWIRE_EEP:
     default:
         return send_datagram_raw(backend, bytes, size, timeout_us);
     }
