@@ -239,6 +239,7 @@ set(SPWKIT_SOURCES
     src/backends/loopback/loopback_backend.c
     src/backends/device/vspw_device_protocol.c
     src/backends/ethernet/vspw_tp.c
+    src/backends/ethernet/vspw_engine.c
     src/backends/ethernet/fragment_reassembler.c
     src/backends/ethernet/virtual_link_timing.c
     src/backends/ethernet/deterministic_faults.c
