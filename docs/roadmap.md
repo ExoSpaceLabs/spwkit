@@ -99,6 +99,23 @@ A performance regression is accepted only when it is a necessary correctness/sem
 
 Release tagging remains governed by the exact-candidate evidence gate in #224 and the repository release-policy workflow. See [`ecss-conformance.md`](ecss-conformance.md) for the software/provider conformance boundary and [`../benchmarks/v0.7.0-performance-evidence.md`](../benchmarks/v0.7.0-performance-evidence.md) for the performance acceptance record.
 
+## Completed post-v0.7 develop work
+
+Before the v0.8 public cleanup, `develop` has completed the transport
+independence work tracked by #229:
+
+- carrier-independent private VSPW engine;
+- UDP transport provider preserving the v0.7.0 wire/application behavior;
+- deterministic in-memory transport for protocol tests;
+- public `SPW_BACKEND_RAW_ETHERNET` callback binding;
+- Linux AF_PACKET/veth host-carrier evidence and explicit copied-buffer audit;
+- raw-Ethernet framing v2.0 with an explicit VSPW length to handle Ethernet
+  minimum-frame padding safely.
+
+These are integration-branch capabilities until a subsequent release publishes
+them. Embedded MAC/DMA/IRQ performance remains hardware evidence under #230,
+not an architectural blocker.
+
 ## v0.8.x contract and ECSS architecture phase
 
 v0.8 is the last planned phase in which intentional public API/ABI cleanup may be introduced before the v0.9 freeze. It is therefore also the correct point to resolve standards work that could alter interfaces, lifecycle behavior, configuration structures or the provider contract.
