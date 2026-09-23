@@ -27,6 +27,14 @@ enum {
     SPW_VSPW_ENGINE_CONTROL_FRAME_SIZE = 64u
 };
 
+typedef struct spw_vspw_engine_hooks {
+    void* context;
+    spw_terminator_t (*select_tx_terminator)(void* context,
+                                             spw_terminator_t requested);
+} spw_vspw_engine_hooks_t;
+
+#define SPW_VSPW_ENGINE_HOOKS_INITIALIZER {NULL, NULL}
+
 typedef struct spw_vspw_engine_config {
     uint32_t link_id;
     uint16_t fragment_payload_size;
@@ -57,6 +65,7 @@ typedef struct spw_vspw_engine {
     spw_transport_provider_t transport;
     spw_transport_peer_id_t remote_peer;
     spw_vspw_runtime_t runtime;
+    spw_vspw_engine_hooks_t hooks;
 
     spw_link_state_t state;
     spw_statistics_t statistics;
@@ -113,7 +122,8 @@ spw_result_t spw_vspw_engine_init(
     const spw_vspw_engine_config_t* config,
     const spw_transport_provider_t* transport,
     const spw_transport_peer_id_t* remote_peer,
-    const spw_vspw_runtime_t* runtime);
+    const spw_vspw_runtime_t* runtime,
+    const spw_vspw_engine_hooks_t* hooks);
 
 spw_result_t spw_vspw_engine_start(spw_vspw_engine_t* engine);
 spw_result_t spw_vspw_engine_stop(spw_vspw_engine_t* engine);
