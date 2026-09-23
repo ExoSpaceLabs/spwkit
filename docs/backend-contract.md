@@ -44,6 +44,18 @@ Every backend must preserve these application-visible rules:
 - implementation-native types do not leak into common operation signatures;
 - failed ownership-transfer calls do not steal application-owned buffers.
 
+## Carrier-provider boundary
+
+The VSPW protocol engine is private and carrier-independent. UDP and raw
+Ethernet bind it through a message/frame transport-provider contract carrying
+opaque peer identity, lifecycle, send/receive, readiness, MTU and carrier
+state. Timing/delay is a separate runtime contract.
+
+`SPW_BACKEND_RAW_ETHERNET` additionally exposes public, versioned frame-I/O
+callbacks so host or embedded platform code can bind Ethernet MAC/frame
+mechanics without making SpWKit depend on a specific OS, SDK, RTOS or board
+support package.
+
 ## Allocation policy
 
 The backend interface does not require heap allocation. `spw_port_open_in_place()` constructs the port and selected backend inside caller-owned storage sized by `spw_port_workspace_requirements()`.
