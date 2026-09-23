@@ -4,11 +4,13 @@
 #include <spwkit/device.h>
 #include <spwkit/driver.h>
 #include <spwkit/port.h>
+#include <spwkit/raw_ethernet.h>
 #include <spwkit/simulator.h>
 #include <spwkit/udp.h>
 
 #include "backends/driver/driver_backend.h"
 #include "backends/loopback/loopback_backend.h"
+#include "backends/ethernet/raw_ethernet_backend.h"
 #ifdef SPWKIT_HAS_DEVICE
 #include "backends/device/device_backend.h"
 #endif
@@ -280,6 +282,77 @@ static spw_result_t validate_udp_config(const spw_port_config_t* config) {
     return SPW_OK;
 }
 
+
+static bool valid_unicast_mac(const uint8_t mac[SPW_RAW_ETHERNET_MAC_SIZE]) {
+    size_t i;
+    bool any = false;
+    if ((mac[0] & 0x01u) != 0u) {
+        return false;
+    }
+    for (i = 0u; i < SPW_RAW_ETHERNET_MAC_SIZE; ++i) {
+        any = any || mac[i] != 0u;
+    }
+    return any;
+}
+
+static spw_result_t validate_raw_ethernet_config(
+    const spw_port_config_t* config) {
+    const spw_raw_ethernet_config_t* raw;
+    const spw_raw_ethernet_io_ops_t* io;
+    const spw_runtime_ops_t* runtime;
+
+    if (config->backend_config == NULL ||
+        config->backend_config_size < sizeof(spw_raw_ethernet_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    raw = (const spw_raw_ethernet_config_t*)config->backend_config;
+    if (raw->struct_size < sizeof(spw_raw_ethernet_config_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (raw->version != SPW_RAW_ETHERNET_CONFIG_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (raw->io_ops == NULL || raw->runtime_ops == NULL ||
+        raw->ether_type < 0x0600u || raw->protocol_subtype == 0u ||
+        raw->link_id == 0u || raw->fragment_payload_size < 256u ||
+        raw->max_retries == 0u || raw->ack_timeout_ms == 0u ||
+        raw->keepalive_interval_ms == 0u ||
+        raw->peer_timeout_ms <= raw->keepalive_interval_ms ||
+        raw->reserved != 0u ||
+        !valid_unicast_mac(raw->local_mac) ||
+        !valid_unicast_mac(raw->remote_mac) ||
+        memcmp(raw->local_mac, raw->remote_mac,
+               SPW_RAW_ETHERNET_MAC_SIZE) == 0) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+
+    io = raw->io_ops;
+    if (io->struct_size < sizeof(spw_raw_ethernet_io_ops_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (io->version != SPW_RAW_ETHERNET_IO_OPS_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (io->start == NULL || io->stop == NULL || io->reset == NULL ||
+        io->send_frame == NULL || io->receive_frame == NULL ||
+        io->wait == NULL || io->get_max_frame_size == NULL ||
+        io->get_link_up == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+
+    runtime = raw->runtime_ops;
+    if (runtime->struct_size < sizeof(spw_runtime_ops_t)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (runtime->version != SPW_RUNTIME_OPS_VERSION) {
+        return SPW_ERR_UNSUPPORTED;
+    }
+    if (runtime->now_us == NULL || runtime->delay_us == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    return SPW_OK;
+}
+
 static spw_result_t select_factory(
     const spw_port_config_t* config,
     const spw_backend_factory_t** out_factory) {
@@ -332,6 +405,14 @@ static spw_result_t select_factory(
 #else
         return SPW_ERR_UNSUPPORTED;
 #endif
+
+    case SPW_BACKEND_RAW_ETHERNET:
+        result = validate_raw_ethernet_config(config);
+        if (result != SPW_OK) {
+            return result;
+        }
+        *out_factory = spw_raw_ethernet_backend_factory();
+        return SPW_OK;
 
     case SPW_BACKEND_DRIVER: {
         const spw_driver_config_t* driver;

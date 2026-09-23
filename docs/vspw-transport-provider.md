@@ -178,3 +178,90 @@ The public application-facing API remains unchanged by this refactor:
 - public packet/terminator semantics.
 
 VSPW codec and provider interfaces remain private implementation details.
+
+
+## Raw-Ethernet carrier binding
+
+The first raw-Ethernet binding keeps Ethernet ownership below the VSPW engine
+and exposes a narrow frame-I/O contract to platform integration code.
+
+The software stack is:
+
+```text
+application
+    -> spw_port_* API
+        -> raw-Ethernet backend
+            -> carrier-independent VSPW engine
+                -> raw-Ethernet transport provider
+                    -> spw_raw_ethernet_io_ops
+                        -> AF_PACKET / board MAC-DMA driver / other platform glue
+```
+
+The public raw-frame callbacks exchange complete Ethernet-II frames beginning
+with destination MAC and ending with the payload. Preamble/SFD and FCS are not
+part of the callback buffer. SpWKit owns the Ethernet protocol framing above
+those callbacks; the platform binding owns only frame transport, readiness and
+link state.
+
+### Development frame format
+
+The initial development format is:
+
+```text
+0               6              12     14     16  17  18
++---------------+---------------+------+------+---+---+------------------+
+| Destination   | Source MAC    |Type  |Subtyp|Maj|Min| VSPW-TP frame    |
+| MAC (6 bytes) | (6 bytes)     |2 B   |2 B   |1 B|1 B| ...              |
++---------------+---------------+------+------+---+---+------------------+
+```
+
+All multi-byte framing values are network byte order.
+
+The subtype defaults to the SpWKit development discriminator
+`0x5357` and the framing version starts at 1.0. Keeping an explicit subtype
+and version means a future standards/registration change can replace the outer
+Ethernet identification without changing the VSPW-TP protocol engine.
+
+### EtherType policy
+
+SpWKit does not claim an unassigned permanent EtherType.
+
+For isolated development networks,
+`SPW_RAW_ETHERNET_LOCAL_EXPERIMENTAL_ETHERTYPE` is `0x88B5`, IEEE Local
+Experimental EtherType 1. The caller must still set `ether_type` explicitly;
+the raw-Ethernet configuration initializer leaves it at zero so experimental
+identifiers cannot silently become production protocol identifiers.
+
+Wider deployment must move to an appropriate IEEE-assigned EtherType or another
+standards-compliant organization-specific identification scheme. Changing that
+outer identifier does not require a VSPW engine change.
+
+### Embedded binding rule
+
+`spw_raw_ethernet_io_ops_t` deliberately contains no STM32, lwIP, DMA
+descriptor, MMIO, POSIX or RTOS type. An embedded binding can implement:
+
+- frame TX submission using the board MAC/DMA driver;
+- frame RX completion using DMA-owned buffers copied or presented to the
+  binding;
+- level-triggered readiness using an IRQ-to-task event/semaphore;
+- link state using the board PHY/MAC status path.
+
+The separate `spw_runtime_ops_t` supplies monotonic time and bounded delay.
+A hardRT integration may implement those runtime hooks and the frame-I/O wait
+operation, but SpWKit does not include or depend on hardRT itself.
+
+The same public raw-Ethernet backend can therefore be composed over a host
+raw-frame facility or an embedded board driver without changing VSPW protocol
+logic or application-facing `spw_port_*` calls.
+
+### Current limitations
+
+The first raw-Ethernet carrier intentionally does not interpret VLAN tags,
+bridging headers or jumbo-frame policy. Its input is an Ethernet-II frame with
+the configured EtherType directly at bytes 12-13. Platform integration may
+perform NIC/interface selection and filtering below this boundary.
+
+Zero-copy ownership across the raw-Ethernet/VSPW boundary is not claimed in
+this first implementation. Copy count and ownership reduction remain explicit
+performance work under #230 rather than being hidden behind an API name.

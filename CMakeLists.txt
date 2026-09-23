@@ -245,6 +245,8 @@ set(SPWKIT_SOURCES
     src/backends/ethernet/transport_provider.c
     src/backends/ethernet/vspw_runtime.c
     src/backends/ethernet/in_memory_transport.c
+    src/backends/ethernet/raw_ethernet_transport_provider.c
+    src/backends/ethernet/raw_ethernet_backend.c
     src/backends/ethernet/vspw_engine.c
     src/backends/ethernet/vspw_fault_transport.c
 )
