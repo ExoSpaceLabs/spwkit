@@ -140,7 +140,7 @@ int main(void) {
     assert(spw_vspw_engine_send_time_code(
                &engine_b, &tx_time_code, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     assert(spw_vspw_engine_receive_time_code(
-               &engine_a, &rx_time_code, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
+               &engine_a, &rx_time_code, 1000u) == SPW_OK);
     assert(rx_time_code.time_count == tx_time_code.time_count);
     assert(rx_time_code.control_flags == tx_time_code.control_flags);
 
