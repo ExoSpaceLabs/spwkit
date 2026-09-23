@@ -20,7 +20,20 @@ application
 SpWKit must not depend directly on a board-support package, MCU SDK or RTOS.
 A board-support package must not know about SpWKit.
 
-## Current coupling audit
+## Implemented state on develop
+
+The extraction described below is now implemented. The private VSPW engine
+depends only on the message/frame transport-provider contract, opaque peer
+identity and independent runtime timing hooks. UDP and raw Ethernet are
+separate providers/compositions below that engine. The public raw-Ethernet
+binding exposes portable complete-frame callbacks for host or embedded
+integration.
+
+PR #238 adds controlled AF_PACKET/veth carrier evidence and raw-Ethernet
+development framing v2.0 with an explicit 16-bit VSPW-frame length so Ethernet
+padding cannot be interpreted as protocol data.
+
+## Pre-refactor coupling audit (historical)
 
 The v0.7 source already keeps the VSPW-TP wire codec in
 `vspw_tp.c/.h`, but `udp_backend.c` still owns both carrier mechanics and
@@ -151,7 +164,7 @@ It should support deterministic:
 This becomes the preferred unit-level proof that the engine no longer depends
 on socket APIs.
 
-## Extraction sequence
+## Extraction sequence (completed architecture)
 
 1. Freeze the pre-refactor UDP baseline (#230).
 2. Define private provider/runtime contracts and deterministic test provider.
