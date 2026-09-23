@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "backends/ethernet/raw_ethernet_transport_provider.h"
+#include "backends/ethernet/vspw_tp.h"
 
 #include <string.h>
 
