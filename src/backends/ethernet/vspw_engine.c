@@ -844,7 +844,8 @@ spw_result_t spw_vspw_engine_init(
     const spw_vspw_engine_config_t* config,
     const spw_transport_provider_t* transport,
     const spw_transport_peer_id_t* remote_peer,
-    const spw_vspw_runtime_t* runtime) {
+    const spw_vspw_runtime_t* runtime,
+    const spw_vspw_engine_hooks_t* hooks) {
     size_t mtu = 0u;
 
     if (engine == NULL || config == NULL || transport == NULL ||
@@ -871,6 +872,10 @@ spw_result_t spw_vspw_engine_init(
     engine->transport = *transport;
     engine->remote_peer = *remote_peer;
     engine->runtime = *runtime;
+    engine->hooks = hooks != NULL
+                        ? *hooks
+                        : (spw_vspw_engine_hooks_t)
+                              SPW_VSPW_ENGINE_HOOKS_INITIALIZER;
     engine->virtual_timing.link_bps = config->virtual_link_bps;
     engine->virtual_timing.latency_us = config->virtual_latency_us;
     engine->state = SPW_LINK_READY;
@@ -995,11 +1000,21 @@ spw_result_t spw_vspw_engine_send(
         return result;
     }
 
-    if (packet->length != 0u) {
-        memcpy(engine->pending_tx_packet, packet->data, packet->length);
+    {
+        spw_terminator_t effective_terminator = packet->terminator;
+        if (engine->hooks.select_tx_terminator != NULL) {
+            effective_terminator = engine->hooks.select_tx_terminator(
+                engine->hooks.context, packet->terminator);
+            if (!valid_terminator(effective_terminator)) {
+                return SPW_ERR_BACKEND;
+            }
+        }
+        if (packet->length != 0u) {
+            memcpy(engine->pending_tx_packet, packet->data, packet->length);
+        }
+        engine->pending_tx_packet_size = packet->length;
+        engine->pending_tx_terminator = effective_terminator;
     }
-    engine->pending_tx_packet_size = packet->length;
-    engine->pending_tx_terminator = packet->terminator;
     engine->pending_tx_kind = SPW_VSPW_PENDING_DATA;
     engine->pending_tx_message_id =
         take_nonzero(&engine->next_message_id);
