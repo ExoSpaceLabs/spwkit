@@ -16,8 +16,13 @@ flowchart TB
     ROOT --> HRT[hardrt<br/>RTOS integration notes]
 ```
 
-The Linux DEVICE/VSPD runtime and `vspwd` shipped in v0.4; production CUSE `/dev/vspwX` and native Winsock UDP shipped in v0.5. The portable DRIVER backend, DMA ownership mapping, deterministic reference provider, and STM32H755 DMA/cache evidence shipped across the v0.6 line and are part of stable v0.6.1.
+The Linux DEVICE/VSPD runtime and `vspwd` shipped in v0.4; production CUSE `/dev/vspwX` and native Winsock UDP shipped in v0.5. The portable DRIVER backend, DMA ownership mapping, deterministic reference provider, and STM32H755 DMA/cache evidence shipped across the v0.6 line and are part of stable v0.7.0.
 
 Backend-specific concepts remain below the common application API. Native socket handles, file descriptors, CUSE/FUSE handles, AXI/register maps, DMA descriptors and RTOS primitives are implementation details rather than SpaceWire packet/link concepts.
 
 Backend-specific public configuration may expose portable descriptive values required to select/configure an implementation, such as numeric IP address strings, UDP ports, `link_id`, virtual daemon port IDs or a versioned driver callback/context contract. Platform-native mechanism types remain private.
+
+
+Post-v0.7 `develop` adds the carrier-independent VSPW engine and
+`SPW_BACKEND_RAW_ETHERNET`. Platform MAC, DMA, AF_PACKET, lwIP, DAS or RTOS
+implementation remains below the raw-Ethernet callback contract.
