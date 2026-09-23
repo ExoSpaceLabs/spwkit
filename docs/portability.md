@@ -56,7 +56,7 @@ Disabling the simulator removes that hosted synchronization dependency from the 
 
 The VSPW-TP codec, reassembly, timing and deterministic fault logic remain shared C code. Socket startup, readiness, error translation and native handle types stay private to the platform runtime.
 
-Future embedded network transports such as lwIP/raw Ethernet may reuse the same VSPW-TP framing/public semantics without changing the application API.
+`SPW_BACKEND_RAW_ETHERNET` now reuses the same carrier-independent VSPW engine through portable complete-frame callbacks. A host AF_PACKET binding or embedded lwIP/MAC/DMA integration can sit below those callbacks without changing the application API.
 
 ## Linux virtual-device stack
 
