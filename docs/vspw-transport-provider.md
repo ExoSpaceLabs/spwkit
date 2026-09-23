@@ -208,19 +208,22 @@ link state.
 The initial development format is:
 
 ```text
-0               6              12     14     16  17  18
-+---------------+---------------+------+------+---+---+------------------+
-| Destination   | Source MAC    |Type  |Subtyp|Maj|Min| VSPW-TP frame    |
-| MAC (6 bytes) | (6 bytes)     |2 B   |2 B   |1 B|1 B| ...              |
-+---------------+---------------+------+------+---+---+------------------+
+0               6              12     14     16  17  18     20
++---------------+---------------+------+------+---+---+------+------------------+
+| Destination   | Source MAC    |Type  |Subtyp|Maj|Min|Length| VSPW-TP frame    |
+| MAC (6 bytes) | (6 bytes)     |2 B   |2 B   |1 B|1 B| 2 B  | ...              |
++---------------+---------------+------+------+---+---+------+------------------+
 ```
 
 All multi-byte framing values are network byte order.
 
 The subtype defaults to the SpWKit development discriminator
-`0x5357` and the framing version starts at 1.0. Keeping an explicit subtype
-and version means a future standards/registration change can replace the outer
-Ethernet identification without changing the VSPW-TP protocol engine.
+`0x5357`. Development framing version 2.0 adds an explicit 16-bit VSPW-frame
+length. That length is authoritative for decapsulation, so Ethernet minimum-
+frame padding is ignored rather than exposed as VSPW data. Keeping an explicit
+subtype, version and length also means a future standards/registration change
+can replace the outer Ethernet identification without changing the VSPW-TP
+protocol engine.
 
 ### EtherType policy
 

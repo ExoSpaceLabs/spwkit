@@ -330,6 +330,12 @@ int main(void) {
            SPW_RAW_ETHERNET_PROTOCOL_VERSION_MAJOR);
     assert(endpoint_a.last_tx[17] ==
            SPW_RAW_ETHERNET_PROTOCOL_VERSION_MINOR);
+    {
+        const size_t declared_vspw_size =
+            ((size_t)endpoint_a.last_tx[18] << 8u) |
+            (size_t)endpoint_a.last_tx[19];
+        assert(endpoint_a.last_tx_size == 20u + declared_vspw_size);
+    }
 
     assert(spw_port_receive(port_b, &rx_packet, 1000u) == SPW_OK);
     assert(rx_packet.length == sizeof(tx));

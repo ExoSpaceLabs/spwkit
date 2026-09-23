@@ -1,0 +1,281 @@
+name: Transport provider evidence
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'benchmarks/**'
+      - '.github/workflows/transport-provider-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-dispatch:
+    name: Provider dispatch microcost
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure benchmark
+        run: >
+          cmake -S benchmarks -B build/provider-dispatch
+          -DCMAKE_BUILD_TYPE=Release
+          -DSPWKIT_BENCHMARK_BUILD_UDP=OFF
+          -DSPWKIT_BENCHMARK_BUILD_SIMULATOR=OFF
+          -DSPWKIT_BENCHMARK_BUILD_DEVICE=OFF
+
+      - name: Build benchmark
+        run: >
+          cmake --build build/provider-dispatch
+          --target spwkit_profile_transport_provider_dispatch
+          --parallel 2
+
+      - name: Measure three repetitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p transport-provider-evidence
+          for replica in 1 2 3; do
+            build/provider-dispatch/spwkit_profile_transport_provider_dispatch \
+              --warmup 1024 \
+              --iterations 4096 \
+              | tee "transport-provider-evidence/dispatch-${replica}.txt"
+          done
+          {
+            echo '## Transport-provider dispatch microcost'
+            echo
+            echo 'Three alternating direct-callback/provider-wrapper runs:'
+            cat transport-provider-evidence/dispatch-*.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload provider evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-transport-provider-dispatch-${{ github.run_id }}
+          path: transport-provider-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  host-raw-vs-udp:
+    name: Host AF_PACKET raw Ethernet vs UDP
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure benchmark
+        run: >
+          cmake -S benchmarks -B build/host-carriers
+          -DCMAKE_BUILD_TYPE=Release
+          -DSPWKIT_BENCHMARK_BUILD_UDP=ON
+          -DSPWKIT_BENCHMARK_BUILD_SIMULATOR=OFF
+          -DSPWKIT_BENCHMARK_BUILD_DEVICE=OFF
+
+      - name: Build carrier comparisons
+        run: >
+          cmake --build build/host-carriers
+          --target
+          spwkit_profile_raw_ethernet_comparison
+          spwkit_profile_udp_comparison
+          --parallel 2
+
+      - name: Create isolated veth pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ip link add spwa type veth peer name spwb
+          sudo ip link set dev spwa address 02:00:00:00:00:a1
+          sudo ip link set dev spwb address 02:00:00:00:00:b2
+          sudo ip link set dev spwa mtu 1500
+          sudo ip link set dev spwb mtu 1500
+          sudo ip link set dev spwa up
+          sudo ip link set dev spwb up
+          ip -details link show spwa
+          ip -details link show spwb
+
+      - name: Permit raw packet socket benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v setcap >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y libcap2-bin
+          fi
+          sudo setcap cap_net_raw+ep             build/host-carriers/spwkit_profile_raw_ethernet_comparison
+          getcap build/host-carriers/spwkit_profile_raw_ethernet_comparison
+
+      - name: Measure raw Ethernet and UDP on the same host
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p host-carrier-evidence
+          allowed="$(awk '/Cpus_allowed_list/ {print $2}' /proc/self/status)"
+          cpu="${allowed%%,*}"
+          cpu="${cpu%%-*}"
+          echo "cpu=${cpu}" | tee host-carrier-evidence/environment.txt
+          uname -a | tee -a host-carrier-evidence/environment.txt
+          lscpu | tee -a host-carrier-evidence/environment.txt
+
+          for replica in 1 2 3; do
+            for direction in tx rx; do
+              for payload in 0 64 1024 4096; do
+                taskset -c "${cpu}"                   build/host-carriers/spwkit_profile_raw_ethernet_comparison                     --interface-a spwa                     --interface-b spwb                     --direction "${direction}"                     --warmup 32                     --iterations 128                     --payload "${payload}"                   > "host-carrier-evidence/raw-${replica}-${direction}-${payload}.json"
+
+                taskset -c "${cpu}"                   build/host-carriers/spwkit_profile_udp_comparison                     --direction "${direction}"                     --warmup 32                     --iterations 128                     --payload "${payload}"                   > "host-carrier-evidence/udp-${replica}-${direction}-${payload}.json"
+              done
+            done
+          done
+
+      - name: Summarize controlled host carriers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob
+          import json
+          import statistics
+
+          rows = []
+          for direction in ("tx", "rx"):
+              for payload in (0, 64, 1024, 4096):
+                  entry = {"direction": direction, "payload": payload}
+                  for carrier in ("raw", "udp"):
+                      samples = []
+                      for path in sorted(glob.glob(
+                          f"host-carrier-evidence/{carrier}-*-{direction}-{payload}.json")):
+                          with open(path, "r", encoding="utf-8") as handle:
+                              samples.append(json.load(handle))
+                      entry[carrier] = {
+                          "native": statistics.median(
+                              x["native_statistics"]["median"] for x in samples),
+                          "spwkit": statistics.median(
+                              x["spwkit_statistics"]["median"] for x in samples),
+                          "delta": statistics.median(
+                              x["delta"]["median_ticks"] for x in samples),
+                          "p95": statistics.median(
+                              x["spwkit_statistics"]["p95"] for x in samples),
+                          "stddev": statistics.median(
+                              x["spwkit_statistics"]["stddev"] for x in samples),
+                      }
+                  rows.append(entry)
+
+          with open("host-carrier-evidence/summary.json", "w",
+                    encoding="utf-8") as handle:
+              json.dump(rows, handle, indent=2)
+
+          lines = [
+              "## Controlled host raw Ethernet versus UDP",
+              "",
+              "Three repetitions per row on one runner/CPU. Values are median counter ticks.",
+              "",
+              "| Dir | Payload | Raw native | Raw SpWKit | Raw delta | UDP native | UDP SpWKit | UDP delta |",
+              "|---|---:|---:|---:|---:|---:|---:|---:|",
+          ]
+          for row in rows:
+              lines.append(
+                  f"| {row['direction'].upper()} | {row['payload']} | "
+                  f"{row['raw']['native']:.1f} | {row['raw']['spwkit']:.1f} | "
+                  f"{row['raw']['delta']:+.1f} | "
+                  f"{row['udp']['native']:.1f} | {row['udp']['spwkit']:.1f} | "
+                  f"{row['udp']['delta']:+.1f} |"
+              )
+          markdown = "\n".join(lines) + "\n"
+          with open("host-carrier-evidence/summary.md", "w",
+                    encoding="utf-8") as handle:
+              handle.write(markdown)
+          print(markdown)
+          PY
+          cat host-carrier-evidence/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload host carrier evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-host-carrier-evidence-${{ github.run_id }}
+          path: host-carrier-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  udp-post-refactor:
+    name: v0.7.0 to current UDP screen ${{ matrix.replica }}/3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [1, 2, 3]
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run paired comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="post-refactor-udp-${{ matrix.replica }}"
+          bash benchmarks/run_release_profile_comparison.sh \
+            --baseline-ref v0.7.0 \
+            --candidate-ref HEAD \
+            --warmup 32 \
+            --iterations 128 \
+            --payloads '0 64 1024 4096' \
+            --cpu auto \
+            --precondition-seconds 0 \
+            --governor keep \
+            --type github-hosted-post-refactor-screen \
+            --relative-threshold 5 \
+            --absolute-threshold 20 \
+            --output-root "$output"
+          comparison="$(find "$output" -name comparison.md -print -quit)"
+          cat "$comparison" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload UDP comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-post-refactor-udp-${{ github.run_id }}-${{ matrix.replica }}
+          path: post-refactor-udp-${{ matrix.replica }}/
+          if-no-files-found: error
+          retention-days: 30
+
+  udp-post-refactor-summary:
+    name: Post-refactor UDP repeat summary
+    needs: udp-post-refactor
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download repeated screens
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spwkit-post-refactor-udp-${{ github.run_id }}-*
+          path: post-refactor-repeats
+          merge-multiple: false
+
+      - name: Aggregate repeated screening signals
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p post-refactor-summary
+          python3 benchmarks/aggregate_release_profile_repeats.py \
+            post-refactor-repeats \
+            --expected-runs 3 \
+            --min-attention-runs 2 \
+            --output-json post-refactor-summary/repeat-summary.json \
+            --output-markdown post-refactor-summary/repeat-summary.md
+          cat post-refactor-summary/repeat-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload aggregate
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-post-refactor-udp-summary-${{ github.run_id }}
+          path: post-refactor-summary/
+          if-no-files-found: error
+          retention-days: 30
