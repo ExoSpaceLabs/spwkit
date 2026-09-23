@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#include <unistd.h>
 
 static uint64_t host_now_us(void* context) {
     struct timespec now;
