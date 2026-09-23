@@ -85,6 +85,9 @@ spwkit_configure_profile_executable(
 spwkit_configure_profile_executable(
     spwkit_profile_host_backend
     profile_host_backend.c)
+spwkit_configure_profile_executable(
+    spwkit_profile_transport_provider_dispatch
+    profile_transport_provider_dispatch.c)
 
 if(SPWKIT_BENCHMARK_ENABLE_HEAP)
     spwkit_configure_profile_executable(
