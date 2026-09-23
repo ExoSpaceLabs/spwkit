@@ -47,7 +47,7 @@ Fault-capable backends advertise `SPW_CAP_FAULT_INJECTION`.
 
 ## Portability
 
-Fault rule storage and reorder buffering are bounded. The deterministic decision engine is independent of the host socket API. Applying transport faults is implemented in the shared hosted UDP runtime and therefore works behind the same public semantics on POSIX and native Windows/Winsock paths.
+Fault rule storage and reorder buffering are bounded. The deterministic decision engine is independent of the host socket API. Applying UDP-configured transport faults is implemented by a private transport-provider decorator below the carrier-independent VSPW engine. The UDP composition uses that decorator on both POSIX and native Windows/Winsock paths; the raw-Ethernet backend does not currently advertise the UDP fault-rule surface.
 
 No socket/native handle or fault-engine implementation type enters the common application ABI.
 
