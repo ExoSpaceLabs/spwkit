@@ -303,15 +303,17 @@ spw_result_t spw_raw_ethernet_transport_init(
     if (config->io_ops->get_max_frame_size(
             config->io_context, &frame_size) != SPW_OK ||
         frame_size < SPW_RAW_ETHERNET_CARRIER_OVERHEAD +
-                         SPW_VSPW_TP_HEADER_SIZE ||
-        frame_size > SPW_RAW_ETHERNET_MAX_FRAME_SIZE) {
+                         SPW_VSPW_TP_HEADER_SIZE) {
         return SPW_ERR_UNSUPPORTED;
     }
 
     memset(transport, 0, sizeof(*transport));
     transport->config = *config;
     transport->runtime = *runtime;
-    transport->max_frame_size = frame_size;
+    transport->max_frame_size =
+        frame_size < SPW_RAW_ETHERNET_MAX_FRAME_SIZE
+            ? frame_size
+            : SPW_RAW_ETHERNET_MAX_FRAME_SIZE;
     if (!spw_transport_peer_id_set(
             &transport->remote_peer, config->remote_mac,
             SPW_RAW_ETHERNET_MAC_SIZE)) {
