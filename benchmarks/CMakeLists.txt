@@ -109,6 +109,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     spwkit_configure_profile_executable(
         spwkit_profile_device_readiness
         profile_device_readiness.c)
+    spwkit_configure_profile_executable(
+        spwkit_profile_raw_ethernet_comparison
+        profile_raw_ethernet_comparison.c)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND SPWKIT_BENCHMARK_BUILD_DEVICE)
