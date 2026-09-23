@@ -10,8 +10,9 @@ It covers:
 - direct transport-provider dispatch cost;
 - the refactored VSPW/UDP path relative to immutable `v0.7.0`;
 - current copied-buffer ownership through UDP and raw Ethernet;
-- the remaining evidence that requires a real host raw-frame path or embedded
-  MAC/DMA hardware.
+- controlled Linux `AF_PACKET` raw-Ethernet behavior versus UDP on the same
+  host/CPU;
+- the remaining evidence that requires embedded MAC/DMA hardware.
 
 It does **not** treat an in-memory frame fixture as physical or kernel raw
 Ethernet evidence.
@@ -99,6 +100,85 @@ Other benchmark families may produce hosted attention signals because the
 release campaign deliberately runs many backends. Those rows do not traverse
 the VSPW transport-provider path and are not evidence of provider/UDP
 regression. The relevant UDP rows produced no recurring attention.
+
+## Controlled host raw Ethernet versus UDP
+
+A second evidence run exercised the public raw-Ethernet backend through real
+Linux `AF_PACKET` sockets over an isolated veth pair and compared it with the
+existing UDP benchmark on the same GitHub Actions runner and logical CPU.
+
+Evidence:
+
+- workflow run: `35849098636`;
+- host raw-Ethernet job: `Host AF_PACKET raw Ethernet vs UDP`;
+- artifact: `spwkit-host-carrier-evidence-35849098636`;
+- host: Ubuntu 24.04 runner, Linux `6.17.0-1022-azure`, x86_64,
+  Intel Xeon 6973P-C;
+- counter: invariant x86 `RDTSCP`;
+- CPU affinity: logical CPU 0;
+- isolated veth interfaces with fixed locally-administered MAC addresses;
+- raw carrier: Linux `AF_PACKET/SOCK_RAW`;
+- raw development EtherType: `0x88B5`;
+- native raw comparator EtherType: `0x88B6`;
+- raw fragment payload: 1400 bytes;
+- warmup: 32;
+- iterations: 128;
+- repetitions: 3;
+- payloads: 0, 64, 1024 and 4096 bytes.
+
+The native raw comparator uses the same number of 1400-byte carrier frames as
+the VSPW path for a given logical payload. In particular, the 4096-byte case is
+three carrier frames in both paths; it is not compared with one impossible
+1500-MTU jumbo frame.
+
+Median-of-three results:
+
+| Dir | Payload | Raw native | Raw SpWKit | Raw delta | UDP native | UDP SpWKit | UDP delta |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| TX | 0 B | 2668 | 5609 | +2954 | 3249 | 7408 | +4174 |
+| TX | 64 B | 2757 | 5683 | +2905 | 3326 | 7435 | +4110 |
+| TX | 1024 B | 2979 | 5796 | +2825 | 3368 | 7546 | +4191 |
+| TX | 4096 B | 8270 | 11132 | +2859 | 3712 | 18228 | +14580 |
+| RX | 0 B | 1619 | 15379 | +13760 | 812 | 6562 | +5742 |
+| RX | 64 B | 1633 | 15212 | +13574 | 905 | 6588 | +5680 |
+| RX | 1024 B | 1702 | 15504 | +13802 | 956 | 6666 | +5703 |
+| RX | 4096 B | 4817 | 29391 | +24574 | 1146 | 12426 | +11289 |
+
+The result is directional rather than a blanket "raw Ethernet is faster"
+claim:
+
+- **TX:** the current raw-Ethernet path is faster than UDP for all four tested
+  payloads. At 4096 bytes the SpWKit median is 11132 ticks versus 18228 for
+  UDP, while the native comparator correctly pays for three raw frames.
+- **RX:** the current copied raw-Ethernet path is slower than UDP for all four
+  payloads. The raw path performs an additional SpWKit-owned decapsulation
+  copy before the VSPW RX buffer, matching the copy audit below; `AF_PACKET`
+  receive mechanics also cost more than loopback UDP on this host.
+- **Jitter:** raw TX p95 remains close to its median
+  (5788/5848/5992/11348 ticks for 0/64/1024/4096 B), but raw RX is visibly
+  noisier (p95 21988/21344/21788/36522 ticks). Median raw-RX standard deviation
+  across the three repetitions is approximately
+  1998/2771/2096/4261 ticks, compared with UDP RX
+  204/83/411/485 ticks.
+
+These are controlled hosted software/carrier measurements, not physical
+Ethernet or SpaceWire timing. They demonstrate that removing IP/UDP is not by
+itself sufficient to make every direction faster: the current RX copy and
+host raw-socket path dominate enough to reverse the expected advantage.
+
+### Raw-Ethernet framing correction exposed by the host path
+
+The real Ethernet audit also exposed a correctness issue that an in-memory
+frame fixture could not reproduce. The original development envelope had no
+explicit VSPW-frame length. A VSPW KEEPALIVE produced a 58-byte Ethernet frame
+excluding FCS, so a real Ethernet implementation could add minimum-frame
+padding and the receiver could mistake those padding bytes for VSPW data.
+
+The development framing is therefore version 2.0 in this PR and carries an
+explicit 16-bit VSPW-frame length after the subtype/version fields. The
+receiver treats that declared length as authoritative and ignores trailing
+Ethernet padding. With the two-byte length field, a KEEPALIVE occupies exactly
+60 bytes excluding FCS.
 
 ## Copy and ownership audit
 
@@ -195,23 +275,23 @@ portable.
 
 ## Interpretation
 
-The evidence supports two conclusions for the #229 abstraction itself:
+The evidence supports three conclusions for the #229 abstraction itself:
 
 1. provider dispatch has no measurable median cost in the current hosted
    microbenchmark;
 2. the refactored UDP path retains the v0.7.0 performance envelope without a
-   recurring UDP regression.
+   recurring UDP regression;
+3. the same VSPW engine runs over a real host raw-frame carrier without a
+   protocol-logic fork, and the carrier comparison exposes a concrete
+   optimization target: raw TX benefits from bypassing UDP/IP while the
+   current copied raw RX path is slower and noisier than loopback UDP.
 
-It does **not** yet answer how much real kernel raw Ethernet improves over UDP,
-or how much embedded MAC/DMA/IRQ scheduling costs. Those require separate
-carrier evidence.
+Embedded MAC/DMA/IRQ scheduling still requires separate target evidence.
 
 ## Remaining #230 evidence
 
 Still required:
 
-- PC raw Ethernet using a real host raw-frame path, compared under controlled
-  conditions with UDP;
 - PC -> embedded and embedded -> PC raw-Ethernet instrumentation;
 - embedded -> embedded evidence when the hardware setup makes that useful;
 - DMA setup/completion and IRQ-to-worker timing;
@@ -220,5 +300,6 @@ Still required:
 - evaluation of whether reducing the documented extra raw-Ethernet copies is
   worth extending the transport ownership contract.
 
-Until those measurements exist, in-memory raw-frame results remain functional
-and software-boundary evidence, not physical Ethernet performance evidence.
+The AF_PACKET/veth result is real host raw-frame evidence, but it is still not
+physical Ethernet or embedded-driver evidence. In-memory raw-frame results
+remain functional/software-boundary evidence only.
