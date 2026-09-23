@@ -27,6 +27,31 @@ The v0.7 software line includes:
 
 See [v0.7.0 release notes](releases/v0.7.0.md).
 
+## Develop after v0.7.0
+
+The integration branch now contains the transport-independence work completed
+after the immutable v0.7.0 release. These changes are **not** part of the
+v0.7.0 package/API promise yet:
+
+- VSPW session, reliability, liveness, fragmentation/reassembly and time-code
+  behavior live in a carrier-independent private engine;
+- POSIX/Winsock UDP is a transport provider below that engine rather than the
+  protocol implementation itself;
+- `SPW_BACKEND_RAW_ETHERNET` is a public development backend using portable
+  frame-I/O and runtime callback contracts, with no direct dependency on
+  AF_PACKET, lwIP, DAS, hardRT, an MCU SDK or another platform package;
+- the raw-Ethernet development envelope is version 2.0 and carries an explicit
+  VSPW-frame length so Ethernet minimum-frame padding is ignored correctly;
+- deterministic in-memory and real Linux AF_PACKET/veth carrier evidence prove
+  that the same VSPW engine runs without an IP/UDP dependency;
+- post-refactor performance evidence shows no recurring UDP regression,
+  provider dispatch below hosted median measurement resolution, lower raw
+  Ethernet TX cost than UDP on the measured host, and a current raw RX
+  copy/AF_PACKET cost that remains an optimization target.
+
+Issue #229 is complete. #230 remains open only for embedded MAC/DMA/IRQ
+performance evidence when the target driver and hardware setup are available.
+
 ## Runtime and backend contract
 
 The v0.7 contract explicitly defines the software-visible behavior that future physical providers must preserve:
@@ -40,7 +65,7 @@ The v0.7 contract explicitly defines the software-visible behavior that future p
 - reset creates a new zero-copy ownership epoch and stale pre-reset handles are rejected;
 - the represented ECSS time-code profile is limited to six-bit counts and `control_flags == 0`.
 
-The common backend-contract suite is reused across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD and the reference DRIVER. Behavioral equivalence concerns application-visible semantics; it does not assert timing equivalence with physical SpaceWire hardware.
+The common backend-contract suite is reused across SIMULATOR, VSPW-TP/UDP, Linux DEVICE/VSPD, RAW_ETHERNET and the reference DRIVER. Behavioral equivalence concerns application-visible semantics; it does not assert timing equivalence with physical SpaceWire hardware.
 
 ## ECSS SpaceWire conformance policy
 
@@ -115,7 +140,7 @@ This validates real STM32 DMA2 execution, Cortex-M7 cache clean/invalidate owner
 The profiling infrastructure retains the v0.6/v0.7 software/provider performance evidence:
 
 - controlled hosted DRIVER/native differential and copied-vs-zero-copy characterization;
-- complete LOOPBACK, SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD boundary instrumentation;
+- complete LOOPBACK, SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD boundary instrumentation;\n- post-v0.7 transport-provider dispatch and Linux AF_PACKET raw-Ethernet versus UDP evidence;
 - NUCLEO-H755ZI-Q Cortex-M7 DWT measurements for copied and zero-copy DMA-provider paths;
 - matched STM32H755 direct/native DMA2 differential measurements;
 - lifecycle/startup measurements kept separate from steady-state TX/RX data;
