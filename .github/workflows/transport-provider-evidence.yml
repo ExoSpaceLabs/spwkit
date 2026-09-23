@@ -1,0 +1,141 @@
+name: Transport provider evidence
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'benchmarks/**'
+      - '.github/workflows/transport-provider-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-dispatch:
+    name: Provider dispatch microcost
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure benchmark
+        run: >
+          cmake -S benchmarks -B build/provider-dispatch
+          -DCMAKE_BUILD_TYPE=Release
+          -DSPWKIT_BENCHMARK_BUILD_UDP=OFF
+          -DSPWKIT_BENCHMARK_BUILD_SIMULATOR=OFF
+          -DSPWKIT_BENCHMARK_BUILD_DEVICE=OFF
+
+      - name: Build benchmark
+        run: >
+          cmake --build build/provider-dispatch
+          --target spwkit_profile_transport_provider_dispatch
+          --parallel 2
+
+      - name: Measure three repetitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p transport-provider-evidence
+          for replica in 1 2 3; do
+            build/provider-dispatch/spwkit_profile_transport_provider_dispatch \
+              --warmup 1024 \
+              --iterations 4096 \
+              | tee "transport-provider-evidence/dispatch-${replica}.txt"
+          done
+          {
+            echo '## Transport-provider dispatch microcost'
+            echo
+            echo 'Three alternating direct-callback/provider-wrapper runs:'
+            cat transport-provider-evidence/dispatch-*.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload provider evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-transport-provider-dispatch-${{ github.run_id }}
+          path: transport-provider-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  udp-post-refactor:
+    name: v0.7.0 to current UDP screen ${{ matrix.replica }}/3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [1, 2, 3]
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run paired comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="post-refactor-udp-${{ matrix.replica }}"
+          bash benchmarks/run_release_profile_comparison.sh \
+            --baseline-ref v0.7.0 \
+            --candidate-ref HEAD \
+            --warmup 32 \
+            --iterations 128 \
+            --payloads '0 64 1024 4096' \
+            --cpu auto \
+            --precondition-seconds 0 \
+            --governor keep \
+            --type github-hosted-post-refactor-screen \
+            --relative-threshold 5 \
+            --absolute-threshold 20 \
+            --output-root "$output"
+          comparison="$(find "$output" -name comparison.md -print -quit)"
+          cat "$comparison" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload UDP comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-post-refactor-udp-${{ github.run_id }}-${{ matrix.replica }}
+          path: post-refactor-udp-${{ matrix.replica }}/
+          if-no-files-found: error
+          retention-days: 30
+
+  udp-post-refactor-summary:
+    name: Post-refactor UDP repeat summary
+    needs: udp-post-refactor
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download repeated screens
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spwkit-post-refactor-udp-${{ github.run_id }}-*
+          path: post-refactor-repeats
+          merge-multiple: false
+
+      - name: Aggregate repeated screening signals
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p post-refactor-summary
+          python3 benchmarks/aggregate_release_profile_repeats.py \
+            post-refactor-repeats \
+            --expected-runs 3 \
+            --min-attention-runs 2 \
+            --output-json post-refactor-summary/repeat-summary.json \
+            --output-markdown post-refactor-summary/repeat-summary.md
+          cat post-refactor-summary/repeat-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload aggregate
+        uses: actions/upload-artifact@v4
+        with:
+          name: spwkit-post-refactor-udp-summary-${{ github.run_id }}
+          path: post-refactor-summary/
+          if-no-files-found: error
+          retention-days: 30
