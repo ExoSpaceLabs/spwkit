@@ -560,6 +560,14 @@ static int fixture_open(raw_fixture_t* fixture,
         return 0;
     }
 
+    /* Bind both AF_PACKET sockets before either VSPW endpoint starts so
+     * the first KEEPALIVE cannot disappear simply because the peer socket
+     * does not exist yet. io_start() will only mark them active. */
+    if (!packet_open(&fixture->spw_a) ||
+        !packet_open(&fixture->spw_b)) {
+        return 0;
+    }
+
     if (!open_spw_raw(&fixture->spw_a, fixture->spw_b.mac, link_id,
                       &fixture->workspace_a, &fixture->a) ||
         !open_spw_raw(&fixture->spw_b, fixture->spw_a.mac, link_id,
