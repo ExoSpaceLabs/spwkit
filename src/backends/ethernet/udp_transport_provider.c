@@ -146,7 +146,7 @@ static spw_result_t udp_provider_send(void* context,
     if (!spw_transport_peer_id_equal(peer, &transport->remote_peer)) {
         return SPW_ERR_LINK_UNAVAILABLE;
     }
-    if (message_size > SPW_VSPW_TP_MAX_UDP_PAYLOAD) {
+    if (message_size > SPW_VSPW_TP_MAX_CARRIER_FRAME) {
         return SPW_ERR_BUFFER_TOO_SMALL;
     }
     memset(&remote, 0, sizeof(remote));
@@ -321,7 +321,7 @@ static spw_result_t udp_provider_get_mtu(const void* context, size_t* out_mtu) {
     if (transport == NULL || out_mtu == NULL || transport->socket_fd < 0) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    *out_mtu = SPW_VSPW_TP_MAX_UDP_PAYLOAD;
+    *out_mtu = SPW_VSPW_TP_MAX_CARRIER_FRAME;
     return SPW_OK;
 }
 
