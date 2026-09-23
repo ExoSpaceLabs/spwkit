@@ -125,7 +125,7 @@ int main(void) {
     assert(spw_vspw_engine_send(
                &engine_a, &tx_packet, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
     assert(spw_vspw_engine_receive(
-               &engine_b, &rx_packet, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
+               &engine_b, &rx_packet, 1000u) == SPW_OK);
     assert(rx_packet.length == sizeof(tx_data));
     assert(rx_packet.terminator == SPW_TERMINATOR_EEP);
     assert(memcmp(rx_data, tx_data, sizeof(tx_data)) == 0);
