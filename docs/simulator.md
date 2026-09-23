@@ -143,7 +143,7 @@ This is intentional. A DMA-capable backend can map the same API to coherent or p
 
 ## Simulation and virtual-device stack today
 
-Stable v0.6.1 includes the complete software-development stack: the process-local simulator, distributed VSPW-TP/UDP on POSIX and Winsock, Linux VSPD/`vspwd`, management and passive-monitoring tools, optional CUSE `/dev/vspwX`, and the portable DRIVER/DMA boundary. Physical STM32H755 phase-7 execution has additionally qualified the DRIVER DMA/cache ownership path on MCU silicon.
+Stable v0.7.0 includes the released software-development stack: the process-local simulator, distributed VSPW-TP/UDP on POSIX and Winsock, Linux VSPD/`vspwd`, management and passive-monitoring tools, optional CUSE `/dev/vspwX`, and the portable DRIVER/DMA boundary. Physical STM32H755 phase-7 execution has additionally qualified the DRIVER DMA/cache ownership path on MCU silicon.
 
 ```mermaid
 flowchart TB
@@ -151,6 +151,7 @@ flowchart TB
 
     API --> SIM["SPW_BACKEND_SIMULATOR<br/>process-local deterministic link"]
     API --> UDP["SPW_BACKEND_UDP<br/>VSPW-TP / UDP"]
+    API --> RAW["SPW_BACKEND_RAW_ETHERNET<br/>post-v0.7 develop"]
     API --> DEV["SPW_BACKEND_DEVICE<br/>VSPD client"]
     API --> DRIVER["SPW_BACKEND_DRIVER<br/>portable provider boundary"]
 
