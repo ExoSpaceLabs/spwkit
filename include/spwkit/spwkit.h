@@ -11,5 +11,7 @@
 #include "spwkit/udp.h"
 #include "spwkit/device.h"
 #include "spwkit/driver.h"
+#include "spwkit/runtime.h"
+#include "spwkit/raw_ethernet.h"
 
 #endif /* SPWKIT_SPWKIT_H */
