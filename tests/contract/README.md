@@ -27,17 +27,85 @@ A loopback backend may map logical endpoints A and B to the same `spw_port_t`. P
 
 ## v1-r1 backend equivalence
 
-`run_backend_contract()` is the canonical application-level portability scenario. SIMULATOR, UDP, DEVICE/VSPD and DRIVER/reference each call that same function; their fixtures only arrange backend-specific setup.
+`run_backend_contract()` is the canonical application-level portability scenario. SIMULATOR, UDP, DEVICE/VSPD, RAW_ETHERNET and DRIVER/reference each call that same function; their fixtures only arrange backend-specific setup.
 
-A complete hosted Linux build registers `backend_equivalence_v1_matrix`, which aggregates exactly those four required fixtures:
+The stable v0.7 `v1-r1` release matrix contains SIMULATOR, UDP, DEVICE/VSPD
+and DRIVER/reference. Post-v0.7 `develop` additionally registers
+`backend_contract_raw_ethernet` against the same assertions.
+
+A hosted build can run the available matrix directly:
 
 ```bash
 ctest --test-dir build-hosted \
-  -R '^backend_equivalence_v1_matrix$' \
+  -R '^backend_contract_(simulator|udp|device|driver|raw_ethernet)
+
+Optional behavior inside the shared scenario remains capability-gated. The application assertions do not switch on backend names.
+
+## Mandatory copied-I/O contract
+
+The common suite verifies:
+
+- initial/reset lifecycle and transition to `SPW_LINK_RUN` where applicable;
+- locally stopped/reset transfer operations report `SPW_ERR_INVALID_STATE`;
+- A-to-B and B-to-A packet transfer;
+- EOP and capability-gated EEP preservation;
+- zero-length packets;
+- deterministic large-packet transfer up to the advertised backend limit used by the common suite;
+- insufficient receive capacity without packet consumption or silent truncation;
+- invalid receive arguments without consuming the pending packet;
+- immediate and finite receive timeout behavior;
+- bounded queue exhaustion and recovery when queue depth is advertised;
+- capability-gated time-code transfer and public metadata validation;
+- capability-gated statistics progression;
+- capability-gated readiness behavior;
+- backend/capability/timing profile reporting in test output.
+
+Successful transfer operations use the fixture's `transfer_timeout_us()` profile. The default is `SPW_TIMEOUT_IMMEDIATE`, so loopback, the process-local simulator and deterministic reference DRIVER retain strict immediate-observation behavior. A distributed fixture may provide a finite budget because kernel/network delivery can be asynchronous even when the logical SpaceWire event is valid. Explicit non-blocking and finite-timeout assertions remain fixed by the common suite and are not weakened by this profile.
+
+The threading precondition itself is not tested by intentionally creating same-handle data races. The suite instead validates the observable state/error/resource rules that remain deterministic under the documented application serialization contract.
+
+## Optional capabilities
+
+Optional tests are selected from `spw_capabilities_t`.
+
+The process-local simulator and deterministic reference DRIVER advertise `SPW_CAP_ZERO_COPY`. The shared contract requires a corresponding ownership fixture whenever that capability is advertised. It verifies acquire/fill/submit/reclaim/release, RX acquire/release, capacity/alignment constraints, pool exhaustion, ownership preservation on failed operations, copied/zero-copy interoperability where applicable, and reset-time invalidation/recovery of pre-reset ownership state.
+
+For DRIVER, the reference fixture additionally proves through the public `spw_buffer_*` surface that application views map driver-owned fixed storage. Dedicated lower-level driver/DMA tests remain responsible for provider callback, token, coherency-hook and cache/ownership mechanics that are below the common application contract.
+
+Backends that do not advertise zero-copy skip that optional contract without backend-name special cases.
+
+This rule is intentional: unsupported optional features are skipped explicitly, while mandatory copied SpaceWire packet semantics cannot be redefined by an adapter.
+
+## Distributed extension
+
+`DistributedBackendContractFixture` extends the shared fixture with reusable peer disconnect/restart hooks and an observation budget for link-state transitions. `distributed_contract.cpp` asserts through public SpWKit operations that:
+
+- a previously running peer loss becomes `SPW_LINK_ERROR_WAIT`;
+- service-dependent send reports `SPW_ERR_LINK_UNAVAILABLE` while the peer is absent;
+- recreating the peer as a new transport/session incarnation recovers both endpoints to `SPW_LINK_RUN`;
+- packet transfer succeeds again after recovery.
+
+Distributed fixtures execute the common contract plus the applicable environment-specific extension. Transport parser, fragmentation/reordering, reliability/fault and timing implementation tests remain separate because those are backend/transport mechanics rather than common application-facing semantics.
+
+The UDP contract fixture keeps the common suite's 4 KiB large packet within one VSPW-TP logical exchange. Dedicated D2D tests retain responsibility for MTU-scale fragmentation, arbitrary fragment ordering, retry/deduplication, virtual timing and deterministic fault scenarios. This prevents the common contract from accidentally becoming a transport-specific test while still requiring UDP to satisfy the same public behavior.
+
+## CTest
+
+The shared contract tests use the `contract` label:
+
+```bash
+ctest --test-dir build -L contract --output-on-failure
+```
+
+With the relevant features enabled, loopback, the process-local simulator, VSPW-TP/UDP, raw Ethernet, Linux DEVICE/VSPD and deterministic DRIVER/reference provider execute the applicable reusable contract. Distributed fixtures are also included in the dedicated D2D/device verification paths.
+
+Future physical embedded and hardware-in-the-loop fixtures should reuse the same assertions and add only capability/profile-specific setup plus reusable environment-specific extensions where necessary.
+ \
   --output-on-failure
 ```
 
-The aggregate exists only when the build contains all four backend families. Smaller/platform-specific builds continue to run the individual contract fixtures that are actually available instead of manufacturing fake coverage.
+Smaller/platform-specific builds continue to run only the fixtures that are
+actually compiled.
 
 Optional behavior inside the shared scenario remains capability-gated. The application assertions do not switch on backend names.
 
