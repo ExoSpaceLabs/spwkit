@@ -37,9 +37,12 @@ static spw_timeout_us_t remaining_timeout(
 static bool frame_matches(const spw_raw_ethernet_transport_t* transport,
                           const uint8_t* frame,
                           size_t frame_size) {
+    size_t declared_size;
     if (frame_size < SPW_RAW_ETHERNET_CARRIER_OVERHEAD) {
         return false;
     }
+    declared_size =
+        read_be16(frame + SPW_RAW_ETHERNET_HEADER_SIZE + 4u);
     return memcmp(frame, transport->config.local_mac,
                   SPW_RAW_ETHERNET_MAC_SIZE) == 0 &&
            read_be16(frame + 12u) == transport->config.ether_type &&
@@ -48,7 +51,10 @@ static bool frame_matches(const spw_raw_ethernet_transport_t* transport,
            frame[SPW_RAW_ETHERNET_HEADER_SIZE + 2u] ==
                SPW_RAW_ETHERNET_PROTOCOL_VERSION_MAJOR &&
            frame[SPW_RAW_ETHERNET_HEADER_SIZE + 3u] ==
-               SPW_RAW_ETHERNET_PROTOCOL_VERSION_MINOR;
+               SPW_RAW_ETHERNET_PROTOCOL_VERSION_MINOR &&
+           declared_size >= SPW_VSPW_TP_HEADER_SIZE &&
+           declared_size <=
+               frame_size - SPW_RAW_ETHERNET_CARRIER_OVERHEAD;
 }
 
 static spw_result_t raw_start(void* context) {
@@ -113,8 +119,9 @@ static spw_result_t raw_send(void* context,
     if (!spw_transport_peer_id_equal(peer, &transport->remote_peer)) {
         return SPW_ERR_LINK_UNAVAILABLE;
     }
-    if (message_size >
-        transport->max_frame_size - SPW_RAW_ETHERNET_CARRIER_OVERHEAD) {
+    if (message_size > UINT16_MAX ||
+        message_size >
+            transport->max_frame_size - SPW_RAW_ETHERNET_CARRIER_OVERHEAD) {
         return SPW_ERR_BUFFER_TOO_SMALL;
     }
 
@@ -128,6 +135,8 @@ static spw_result_t raw_send(void* context,
         SPW_RAW_ETHERNET_PROTOCOL_VERSION_MAJOR;
     transport->tx_frame[SPW_RAW_ETHERNET_HEADER_SIZE + 3u] =
         SPW_RAW_ETHERNET_PROTOCOL_VERSION_MINOR;
+    write_be16(transport->tx_frame + SPW_RAW_ETHERNET_HEADER_SIZE + 4u,
+               (uint16_t)message_size);
     if (message_size != 0u) {
         memcpy(transport->tx_frame + SPW_RAW_ETHERNET_CARRIER_OVERHEAD,
                message, message_size);
@@ -184,7 +193,9 @@ static spw_result_t raw_receive(void* context,
             continue;
         }
 
-        payload_size = frame_size - SPW_RAW_ETHERNET_CARRIER_OVERHEAD;
+        payload_size =
+            read_be16(transport->rx_frame +
+                      SPW_RAW_ETHERNET_HEADER_SIZE + 4u);
         *out_message_size = payload_size;
         if (!spw_transport_peer_id_set(
                 out_peer, transport->rx_frame + 6u,
