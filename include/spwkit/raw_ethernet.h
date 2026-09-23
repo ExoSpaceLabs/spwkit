@@ -30,7 +30,7 @@ extern "C" {
 
 /* SpWKit development subtype carried immediately after EtherType. */
 #define SPW_RAW_ETHERNET_PROTOCOL_SUBTYPE ((uint16_t)0x5357u)
-#define SPW_RAW_ETHERNET_PROTOCOL_VERSION_MAJOR ((uint8_t)1u)
+#define SPW_RAW_ETHERNET_PROTOCOL_VERSION_MAJOR ((uint8_t)2u)
 #define SPW_RAW_ETHERNET_PROTOCOL_VERSION_MINOR ((uint8_t)0u)
 
 #define SPW_RAW_ETHERNET_DEFAULT_FRAGMENT_PAYLOAD 1400u
@@ -53,7 +53,9 @@ typedef uint8_t spw_raw_ethernet_ready_t;
  * Raw Ethernet frame-I/O binding.
  *
  * Frames include destination/source MAC addresses and EtherType, but exclude
- * preamble/SFD and FCS. The provider owns no MAC/DMA/PHY details.
+ * preamble/SFD and FCS. SpWKit's development framing also carries an explicit
+ * VSPW-frame length so Ethernet minimum-frame padding is never interpreted as
+ * protocol data. The provider owns no MAC/DMA/PHY details.
  *
  * The platform implementation and io_context remain caller-owned for the
  * lifetime of the SpWKit port. This contract is suitable for bindings to
