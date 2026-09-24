@@ -7,10 +7,10 @@ SpWKit remains buildable from source through ordinary CMake install/export flows
 The `v0.7.0` Release workflow publishes one Debian package and matching SHA-256 sidecar for each validated hosted architecture:
 
 ```text
-spwkit_0.6.1-1_amd64.deb
-spwkit_0.6.1-1_arm64.deb
-spwkit_0.6.1-1_armhf.deb
-spwkit_0.6.1-1_riscv64.deb
+spwkit_0.7.0-1_amd64.deb
+spwkit_0.7.0-1_arm64.deb
+spwkit_0.7.0-1_armhf.deb
+spwkit_0.7.0-1_riscv64.deb
 ```
 
 Architecture mapping:
@@ -85,7 +85,7 @@ linux/arm/v7
 linux/riscv64
 ```
 
-Publication also updates the matching minor alias (`0.6`) and `latest` for the newest stable release.
+Publication also updates the matching minor alias (`0.7`) and `latest` for the newest stable release.
 
 The image contains the hosted package surface: `vspwd`, `spwctl`, `spwmon`, the shared library, public headers, and CMake package metadata.
 
