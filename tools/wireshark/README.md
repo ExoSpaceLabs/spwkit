@@ -1,6 +1,6 @@
 # VSPW-TP capture and Wireshark tooling
 
-`vspw_tp.lua` is a development/integration dissector for the SpWKit VSPW-TP v1 UDP wire format. It is deliberately outside `libspwkit`: installing or running SpWKit does not require Wireshark, tshark, libpcap, Lua, or tcpdump.
+`vspw_tp.lua` is a development/integration dissector for the SpWKit VSPW-TP v1 UDP wire format. Post-v0.7 raw-Ethernet envelope decoding is not implemented yet and is tracked by #240. It is deliberately outside `libspwkit`: installing or running SpWKit does not require Wireshark, tshark, libpcap, Lua, or tcpdump.
 
 The dissector tracks the wire contract documented in `docs/vspw-tp.md`:
 
