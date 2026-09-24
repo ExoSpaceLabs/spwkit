@@ -23,7 +23,7 @@ typedef struct spw_vspw_fault_transport {
     spw_deterministic_fault_injector_t* injector;
     spw_statistics_t* statistics;
     spw_fault_statistics_t* fault_statistics;
-    uint8_t reordered_frame[SPW_VSPW_TP_MAX_UDP_PAYLOAD];
+    uint8_t reordered_frame[SPW_VSPW_TP_MAX_CARRIER_FRAME];
     size_t reordered_size;
     spw_transport_peer_id_t reordered_peer;
     bool reordered_valid;
