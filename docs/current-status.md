@@ -140,7 +140,8 @@ This validates real STM32 DMA2 execution, Cortex-M7 cache clean/invalidate owner
 The profiling infrastructure retains the v0.6/v0.7 software/provider performance evidence:
 
 - controlled hosted DRIVER/native differential and copied-vs-zero-copy characterization;
-- complete LOOPBACK, SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD boundary instrumentation;\n- post-v0.7 transport-provider dispatch and Linux AF_PACKET raw-Ethernet versus UDP evidence;
+- complete LOOPBACK, SIMULATOR, VSPW-TP/UDP and DEVICE/VSPD boundary instrumentation;
+- post-v0.7 transport-provider dispatch and Linux AF_PACKET raw-Ethernet versus UDP evidence;
 - NUCLEO-H755ZI-Q Cortex-M7 DWT measurements for copied and zero-copy DMA-provider paths;
 - matched STM32H755 direct/native DMA2 differential measurements;
 - lifecycle/startup measurements kept separate from steady-state TX/RX data;
