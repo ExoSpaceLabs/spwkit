@@ -35,14 +35,13 @@ The same scenario is consumed by:
 | VSPW-TP / UDP | `tests/contract/udp_contract.cpp` / `backend_contract_udp` |
 | Linux DEVICE / VSPD | `tests/contract/device_contract.cpp` / `backend_contract_device` |
 | DRIVER / deterministic provider | `tests/reference_driver/driver_contract.cpp` / `backend_contract_driver` |
+| VSPW-TP / raw Ethernet (develop) | `tests/contract/raw_ethernet_contract.cpp` / `backend_contract_raw_ethernet` |
 
 UDP and DEVICE additionally execute `run_distributed_backend_contract()` for peer loss, replacement and recovery because those environments have a separately observable transport/session lifetime.
 
 ## Develop extension: raw Ethernet
 
-Post-v0.7 `develop` adds
-`tests/contract/raw_ethernet_contract.cpp` /
-`backend_contract_raw_ethernet`. It calls the same
+Post-v0.7 `develop` adds `backend_contract_raw_ethernet`. It calls the same
 `run_backend_contract()` function through the public
 `SPW_BACKEND_RAW_ETHERNET` API using a deterministic complete-frame
 provider. This extends current integration evidence without retroactively
@@ -57,7 +56,6 @@ the post-v0.7 raw-Ethernet extension:
 ```bash
 ctest --test-dir build-hosted \
   -R '^backend_contract_(simulator|udp|device|driver|raw_ethernet)
-
 ## v1-r1 behavior matrix
 
 Legend:
