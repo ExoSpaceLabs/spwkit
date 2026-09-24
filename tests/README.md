@@ -33,8 +33,13 @@ The v0.6 line also added the CCSDSPack v2.0.0 two-container PUS-C TC/TM exchange
 
 `embedded` is an active evidence layer, not future placeholder text. CI includes freestanding/no-heap builds and HardRT Cortex-M7 compile/link integration.
 
-Stable v0.6.1 includes `SPW_BACKEND_DRIVER`, driver/DMA ownership tests, and a deterministic fixed-storage reference driver that also executes the reusable public backend contract.
+Stable v0.7.0 includes `SPW_BACKEND_DRIVER`, driver/DMA ownership tests, and a deterministic fixed-storage reference driver that also executes the reusable public backend contract.
 
 Physical STM32H755 phase-7 DMA/cache qualification is complete and remains a distinct MCU evidence layer. Physical SpaceWire controller/PHY/electrical HIL remains future work.
 
 See [docs/testing.md](../docs/testing.md) for execution policy, CI gates and evidence boundaries.
+
+
+Post-v0.7 `develop` also executes `SPW_BACKEND_RAW_ETHERNET` through both
+the pure-C framing/integration test and the reusable C++ backend contract
+(`backend_contract_raw_ethernet`).

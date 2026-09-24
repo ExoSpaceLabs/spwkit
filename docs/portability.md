@@ -56,7 +56,7 @@ Disabling the simulator removes that hosted synchronization dependency from the 
 
 The VSPW-TP codec, reassembly, timing and deterministic fault logic remain shared C code. Socket startup, readiness, error translation and native handle types stay private to the platform runtime.
 
-Future embedded network transports such as lwIP/raw Ethernet may reuse the same VSPW-TP framing/public semantics without changing the application API.
+`SPW_BACKEND_RAW_ETHERNET` now reuses the same carrier-independent VSPW engine through portable complete-frame callbacks. A host AF_PACKET binding or embedded lwIP/MAC/DMA integration can sit below those callbacks without changing the application API.
 
 ## Linux virtual-device stack
 
@@ -66,7 +66,7 @@ Applications can therefore choose either the linked DEVICE API or a `/dev/vspwX`
 
 ## Portable driver boundary
 
-The v0.6 `SPW_BACKEND_DRIVER` contract, retained in stable v0.6.1, accepts a versioned `spw_driver_ops_t` callback table and caller-owned driver context. This supports host reference drivers, bare metal, RTOS devices, vendor SDKs and future FPGA controllers while keeping platform-native mechanism types below the application API.
+The v0.6 `SPW_BACKEND_DRIVER` contract, retained in stable v0.7.0, accepts a versioned `spw_driver_ops_t` callback table and caller-owned driver context. This supports host reference drivers, bare metal, RTOS devices, vendor SDKs and future FPGA controllers while keeping platform-native mechanism types below the application API.
 
 The driver/DMA callback layer may handle cache synchronization, descriptor submission and completion internally. The application still sees opaque `spw_buffer_t` ownership transitions.
 

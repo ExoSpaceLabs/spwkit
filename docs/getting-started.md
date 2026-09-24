@@ -20,7 +20,7 @@ flowchart TD
 
 For ordinary application development, start with the copied packet API. Zero-copy is an optional capability that can be introduced later without changing packet semantics.
 
-The v1-r1 [backend behavioral-equivalence matrix](backend-equivalence.md) makes this development path explicit: application packet/link logic validated against the simulator is exercised by the same shared contract against UDP, Linux DEVICE/VSPD and the deterministic DRIVER provider. Backend setup changes; the portable SpaceWire-facing API and documented semantics do not.
+The v1-r1 [backend behavioral-equivalence matrix](backend-equivalence.md) makes this development path explicit: application packet/link logic validated against the simulator is exercised by the same shared contract against UDP, Linux DEVICE/VSPD and the deterministic DRIVER provider. Post-v0.7 `develop` additionally runs raw Ethernet through the same common contract. Backend setup changes; the portable SpaceWire-facing API and documented semantics do not.
 
 ## Build from source
 
@@ -150,11 +150,11 @@ Both endpoints are equal peers. Start both before expecting `SPW_LINK_RUN`.
 
 The simulator is the recommended first backend for application packet/link development because it is deterministic and requires no daemon, network namespace or hardware. The v1-r1 equivalence proof runs the same `run_backend_contract()` application scenario against SIMULATOR, UDP, DEVICE/VSPD and DRIVER/reference. This does **not** imply equal timing or throughput; it means portable packet boundaries, EOP/EEP, errors, timeouts, lifecycle and capability-gated behavior remain coherent when the backend changes.
 
-For a complete hosted Linux source build, the aggregate proof is:
+For a complete hosted Linux source build, run the available contract fixtures directly:
 
 ```bash
 ctest --test-dir build-hosted \
-  -R '^backend_equivalence_v1_matrix$' \
+  -R '^backend_contract_(simulator|udp|device|driver|raw_ethernet)$' \
   --output-on-failure
 ```
 
@@ -173,6 +173,16 @@ flowchart LR
 ```
 
 The simulator provides a deterministic software implementation of this ownership contract. The v0.7 driver backend maps the same API onto driver/DMA buffers and enforces reset-safe ownership epochs.
+
+## Raw Ethernet on develop
+
+After v0.7.0, `develop` provides `SPW_BACKEND_RAW_ETHERNET`. It uses the
+same VSPW protocol engine as UDP but places VSPW frames directly in Ethernet-II
+payloads through caller-supplied complete-frame and runtime callbacks. This is
+the path intended for host raw-frame testing and embedded MAC/DMA integration;
+it is not part of the immutable v0.7.0 package.
+
+See [VSPW transport providers](vspw-transport-provider.md).
 
 ## Run distributed virtual SpaceWire
 

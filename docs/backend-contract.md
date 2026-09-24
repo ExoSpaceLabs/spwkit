@@ -44,6 +44,18 @@ Every backend must preserve these application-visible rules:
 - implementation-native types do not leak into common operation signatures;
 - failed ownership-transfer calls do not steal application-owned buffers.
 
+## Carrier-provider boundary
+
+The VSPW protocol engine is private and carrier-independent. UDP and raw
+Ethernet bind it through a message/frame transport-provider contract carrying
+opaque peer identity, lifecycle, send/receive, readiness, MTU and carrier
+state. Timing/delay is a separate runtime contract.
+
+`SPW_BACKEND_RAW_ETHERNET` additionally exposes public, versioned frame-I/O
+callbacks so host or embedded platform code can bind Ethernet MAC/frame
+mechanics without making SpWKit depend on a specific OS, SDK, RTOS or board
+support package.
+
 ## Allocation policy
 
 The backend interface does not require heap allocation. `spw_port_open_in_place()` constructs the port and selected backend inside caller-owned storage sized by `spw_port_workspace_requirements()`.
@@ -86,7 +98,7 @@ Unix sockets and daemon framing stay private. v0.5 additionally ships `spwcuse`,
 
 ## Portable driver backend
 
-`SPW_BACKEND_DRIVER` is the v0.6 boundary, retained in stable v0.6.1, for vendor, MCU, RTOS and future FPGA drivers. SpWKit calls a user-supplied `spw_driver_ops_t` over a caller-owned driver context.
+`SPW_BACKEND_DRIVER` is the v0.6 boundary, retained in stable v0.7.0, for vendor, MCU, RTOS and future FPGA drivers. SpWKit calls a user-supplied `spw_driver_ops_t` over a caller-owned driver context.
 
 Driver ABI v2 maps driver-owned DMA buffers onto the existing public zero-copy ownership lifecycle. CPU-visible data views and opaque tokens may cross the driver callback boundary; physical addresses and native descriptors do not enter the public application ABI.
 

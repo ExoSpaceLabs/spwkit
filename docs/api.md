@@ -70,7 +70,7 @@ Runtime availability is platform/build dependent. A source-visible backend may r
 - `SPW_BACKEND_SIMULATOR` provides a process-local equal-peer virtual link.
 - `SPW_BACKEND_UDP` provides VSPW-TP over POSIX UDP or native Windows/Winsock.
 - `SPW_BACKEND_DEVICE` attaches Linux applications to `vspwd` through VSPD.
-- `SPW_BACKEND_DRIVER` is the portable platform/vendor driver boundary introduced in v0.6 and retained by the stable v0.6.1 line.
+- `SPW_BACKEND_DRIVER` is the portable platform/vendor driver boundary introduced in v0.6 and retained by stable v0.7.0; post-v0.7 `develop` additionally exposes `SPW_BACKEND_RAW_ETHERNET` as a portable frame-I/O carrier binding.
 
 ## Link state
 
@@ -242,3 +242,12 @@ Packet, time-code, readiness and buffer-completion operations use the common mic
 The C ABI exposes major/minor/patch macros. Before v1.0, incompatible changes remain possible but must update implementation, tests and documentation together.
 
 Release tags identify immutable coherent milestones. `develop` is the active integration branch; `main` is the release boundary. Documentation must distinguish stable release capability from unreleased `develop` work.
+
+
+## Raw-Ethernet development backend
+
+Post-v0.7 `develop` exposes `SPW_BACKEND_RAW_ETHERNET` through the same
+`spw_port_*` application API. Platform code supplies versioned complete-frame
+I/O callbacks and monotonic runtime callbacks through
+`spw_raw_ethernet_config_t`. VSPW framing, reliability and reassembly remain
+internal; applications do not encode or decode VSPW-TP.

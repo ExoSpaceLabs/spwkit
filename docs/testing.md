@@ -54,6 +54,7 @@ This gate verifies:
 
 - C11 library/archive behavior;
 - simulator/UDP C paths where enabled;
+- raw-Ethernet public framing/integration and shared backend-contract coverage;
 - no C++ ABI/runtime symbols in the C library;
 - independent installed C consumer;
 - static/shared C consumption;
@@ -238,3 +239,17 @@ Stable v0.7.0 consumers request the v0.7 package line. The immutable v0.7.0 tag 
 ## Compliance evidence
 
 Automated tests are engineering evidence supporting the explicitly scoped software-conformance matrix; they are not automatic whole-system ECSS certification. Electrical, Data-Strobe, exact timing and physical interoperability requirements remain outside packet-level software simulation and require corresponding hardware verification.
+
+
+## Post-v0.7 raw-Ethernet contract
+
+`develop` adds two complementary raw-Ethernet checks:
+
+- `raw_ethernet_public_backend` validates the public callback composition and
+  development Ethernet framing;
+- `backend_contract_raw_ethernet` runs the same application-visible contract
+  assertions used by the other portable backends.
+
+A separate performance workflow exercises the callbacks over real Linux
+AF_PACKET/veth sockets. That is host-carrier evidence, not physical
+SpaceWire HIL.

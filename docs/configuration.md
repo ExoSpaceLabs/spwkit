@@ -169,3 +169,26 @@ Common application operations deliberately contain no:
 - vendor SDK handles.
 
 Backend-specific configuration may expose portable descriptive values needed to select an implementation. Native mechanism types stay below the public SpaceWire-facing contract.
+
+
+## Raw Ethernet configuration
+
+`SPW_BACKEND_RAW_ETHERNET` is available on `develop` after v0.7.0. It binds
+the private VSPW engine to caller-supplied Ethernet frame I/O and runtime
+callbacks.
+
+`spw_raw_ethernet_config_t` provides:
+
+- local and remote unicast MAC addresses;
+- explicit EtherType and SpWKit protocol subtype;
+- VSPW link ID, fragment size, ACK/retry and liveness settings;
+- versioned `spw_raw_ethernet_io_ops_t` callbacks for lifecycle, complete
+  Ethernet frame send/receive, readiness, maximum frame size and link state;
+- versioned `spw_runtime_ops_t` callbacks for monotonic time and bounded
+  delay.
+
+The local experimental EtherType constant is a development convenience, not a
+permanent protocol assignment. Applications must set the EtherType explicitly.
+
+No AF_PACKET, lwIP, MCU SDK, DAS or RTOS type enters this public configuration
+surface.

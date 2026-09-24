@@ -25,6 +25,7 @@ A SpWKit port may be implemented by:
 - loopback/reference software;
 - the process-local simulator;
 - VSPW-TP/UDP;
+- VSPW-TP/raw Ethernet;
 - the Linux DEVICE/VSPD stack;
 - a portable driver callback implementation;
 - future vendor/FPGA/physical hardware.
@@ -93,6 +94,7 @@ No current hosted simulator/device result is described as physical SpaceWire evi
 
 - the process-local simulator;
 - distributed VSPW-TP/UDP;
+- VSPW-TP/raw Ethernet through `SPW_BACKEND_RAW_ETHERNET`;
 - Linux `SPW_BACKEND_DEVICE` through `vspwd`;
 - optional CUSE presentation such as `/dev/vspw0` through `spwcuse`.
 
@@ -119,6 +121,13 @@ VSPW-TP v1 carries DATA, TIME_CODE, liveness/control and acknowledgement informa
 
 UDP is only the carrier. Datagram loss, ordering, MTU, IP addressing and timing must not silently redefine SpaceWire semantics.
 
+## Raw Ethernet backend
+
+`SPW_BACKEND_RAW_ETHERNET` carries the same internal VSPW-TP engine directly
+inside Ethernet-II frames. Platform-specific frame acquisition/transmission is
+provided through versioned callbacks. Raw Ethernet is a carrier choice, not a
+different SpaceWire application contract.
+
 ## VSPD
 
 **VSPD** is the private local protocol between Linux `SPW_BACKEND_DEVICE` and `vspwd`. It is distinct from VSPW-TP and not an application API.
@@ -143,4 +152,4 @@ Driver callbacks may know about DMA/cache/interrupt/native mechanisms. Those det
 
 ## Transport
 
-A transport is an internal mechanism used to carry backend/protocol events. UDP/IP, Unix sockets, shared memory and future network stacks are transports. They are not SpaceWire semantics.
+A transport is an internal mechanism used to carry backend/protocol events. UDP/IP, raw Ethernet, Unix sockets, shared memory and platform network stacks are transports. They are not SpaceWire semantics.

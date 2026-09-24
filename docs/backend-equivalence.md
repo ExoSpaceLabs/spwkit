@@ -35,22 +35,32 @@ The same scenario is consumed by:
 | VSPW-TP / UDP | `tests/contract/udp_contract.cpp` / `backend_contract_udp` |
 | Linux DEVICE / VSPD | `tests/contract/device_contract.cpp` / `backend_contract_device` |
 | DRIVER / deterministic provider | `tests/reference_driver/driver_contract.cpp` / `backend_contract_driver` |
+| VSPW-TP / raw Ethernet (develop) | `tests/contract/raw_ethernet_contract.cpp` / `backend_contract_raw_ethernet` |
 
 UDP and DEVICE additionally execute `run_distributed_backend_contract()` for peer loss, replacement and recovery because those environments have a separately observable transport/session lifetime.
 
+## Develop extension: raw Ethernet
+
+Post-v0.7 `develop` adds `backend_contract_raw_ethernet`. It calls the same
+`run_backend_contract()` function through the public
+`SPW_BACKEND_RAW_ETHERNET` API using a deterministic complete-frame
+provider. This extends current integration evidence without retroactively
+changing the immutable v0.7 `v1-r1` release matrix.
+
 ## Canonical full-matrix runner
 
-A full Linux hosted build with SIMULATOR, UDP, DEVICE/VSPD, VSPWD and C++ contract fixtures enabled registers one aggregate CTest entry:
+A full hosted build executes the registered backend-contract tests directly.
+There is no synthetic aggregate CTest entry. For the stable v0.7 matrix plus
+the post-v0.7 raw-Ethernet extension:
 
 ```bash
 ctest --test-dir build-hosted \
-  -R '^backend_equivalence_v1_matrix$' \
+  -R '^backend_contract_(simulator|udp|device|driver|raw_ethernet)$' \
   --output-on-failure
 ```
 
-That aggregate test executes the four backend contract fixtures listed above. A failure in any required backend family fails the matrix.
-
-Individual fixtures remain ordinary CTest tests, so smaller builds can execute only the backend families compiled into that configuration without inventing substitutes for unavailable platforms.
+Unavailable/platform-specific fixtures are simply absent from smaller builds;
+the test runner does not manufacture substitutes for missing backends.
 
 ## v1-r1 behavior matrix
 

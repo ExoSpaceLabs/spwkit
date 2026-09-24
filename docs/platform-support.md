@@ -2,7 +2,7 @@
 
 Platform support is split into **source/API visibility**, **runtime implementation**, and **verification evidence**. A public backend ID/configuration may be installed on a platform even when selecting that backend returns `SPW_ERR_UNSUPPORTED`.
 
-## Stable v0.6 hosted matrix
+## Stable v0.7 hosted matrix
 
 | Capability | Linux | macOS | Windows |
 |---|---:|---:|---:|
@@ -17,7 +17,7 @@ Platform support is split into **source/API visibility**, **runtime implementati
 
 The public UDP configuration/wire contract is identical across POSIX and Windows. Winsock types remain private.
 
-## Stable v0.6 architecture packages
+## Stable v0.7 architecture packages
 
 Release `v0.6.1` publishes Debian packages for:
 

@@ -27,17 +27,22 @@ A loopback backend may map logical endpoints A and B to the same `spw_port_t`. P
 
 ## v1-r1 backend equivalence
 
-`run_backend_contract()` is the canonical application-level portability scenario. SIMULATOR, UDP, DEVICE/VSPD and DRIVER/reference each call that same function; their fixtures only arrange backend-specific setup.
+`run_backend_contract()` is the canonical application-level portability scenario. SIMULATOR, UDP, DEVICE/VSPD, RAW_ETHERNET and DRIVER/reference each call that same function; their fixtures only arrange backend-specific setup.
 
-A complete hosted Linux build registers `backend_equivalence_v1_matrix`, which aggregates exactly those four required fixtures:
+The stable v0.7 `v1-r1` release matrix contains SIMULATOR, UDP,
+DEVICE/VSPD and DRIVER/reference. Post-v0.7 `develop` additionally registers
+`backend_contract_raw_ethernet` against the same assertions.
+
+A hosted build can run the available matrix directly:
 
 ```bash
 ctest --test-dir build-hosted \
-  -R '^backend_equivalence_v1_matrix$' \
+  -R '^backend_contract_(simulator|udp|device|driver|raw_ethernet)$' \
   --output-on-failure
 ```
 
-The aggregate exists only when the build contains all four backend families. Smaller/platform-specific builds continue to run the individual contract fixtures that are actually available instead of manufacturing fake coverage.
+Smaller/platform-specific builds continue to run only the fixtures that are
+actually compiled.
 
 Optional behavior inside the shared scenario remains capability-gated. The application assertions do not switch on backend names.
 
@@ -97,6 +102,6 @@ The shared contract tests use the `contract` label:
 ctest --test-dir build -L contract --output-on-failure
 ```
 
-With the relevant features enabled, loopback, the process-local simulator, VSPW-TP/UDP, Linux DEVICE/VSPD and deterministic DRIVER/reference provider execute the applicable reusable contract. Distributed fixtures are also included in the dedicated D2D/device verification paths.
+With the relevant features enabled, loopback, the process-local simulator, VSPW-TP/UDP, raw Ethernet, Linux DEVICE/VSPD and deterministic DRIVER/reference provider execute the applicable reusable contract. Distributed fixtures are also included in the dedicated D2D/device verification paths.
 
 Future physical embedded and hardware-in-the-loop fixtures should reuse the same assertions and add only capability/profile-specific setup plus reusable environment-specific extensions where necessary.

@@ -7,7 +7,7 @@
   <a href="https://github.com/ExoSpaceLabs">ExoSpaceLabs</a>
 </p>
 
-SpWKit is a portable C11 SpaceWire software stack for simulation, distributed integration testing, Linux virtual devices, embedded/RTOS integration, and hardware-backed links. Applications use the same SpaceWire-facing API while the backend can move from a deterministic simulator to UDP, a Linux virtual device, or a platform/vendor driver.
+SpWKit is a portable C11 SpaceWire software stack for simulation, distributed integration testing, Linux virtual devices, embedded/RTOS integration, and hardware-backed links. Applications use the same SpaceWire-facing API while the backend can move from a deterministic simulator to UDP, a Linux virtual device, raw Ethernet, or a platform/vendor driver.
 
 ```mermaid
 flowchart TB
@@ -15,6 +15,7 @@ flowchart TB
     API --> LOOP["Loopback reference"]
     API --> SIM["Process-local simulator"]
     API --> UDP["VSPW-TP / UDP"]
+    API --> RAW["VSPW-TP / raw Ethernet"]
     API --> DEV["Linux DEVICE / VSPD"]
     DEV --> VSPWD["vspwd"]
     VSPWD --> CUSE["spwcuse / /dev/vspwX"]
@@ -59,6 +60,15 @@ See the [v0.7.0 release notes](docs/releases/v0.7.0.md), [current project status
 
 The public software claim deliberately stops before proprietary FPGA/HDL implementation details and before physical SpaceWire controller/PHY/electrical interoperability claims. Hosted profiling values are reference evidence for their named environments, not physical SpaceWire performance specifications.
 
+### Develop after v0.7.0
+
+`develop` now contains the completed transport-independence work: a
+carrier-independent VSPW engine, UDP provider binding, public
+`SPW_BACKEND_RAW_ETHERNET` callback binding, raw framing v2.0 with explicit
+VSPW length, deterministic in-memory coverage, and controlled Linux AF_PACKET
+carrier evidence. These changes are unreleased and do not retroactively alter
+the immutable v0.7.0 package contract.
+
 ## Supported backends
 
 | Backend | Linux | macOS | Windows | Embedded | Status |
@@ -66,6 +76,7 @@ The public software claim deliberately stops before proprietary FPGA/HDL impleme
 | Loopback | yes | yes | yes | yes | stable |
 | Process-local simulator | yes | yes | yes | no | stable |
 | VSPW-TP / UDP | yes | yes | yes | transport-dependent | stable hosted |
+| VSPW-TP / raw Ethernet | callback-dependent | callback-dependent | callback-dependent | yes | develop after v0.7; unreleased |
 | Linux DEVICE / VSPD | yes | no | no | no | stable |
 | CUSE `/dev/vspwX` presenter | yes | no | no | no | stable optional service |
 | Portable driver backend | yes | yes | yes | yes | stable public integration boundary |
@@ -156,6 +167,16 @@ flowchart LR
 ```
 
 UDP is only the carrier. Packet boundaries, EOP/EEP, time codes, session/retry behavior, virtual timing, and SpaceWire-side fault semantics remain SpWKit concepts.
+
+### Raw Ethernet carrier
+
+On `develop`, `SPW_BACKEND_RAW_ETHERNET` carries the same private VSPW
+engine directly in Ethernet-II frames. Platform-specific frame I/O is supplied
+through versioned callbacks, so AF_PACKET, lwIP, a board MAC/DMA driver, DAS or
+an RTOS remains below SpWKit rather than becoming a library dependency.
+
+The development envelope uses an explicit VSPW-frame length so Ethernet
+minimum-frame padding is never exposed as protocol data.
 
 ### Linux virtual device
 

@@ -270,3 +270,16 @@ The profiling campaign achieved more than a set of benchmark tables:
 - it left behind reproducible scripts, schemas, CI mechanics and controlled reference snapshots for future FPGA/ASIC/physical SpaceWire development.
 
 That is the purpose of the profiling infrastructure: **make performance decisions from measured boundaries, preserve comparable evidence, and ensure future hardware integration starts from a software stack whose own costs are already understood.**
+
+
+## Post-v0.7 transport-provider evidence
+
+The transport-independence refactor is screened separately in
+`benchmarks/transport-provider-post-refactor-evidence.md`.
+
+Current hosted evidence shows provider-wrapper dispatch below median
+measurement resolution, no recurring UDP regression versus immutable v0.7.0,
+lower raw-Ethernet TX medians than UDP for the tested payloads, and a
+slower/noisier copied AF_PACKET raw-Ethernet RX path consistent with the
+documented additional decapsulation copy. These values are host-carrier
+evidence, not physical Ethernet or SpaceWire timing.

@@ -209,3 +209,15 @@ For hosted systems, prefer median together with p95/p99 when discussing normal-p
 Do not compare absolute TSC/CNTVCT values from different machines as though they were directly interchangeable CPU-cycle counts. Keep the recorded counter metadata with every result.
 
 The strongest software-abstraction result is the direct/native differential measured on the same controlled system. Physical Cortex-M profiling uses DWT CYCCNT and should report literal MCU cycles together with the configured core clock and cache/DMA policy.
+
+
+## Post-v0.7 transport-provider evidence
+
+`transport-provider-post-refactor-evidence.md` records the #229/#230
+measurement campaign: provider-dispatch microcost, refactored UDP versus the
+immutable v0.7.0 baseline, copied-buffer ownership, and controlled Linux
+AF_PACKET raw-Ethernet versus UDP results.
+
+`profile_raw_ethernet_comparison.c` is Linux benchmark glue only. It binds
+the public raw-Ethernet callbacks to AF_PACKET/veth for controlled evidence; it
+is not a platform dependency of `libspwkit`.

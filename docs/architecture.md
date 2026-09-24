@@ -20,6 +20,10 @@ flowchart TB
     VSPWD --> VP[Virtual port topology]
     CUSE[spwcuse / /dev/vspwX] --> DEVICE
 
+    RAW --> FRAMEIO[Portable frame-I/O callbacks]
+    FRAMEIO --> HOSTRAW[Host raw-frame API]
+    FRAMEIO --> MAC[Embedded MAC / DMA driver]
+
     DRIVER --> RTOS[RTOS / bare-metal adapter]
     DRIVER --> MCU[Validated STM32 DMA/cache provider]
     DRIVER --> HW[Future vendor / FPGA controller]
@@ -62,6 +66,19 @@ flowchart LR
 ```
 
 VSPW-TP preserves logical packet identity across fragmentation/reassembly and transports time codes, liveness and acknowledgements separately. UDP loss/reordering is a transport concern; it is not automatically interpreted as a SpaceWire EEP or electrical/link fault.
+
+### VSPW-TP / raw Ethernet
+
+`SPW_BACKEND_RAW_ETHERNET` is the post-v0.7 development binding for carrying
+the same private VSPW engine directly in Ethernet-II frames without IP/UDP.
+The backend depends only on versioned frame-I/O and runtime callbacks. Linux
+AF_PACKET, an embedded MAC/DMA driver, DAS, an RTOS or another platform layer
+belongs below those callbacks rather than inside SpWKit.
+
+The development envelope carries destination/source MAC addresses, a
+caller-selected EtherType, a SpWKit subtype, framing version, explicit
+VSPW-frame length and the VSPW-TP frame. The explicit length prevents Ethernet
+minimum-frame padding from becoming protocol data.
 
 ### Linux virtual device
 
@@ -143,7 +160,7 @@ HardRT `0.4.0` is the current validated external RTOS integration baseline. CI p
 
 ## Hardware and FPGA stop line
 
-The public repository defines only the software contract a future hardware driver must satisfy. It does not publish or guess proprietary implementation details such as:
+The public repository defines the software contracts that hardware drivers and raw-Ethernet frame providers must satisfy. It does not publish or guess proprietary implementation details such as:
 
 - RTL architecture;
 - register/address maps;

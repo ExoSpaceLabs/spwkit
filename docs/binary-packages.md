@@ -2,15 +2,15 @@
 
 SpWKit remains buildable from source through ordinary CMake install/export flows. Stable tags also publish precompiled Linux artifacts, but only for architectures with target-specific package installation and execution evidence in CI.
 
-## v0.6.1 artifacts
+## v0.7.0 artifacts
 
-The `v0.6.1` Release workflow publishes one Debian package and matching SHA-256 sidecar for each validated hosted architecture:
+The `v0.7.0` Release workflow publishes one Debian package and matching SHA-256 sidecar for each validated hosted architecture:
 
 ```text
-spwkit_0.6.1-1_amd64.deb
-spwkit_0.6.1-1_arm64.deb
-spwkit_0.6.1-1_armhf.deb
-spwkit_0.6.1-1_riscv64.deb
+spwkit_0.7.0-1_amd64.deb
+spwkit_0.7.0-1_arm64.deb
+spwkit_0.7.0-1_armhf.deb
+spwkit_0.7.0-1_riscv64.deb
 ```
 
 Architecture mapping:
@@ -76,7 +76,7 @@ Stable releases publish one multi-architecture runtime/toolbox image:
 ghcr.io/exospacelabs/spwkit:vX.Y.Z
 ```
 
-`v0.6.1` targets:
+`v0.7.0` targets:
 
 ```text
 linux/amd64
@@ -85,7 +85,7 @@ linux/arm/v7
 linux/riscv64
 ```
 
-Publication also updates the matching minor alias (`0.6`) and `latest` for the newest stable release.
+Publication also updates the matching minor alias (`0.7`) and `latest` for the newest stable release.
 
 The image contains the hosted package surface: `vspwd`, `spwctl`, `spwmon`, the shared library, public headers, and CMake package metadata.
 

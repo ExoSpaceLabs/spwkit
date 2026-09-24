@@ -122,7 +122,7 @@ target_link_libraries(app PRIVATE spwkit::cpp)
 
 ## Platform/backend behavior
 
-The wrapper does not create platform-specific behavior. `SPW_BACKEND_UDP` uses POSIX sockets or Winsock beneath the same C API; `SPW_BACKEND_DEVICE` remains Linux-specific; stable v0.7.0 `SPW_BACKEND_DRIVER` is portable to hosted and embedded targets according to the selected driver implementation.
+The wrapper does not create platform-specific behavior. `SPW_BACKEND_UDP` uses POSIX sockets or Winsock beneath the same C API; post-v0.7 `SPW_BACKEND_RAW_ETHERNET` delegates portable frame I/O to caller callbacks; `SPW_BACKEND_DEVICE` remains Linux-specific; stable v0.7.0 `SPW_BACKEND_DRIVER` is portable to hosted and embedded targets according to the selected driver implementation.
 
 A wrapper method may therefore return `SPW_ERR_UNSUPPORTED` for a capability or backend that is unavailable in the selected build, exactly as the C call would.
 
