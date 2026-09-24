@@ -319,7 +319,7 @@ int main(void) {
     rx_packet.capacity = sizeof(rx);
 
     assert(spw_port_send(port_a, &tx_packet, 1000u) == SPW_OK);
-    assert(endpoint_a.last_tx_size >= 18u);
+    assert(endpoint_a.last_tx_size >= 20u);
     assert(endpoint_a.last_tx[12] == 0x88u);
     assert(endpoint_a.last_tx[13] == 0xb5u);
     assert(endpoint_a.last_tx[14] ==
