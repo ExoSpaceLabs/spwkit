@@ -1,6 +1,6 @@
 # Local virtual SpaceWire simulator
 
-The original v0.1 simulator is a process-local implementation of the same backend contract used by `libspwkit` for loopback, distributed UDP, Linux virtual devices, and physical-provider adapters.
+The original v0.1 simulator is a process-local implementation of the same application-visible backend contract used by `libspwkit` for loopback, distributed UDP, post-v0.7 raw Ethernet, Linux virtual devices, and physical-provider adapters.
 
 Applications do not call simulator-specific transport functions. They select the simulator through `spw_port_config_t` and continue to use the normal `spw_port_*` API.
 
