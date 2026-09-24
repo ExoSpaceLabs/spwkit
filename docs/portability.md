@@ -66,7 +66,7 @@ Applications can therefore choose either the linked DEVICE API or a `/dev/vspwX`
 
 ## Portable driver boundary
 
-The v0.6 `SPW_BACKEND_DRIVER` contract, retained in stable v0.6.1, accepts a versioned `spw_driver_ops_t` callback table and caller-owned driver context. This supports host reference drivers, bare metal, RTOS devices, vendor SDKs and future FPGA controllers while keeping platform-native mechanism types below the application API.
+The v0.6 `SPW_BACKEND_DRIVER` contract, retained in stable v0.7.0, accepts a versioned `spw_driver_ops_t` callback table and caller-owned driver context. This supports host reference drivers, bare metal, RTOS devices, vendor SDKs and future FPGA controllers while keeping platform-native mechanism types below the application API.
 
 The driver/DMA callback layer may handle cache synchronization, descriptor submission and completion internally. The application still sees opaque `spw_buffer_t` ownership transitions.
 
