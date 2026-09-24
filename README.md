@@ -15,6 +15,7 @@ flowchart TB
     API --> LOOP["Loopback reference"]
     API --> SIM["Process-local simulator"]
     API --> UDP["VSPW-TP / UDP"]
+    API --> RAW["VSPW-TP / raw Ethernet"]
     API --> DEV["Linux DEVICE / VSPD"]
     DEV --> VSPWD["vspwd"]
     VSPWD --> CUSE["spwcuse / /dev/vspwX"]
@@ -74,7 +75,8 @@ the immutable v0.7.0 package contract.
 |---|---:|---:|---:|---:|---|
 | Loopback | yes | yes | yes | yes | stable |
 | Process-local simulator | yes | yes | yes | no | stable |
-| VSPW-TP / UDP | yes | yes | yes | transport-dependent | stable hosted |\n| VSPW-TP / raw Ethernet | callback-dependent | callback-dependent | callback-dependent | yes | develop after v0.7; unreleased |
+| VSPW-TP / UDP | yes | yes | yes | transport-dependent | stable hosted |
+| VSPW-TP / raw Ethernet | callback-dependent | callback-dependent | callback-dependent | yes | develop after v0.7; unreleased |
 | Linux DEVICE / VSPD | yes | no | no | no | stable |
 | CUSE `/dev/vspwX` presenter | yes | no | no | no | stable optional service |
 | Portable driver backend | yes | yes | yes | yes | stable public integration boundary |
