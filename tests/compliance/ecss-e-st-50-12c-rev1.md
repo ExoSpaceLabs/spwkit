@@ -25,7 +25,7 @@ Classification:
 
 | ID | ECSS clause | Project-owned requirement summary | SpWKit surface | Verification evidence | Classification |
 |---|---|---|---|---|---|
-| SW-SPW-001 | 5.6.2.1 c | Preserve the packet end indication as EOP or EEP rather than collapsing the two termination outcomes. | `spw_packet_t`, `spw_terminator_t`, copied and zero-copy packet APIs | `test_bidirectional_packets`, `test_receive_capacity_retention`; `backend_equivalence_v1_matrix` | **Software verified** |
+| SW-SPW-001 | 5.6.2.1 c | Preserve the packet end indication as EOP or EEP rather than collapsing the two termination outcomes. | `spw_packet_t`, `spw_terminator_t`, copied and zero-copy packet APIs | `test_bidirectional_packets`, `test_receive_capacity_retention`; reusable `backend_contract_*` fixtures | **Software verified** |
 | SW-SPW-002 | 5.6.2.1 d | Represent and transfer a packet containing zero data characters without inventing payload data. | zero-length `spw_packet_t` | `test_zero_length_packet`; common backend contract | **Software verified** |
 | SW-SPW-003 | 5.6.2.1 f; 6.1.1.2-6.1.1.3 | Carry packet cargo transparently through the endpoint packet service and reproduce the submitted bytes at receive indication. | `spw_port_send`, `spw_port_receive`; zero-copy packet metadata/view API | `test_bidirectional_packets`, `test_large_packet`, copied/zero-copy interoperability tests; backend-equivalence matrix | **Software verified** |
 | SW-SPW-004 | 6.1.1.1; 6.1.1.2.1-2; 6.1.1.3.1-2 | Provide endpoint-facing packet send-request and receive-indication semantics carrying the complete SpaceWire packet and its termination indication. | copied packet API; backend-neutral port interface | common `run_backend_contract()` across SIMULATOR, UDP, DEVICE/VSPD and DRIVER | **Software verified** |
@@ -105,7 +105,33 @@ The primary hosted release evidence is the common backend contract:
 
 ```bash
 ctest --test-dir build-hosted \
-  -R '^backend_equivalence_v1_matrix$' \
+  -R '^backend_contract_(simulator|udp|device|driver|raw_ethernet)
+```
+
+The aggregate executes the shared application-level contract against:
+
+- SIMULATOR;
+- VSPW-TP/UDP;
+- Linux DEVICE/VSPD;
+- deterministic DRIVER/reference provider.
+
+Additional backend-specific tests cover transport/session recovery, zero-copy ownership, malformed arguments and provider behavior. `docs/runtime-contract.md` and `docs/backend-equivalence.md` define the software semantics being verified.
+
+The requirement mapping must be reviewed independently from a passing test suite. A passing project test proves the mapped SpWKit behavior; it does not prove that an incorrect requirement mapping magically became correct.
+
+## Release review rules
+
+Before this matrix is used in a release claim:
+
+1. verify the exact ECSS revision is still the project target;
+2. review every **Software verified** row against the normative ECSS text;
+3. run the cited evidence on the release candidate;
+4. do not promote a delegated or future row to software-verified without implementation and reproducible evidence;
+5. record any tailoring or limitation in the release notes;
+6. do not call this evidence certification, qualification, or physical SpaceWire compliance.
+
+The intended `v0.7.0` wording is therefore deliberately scoped: **SpWKit v0.7.0 conforms to the specifically enumerated ECSS-E-ST-50-12C Rev.1 requirements/subclauses marked Software verified in this matrix for the tested endpoint/link software abstraction.** Full physical SpaceWire conformity for a concrete system additionally requires a conforming physical provider and evidence for every other applicable requirement at that system boundary.
+ \
   --output-on-failure
 ```
 
