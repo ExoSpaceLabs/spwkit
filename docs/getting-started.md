@@ -154,115 +154,7 @@ For a complete hosted Linux source build, run the available contract fixtures di
 
 ```bash
 ctest --test-dir build-hosted \
-  -R '^backend_contract_(simulator|udp|device|driver|raw_ethernet)
-
-## Use zero-copy ownership
-
-Check `SPW_CAP_ZERO_COPY` first. Supporting backends use this lifecycle:
-
-```mermaid
-flowchart LR
-    ACQ[Acquire TX] --> FILL[Fill buffer]
-    FILL --> META[Set length + EOP/EEP]
-    META --> SUB[Submit]
-    SUB --> OWN[Backend owns]
-    OWN --> REC[Reclaim]
-    REC --> REL[Release or reuse]
-```
-
-The simulator provides a deterministic software implementation of this ownership contract. The v0.7 driver backend maps the same API onto driver/DMA buffers and enforces reset-safe ownership epochs.
-
-## Run distributed virtual SpaceWire
-
-Create two `SPW_BACKEND_UDP` ports with reversed local/remote UDP ports and a shared `link_id`. VSPW-TP handles packet fragmentation/reassembly, EOP/EEP, time codes, liveness and reliable logical-message behavior.
-
-```mermaid
-flowchart LR
-    A[Process / container A] --> UA[SPW_BACKEND_UDP]
-    UA <-->|IPv4 UDP + VSPW-TP| UB[SPW_BACKEND_UDP]
-    UB --> B[Process / container B]
-```
-
-POSIX hosts and Windows/Winsock use the same public configuration and wire contract.
-
-Standalone installed-package peers live in `examples/distributed` and `examples/distributed_cpp`. The CI suite also runs Linux network namespaces and Docker Compose isolation.
-
-## Run Linux virtual devices
-
-Build the daemon/backend:
-
-```bash
-cmake -S . -B build-device \
-  -DSPWKIT_BUILD_DEVICE=ON \
-  -DSPWKIT_BUILD_VSPWD=ON \
-  -DSPWKIT_BUILD_TOOLS=ON
-cmake --build build-device --parallel
-```
-
-Start the daemon:
-
-```bash
-./build-device/vspwd --socket /tmp/mission-vspwd.sock
-```
-
-Applications attach through `SPW_BACKEND_DEVICE`. `spwctl` inspects/manages daemon state and `spwmon` passively subscribes to snapshots.
-
-### Optional `/dev/vspwX`
-
-The stable v0.7 line includes `spwcuse` for applications that need a real Linux character device:
-
-```bash
-cmake -S . -B build-cuse \
-  -DSPWKIT_BUILD_DEVICE=ON \
-  -DSPWKIT_BUILD_VSPWD=ON \
-  -DSPWKIT_BUILD_CUSE=ON
-cmake --build build-cuse --parallel
-
-./build-cuse/vspwd --socket /tmp/mission-vspwd.sock &
-./build-cuse/spwcuse --socket /tmp/mission-vspwd.sock --port 0 --device vspw0
-```
-
-`/dev/vspw0` is record-oriented, not a raw byte stream. DATA packet boundaries, EOP/EEP and time codes remain explicit.
-
-## No-heap / embedded construction
-
-```c
-spw_port_workspace_requirements_t req;
-spw_port_workspace_requirements(&config, &req);
-
-/* Storage must satisfy req.size and req.alignment. */
-spw_port_t* port = NULL;
-spw_port_open_in_place(&config, workspace, workspace_size, &port);
-```
-
-With `SPWKIT_ENABLE_HEAP=OFF`, `spw_port_open()` is not the construction path; use caller-owned storage.
-
-HardRT `0.4.0` is the currently validated external RTOS baseline. The Cortex-M7 CI fixture is compile/link evidence; a separate physical NUCLEO-H755ZI-Q qualification has also completed using real DMA2 and explicit Cortex-M7 cache synchronization through the public driver boundary. Neither result is physical SpaceWire PHY/electrical HIL.
-
-## v0.7 driver backend
-
-Stable `v0.7.0` includes `SPW_BACKEND_DRIVER`, its DMA/ownership callback boundary, and the reusable public backend-contract evidence. It is intended for host reference drivers, MCU/RTOS integrations and future FPGA/vendor controllers while keeping application source on the same `spw_port_*`/`spw_buffer_*` API.
-
-The physical STM32H755 DMA/cache qualification validates the software ownership/cache boundary on real Cortex-M7 silicon. It does not prove a physical SpaceWire controller, codec, PHY or cable; FPGA/SpaceWire HIL remains a separate future evidence layer.
-
-## Consume the installed package
-
-C:
-
-```cmake
-find_package(SpWKit 0.7 CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE spwkit::spwkit)
-```
-
-C++17 wrapper:
-
-```cmake
-find_package(SpWKit 0.7 CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE spwkit::cpp)
-```
-
-The stable v0.7 package examples request the compatible `0.7` line. `v0.7.0` is the immutable release evidence boundary for this package line.
- \
+  -R '^backend_contract_(simulator|udp|device|driver|raw_ethernet)$' \
   --output-on-failure
 ```
 
@@ -281,6 +173,16 @@ flowchart LR
 ```
 
 The simulator provides a deterministic software implementation of this ownership contract. The v0.7 driver backend maps the same API onto driver/DMA buffers and enforces reset-safe ownership epochs.
+
+## Raw Ethernet on develop
+
+After v0.7.0, `develop` provides `SPW_BACKEND_RAW_ETHERNET`. It uses the
+same VSPW protocol engine as UDP but places VSPW frames directly in Ethernet-II
+payloads through caller-supplied complete-frame and runtime callbacks. This is
+the path intended for host raw-frame testing and embedded MAC/DMA integration;
+it is not part of the immutable v0.7.0 package.
+
+See [VSPW transport providers](vspw-transport-provider.md).
 
 ## Run distributed virtual SpaceWire
 
