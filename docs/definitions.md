@@ -24,7 +24,8 @@ A SpWKit port may be implemented by:
 
 - loopback/reference software;
 - the process-local simulator;
-- VSPW-TP/UDP;\n- VSPW-TP/raw Ethernet;
+- VSPW-TP/UDP;
+- VSPW-TP/raw Ethernet;
 - the Linux DEVICE/VSPD stack;
 - a portable driver callback implementation;
 - future vendor/FPGA/physical hardware.
@@ -92,7 +93,8 @@ No current hosted simulator/device result is described as physical SpaceWire evi
 **Virtual SpaceWire** is SpWKit's software model of application-visible SpaceWire behavior. Current virtual paths include:
 
 - the process-local simulator;
-- distributed VSPW-TP/UDP;\n- VSPW-TP/raw Ethernet through `SPW_BACKEND_RAW_ETHERNET`;
+- distributed VSPW-TP/UDP;
+- VSPW-TP/raw Ethernet through `SPW_BACKEND_RAW_ETHERNET`;
 - Linux `SPW_BACKEND_DEVICE` through `vspwd`;
 - optional CUSE presentation such as `/dev/vspw0` through `spwcuse`.
 
