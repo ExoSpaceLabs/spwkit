@@ -53,7 +53,8 @@ A valid C-only profile must configure, build, execute, install and link without 
 This gate verifies:
 
 - C11 library/archive behavior;
-- simulator/UDP C paths where enabled;\n- raw-Ethernet public framing/integration and shared backend-contract coverage;
+- simulator/UDP C paths where enabled;
+- raw-Ethernet public framing/integration and shared backend-contract coverage;
 - no C++ ABI/runtime symbols in the C library;
 - independent installed C consumer;
 - static/shared C consumption;
