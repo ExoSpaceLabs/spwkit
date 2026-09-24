@@ -70,7 +70,7 @@ Runtime availability is platform/build dependent. A source-visible backend may r
 - `SPW_BACKEND_SIMULATOR` provides a process-local equal-peer virtual link.
 - `SPW_BACKEND_UDP` provides VSPW-TP over POSIX UDP or native Windows/Winsock.
 - `SPW_BACKEND_DEVICE` attaches Linux applications to `vspwd` through VSPD.
-- `SPW_BACKEND_RAW_ETHERNET` and `SPW_BACKEND_DRIVER` is the portable platform/vendor driver boundary introduced in v0.6 and retained by the stable v0.6.1 line.
+- `SPW_BACKEND_DRIVER` is the portable platform/vendor driver boundary introduced in v0.6 and retained by stable v0.7.0; post-v0.7 `develop` additionally exposes `SPW_BACKEND_RAW_ETHERNET` as a portable frame-I/O carrier binding.
 
 ## Link state
 
