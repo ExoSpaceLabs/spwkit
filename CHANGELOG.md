@@ -2,6 +2,43 @@
 
 Notable user-visible changes are recorded here. SpWKit follows semantic versioning for package releases while the public C ABI remains explicitly versioned through `SPWKIT_API_VERSION_*`.
 
+## Unreleased
+
+### Added
+
+- carrier-independent private VSPW engine with transport-provider and runtime
+  boundaries, preserving the public `spw_port_*` contract while separating
+  session/reliability/reassembly logic from UDP/socket mechanics (#229);
+- public `SPW_BACKEND_RAW_ETHERNET` binding using versioned complete-frame I/O
+  and runtime callbacks so host or embedded Ethernet integrations can sit below
+  SpWKit without introducing an OS, SDK, RTOS or board-support dependency;
+- deterministic in-memory VSPW-engine coverage and reusable raw-Ethernet backend
+  contract execution;
+- controlled Linux AF_PACKET/veth raw-Ethernet versus UDP performance evidence,
+  provider-dispatch microcost evidence and post-refactor UDP comparison against
+  immutable v0.7.0 (#230).
+
+### Changed
+
+- raw-Ethernet development framing is version 2.0 and now carries an explicit
+  16-bit VSPW-frame length, preventing Ethernet minimum-frame padding from being
+  interpreted as VSPW protocol bytes;
+- UDP socket/address/send/receive/readiness mechanics are localized to the UDP
+  provider below the carrier-independent VSPW engine;
+- active architecture, backend, portability, testing and profiling
+  documentation now distinguishes immutable v0.7.0 behavior from unreleased
+  post-v0.7 `develop` capabilities.
+
+### Performance
+
+- provider-wrapper dispatch measured below median resolution in the dedicated
+  hosted direct-vs-wrapper experiment;
+- refactored UDP showed no recurring regression versus immutable v0.7.0;
+- on the controlled AF_PACKET/veth host, raw Ethernet measured lower TX cost
+  than UDP for 0/64/1024/4096-byte logical payloads, while the current copied
+  raw-Ethernet RX path was slower and noisier than loopback UDP, identifying
+  receive-side copy/carrier handling as an optimization target.
+
 ## v0.7.0 — 2026-09-21
 
 Behavioral/backend-contract hardening release. v0.7 defines the software-visible semantics that virtual and future physical providers must preserve, adds requirement-level ECSS SpaceWire software-conformance traceability, and makes performance-regression acceptance an explicit release gate.
