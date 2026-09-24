@@ -58,7 +58,7 @@ For an unfragmented DATA message, both fragment flags are clear, `fragment_offse
 
 For a fragmented DATA message, the first fragment has `FRAGMENT_START` and offset zero. The final fragment has `FRAGMENT_END` and ends exactly at `total_size`. Intermediate fragments have neither boundary flag. Reassembly completes before a packet is surfaced to the application.
 
-The UDP backend keeps one active fragmented logical packet at a time, but its fragments may arrive in arbitrary UDP order. A fixed one-bit-per-payload-byte coverage map records the received portions of the existing 1 MiB reassembly buffer. Exact duplicate fragments and byte-identical partial overlaps are idempotent; conflicting overlaps or inconsistent message metadata are dropped. A packet becomes application-visible only after every payload byte is covered and both `FRAGMENT_START` and `FRAGMENT_END` have been observed.
+The VSPW engine keeps one active fragmented logical packet at a time, but its fragments may arrive in arbitrary UDP order. A fixed one-bit-per-payload-byte coverage map records the received portions of the existing 1 MiB reassembly buffer. Exact duplicate fragments and byte-identical partial overlaps are idempotent; conflicting overlaps or inconsistent message metadata are dropped. A packet becomes application-visible only after every payload byte is covered and both `FRAGMENT_START` and `FRAGMENT_END` have been observed.
 
 Incomplete reassembly is cleared on peer/session loss or transition and expires after `peer_timeout_ms` without DATA-fragment activity. KEEPALIVEs keep the peer session alive but do not indefinitely preserve a stalled partial packet. Transport reordering or loss never synthesizes an application-visible EEP.
 
@@ -121,7 +121,7 @@ EOP and EEP are mutually exclusive and legal only for DATA. `ACK_REQUIRED` is cu
 
 ## Reliability model
 
-The v0.2 UDP backend uses bounded cooperative reliability rather than a mandatory background thread.
+The VSPW engine uses bounded cooperative reliability rather than a mandatory background thread.
 
 For one port:
 
@@ -138,7 +138,7 @@ This model deliberately avoids requiring a second thread merely to make two peer
 
 ## Virtual-link timing
 
-The UDP backend can apply deterministic **SpaceWire-side** timing before the first transport transmission of each logical DATA or TIME_CODE event. `virtual_link_bps` controls effective serialization delay and `virtual_latency_us` adds one fixed propagation/processing delay. Both default to zero, preserving the previous immediate behavior.
+The VSPW engine can apply deterministic **SpaceWire-side** timing before the first transport transmission of each logical DATA or TIME_CODE event. `virtual_link_bps` controls effective serialization delay and `virtual_latency_us` adds one fixed propagation/processing delay. Both default to zero, preserving the previous immediate behavior.
 
 The model is intentionally logical rather than PHY-accurate. DATA serialization charges the payload plus one logical terminator octet. TIME_CODE serialization charges its two-byte logical event. Serialization delay is rounded up to the next microsecond.
 
@@ -167,7 +167,7 @@ The explicitly SpaceWire-visible fault action is **EEP injection**. It applies t
 
 ## Liveness
 
-Each started UDP backend chooses a new non-zero local session ID and advertises it through KEEPALIVE while stamping the same ID on all other frames. `keepalive_interval_ms` controls periodic advertisement while API calls are servicing the transport. `peer_timeout_ms` controls when lack of valid current-session traffic from the configured peer is mapped to `SPW_LINK_ERROR_WAIT`.
+Each started VSPW engine chooses a new non-zero local session ID and advertises it through KEEPALIVE while stamping the same ID on all other frames. `keepalive_interval_ms` controls periodic advertisement while API calls are servicing the transport. `peer_timeout_ms` controls when lack of valid current-session traffic from the configured peer is mapped to `SPW_LINK_ERROR_WAIT`.
 
 There is no hidden mandatory background worker in v0.2. If an application performs no SpWKit calls at all, transport timers do not execute in the background. This is intentional for portability to bare-metal/RTOS adapters. Applications that need continuous liveness observation can poll link state or keep a blocking receive/service loop active.
 
@@ -180,7 +180,17 @@ The protocol codec defines:
 - maximum single fragment payload: 65,467 bytes;
 - maximum logical packet represented by the protocol: 16 MiB.
 
-The UDP backend deliberately advertises a smaller 1 MiB maximum packet size so TX retention and reassembly storage remain bounded and deterministic. Reassembly uses the 1 MiB payload buffer plus a fixed 128 KiB coverage bitmap (one bit per possible payload byte), avoiding an arbitrary fragment-range-count limit. Its default fragment payload is 1200 bytes to avoid relying on IP fragmentation.
+The VSPW engine deliberately advertises a smaller 1 MiB maximum packet size so TX retention and reassembly storage remain bounded and deterministic. Reassembly uses the 1 MiB payload buffer plus a fixed 128 KiB coverage bitmap (one bit per possible payload byte), avoiding an arbitrary fragment-range-count limit. Its default fragment payload is 1200 bytes to avoid relying on IP fragmentation.
+
+## Raw-Ethernet binding
+
+Post-v0.7 `develop` binds the same private VSPW engine through
+`SPW_BACKEND_RAW_ETHERNET`. VSPW session/reliability/reassembly semantics do
+not fork; only the carrier provider changes. The raw-Ethernet development
+envelope uses an explicit VSPW-frame length so Ethernet minimum-frame padding
+is ignored safely.
+
+See [VSPW transport providers](vspw-transport-provider.md).
 
 ## UDP backend configuration
 
