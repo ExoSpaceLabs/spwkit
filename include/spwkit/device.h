@@ -20,6 +20,10 @@ typedef struct spw_device_config {
     char endpoint[SPW_DEVICE_ENDPOINT_CAPACITY];
 } spw_device_config_t;
 
+/* Stable minimum extent for the current 1.x-compatible structure contract. */
+#define SPW_DEVICE_CONFIG_V1_MIN_SIZE \
+    (offsetof(spw_device_config_t, endpoint) + sizeof(((spw_device_config_t*)0)->endpoint))
+
 #define SPW_DEVICE_CONFIG_INITIALIZER(port_id_) \
     { sizeof(spw_device_config_t), SPW_DEVICE_CONFIG_VERSION, \
       (uint32_t)(port_id_), 0u, SPW_DEVICE_DEFAULT_ENDPOINT }
