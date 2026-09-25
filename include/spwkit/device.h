@@ -2,6 +2,7 @@
 #ifndef SPWKIT_DEVICE_H
 #define SPWKIT_DEVICE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -19,6 +20,10 @@ typedef struct spw_device_config {
     uint32_t reserved;
     char endpoint[SPW_DEVICE_ENDPOINT_CAPACITY];
 } spw_device_config_t;
+
+#define SPW_DEVICE_CONFIG_MIN_SIZE \
+    (offsetof(spw_device_config_t, endpoint) + \
+     sizeof(((spw_device_config_t*)0)->endpoint))
 
 #define SPW_DEVICE_CONFIG_INITIALIZER(port_id_) \
     { sizeof(spw_device_config_t), SPW_DEVICE_CONFIG_VERSION, \
