@@ -19,7 +19,9 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
   immutable v0.7.0 (#230);
 - Wireshark/tshark decoding and deterministic CI validation for raw-Ethernet
   framing v2.0, including declared-length/padding handling and Decode As support
-  for caller-selected EtherTypes (#240).
+  for caller-selected EtherTypes (#240);
+- explicit public C ABI/type-layout policy with stable-prefix macros and
+  executable struct-size/package-compatibility checks (#210).
 
 ### Changed
 
@@ -30,7 +32,13 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
   provider below the carrier-independent VSPW engine;
 - active architecture, backend, portability, testing and profiling
   documentation now distinguishes immutable v0.7.0 behavior from unreleased
-  post-v0.7 `develop` capabilities.
+  post-v0.7 `develop` capabilities;
+- pre-1 shared-library/package compatibility is minor-scoped (`0.<minor>`
+  SONAME and CMake `SameMinorVersion`) rather than falsely treating all 0.x
+  releases as one ABI family; v1+ returns to ordinary same-major compatibility;
+- size/versioned public configuration and callback structures use explicit
+  stable-prefix boundaries and bounded copies; fixed-layout value/output
+  structures are frozen for 1.x.
 
 ### Performance
 
