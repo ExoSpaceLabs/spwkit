@@ -94,6 +94,10 @@ typedef struct spw_raw_ethernet_io_ops {
                                 bool* out_link_up);
 } spw_raw_ethernet_io_ops_t;
 
+#define SPW_RAW_ETHERNET_IO_OPS_V1_MIN_SIZE \
+    (offsetof(spw_raw_ethernet_io_ops_t, get_link_up) + \
+     sizeof(((spw_raw_ethernet_io_ops_t*)0)->get_link_up))
+
 typedef struct spw_raw_ethernet_config {
     uint32_t struct_size;
     uint32_t version;
@@ -120,6 +124,10 @@ typedef struct spw_raw_ethernet_config {
     uint32_t virtual_latency_us;
     uint32_t reserved;
 } spw_raw_ethernet_config_t;
+
+#define SPW_RAW_ETHERNET_CONFIG_V1_MIN_SIZE \
+    (offsetof(spw_raw_ethernet_config_t, reserved) + \
+     sizeof(((spw_raw_ethernet_config_t*)0)->reserved))
 
 #define SPW_RAW_ETHERNET_IO_OPS_INITIALIZER \
     { sizeof(spw_raw_ethernet_io_ops_t), SPW_RAW_ETHERNET_IO_OPS_VERSION }
