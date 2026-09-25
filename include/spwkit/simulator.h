@@ -2,6 +2,7 @@
 #ifndef SPWKIT_SIMULATOR_H
 #define SPWKIT_SIMULATOR_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "spwkit/config.h"
