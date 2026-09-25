@@ -2,6 +2,7 @@
 #ifndef SPWKIT_DEVICE_H
 #define SPWKIT_DEVICE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
