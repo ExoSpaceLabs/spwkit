@@ -108,7 +108,7 @@ static spw_result_t validate_common_config(const spw_port_config_t* config) {
     if (config == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
-    if (config->struct_size < sizeof(spw_port_config_t)) {
+    if (config->struct_size < SPW_PORT_CONFIG_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (config->version != SPW_PORT_CONFIG_VERSION) {
@@ -124,11 +124,11 @@ static spw_result_t validate_device_config(const spw_port_config_t* config) {
     const spw_device_config_t* device;
     size_t endpoint_length;
     if (config->backend_config == NULL ||
-        config->backend_config_size < sizeof(spw_device_config_t)) {
+        config->backend_config_size < SPW_DEVICE_CONFIG_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     device = (const spw_device_config_t*)config->backend_config;
-    if (device->struct_size < sizeof(spw_device_config_t)) {
+    if (device->struct_size < SPW_DEVICE_CONFIG_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (device->version != SPW_DEVICE_CONFIG_VERSION) {
@@ -152,11 +152,11 @@ static spw_result_t validate_driver_config(const spw_port_config_t* config) {
     const spw_driver_config_t* driver;
     const spw_driver_ops_t* ops;
     if (config->backend_config == NULL ||
-        config->backend_config_size < sizeof(spw_driver_config_t)) {
+        config->backend_config_size < SPW_DRIVER_CONFIG_V2_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     driver = (const spw_driver_config_t*)config->backend_config;
-    if (driver->struct_size < sizeof(spw_driver_config_t)) {
+    if (driver->struct_size < SPW_DRIVER_CONFIG_V2_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (driver->version != SPW_DRIVER_CONFIG_VERSION) {
@@ -166,7 +166,7 @@ static spw_result_t validate_driver_config(const spw_port_config_t* config) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     ops = driver->ops;
-    if (ops->struct_size < sizeof(spw_driver_ops_t)) {
+    if (ops->struct_size < SPW_DRIVER_OPS_V2_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (ops->version != SPW_DRIVER_OPS_VERSION) {
@@ -206,12 +206,12 @@ static spw_result_t validate_driver_config(const spw_port_config_t* config) {
 static spw_result_t validate_simulator_config(const spw_port_config_t* config) {
     const spw_simulator_config_t* simulator;
     if (config->backend_config == NULL ||
-        config->backend_config_size < sizeof(spw_simulator_config_t)) {
+        config->backend_config_size < SPW_SIMULATOR_CONFIG_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
 
     simulator = (const spw_simulator_config_t*)config->backend_config;
-    if (simulator->struct_size < sizeof(spw_simulator_config_t)) {
+    if (simulator->struct_size < SPW_SIMULATOR_CONFIG_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (simulator->version != SPW_SIMULATOR_CONFIG_VERSION) {
@@ -255,12 +255,12 @@ static spw_result_t validate_udp_config(const spw_port_config_t* config) {
     const spw_udp_config_t* udp;
     size_t i;
     if (config->backend_config == NULL ||
-        config->backend_config_size < sizeof(spw_udp_config_t)) {
+        config->backend_config_size < SPW_UDP_CONFIG_V3_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
 
     udp = (const spw_udp_config_t*)config->backend_config;
-    if (udp->struct_size < sizeof(spw_udp_config_t)) {
+    if (udp->struct_size < SPW_UDP_CONFIG_V3_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (udp->version != SPW_UDP_CONFIG_VERSION) {
@@ -302,11 +302,11 @@ static spw_result_t validate_raw_ethernet_config(
     const spw_runtime_ops_t* runtime;
 
     if (config->backend_config == NULL ||
-        config->backend_config_size < sizeof(spw_raw_ethernet_config_t)) {
+        config->backend_config_size < SPW_RAW_ETHERNET_CONFIG_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     raw = (const spw_raw_ethernet_config_t*)config->backend_config;
-    if (raw->struct_size < sizeof(spw_raw_ethernet_config_t)) {
+    if (raw->struct_size < SPW_RAW_ETHERNET_CONFIG_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (raw->version != SPW_RAW_ETHERNET_CONFIG_VERSION) {
@@ -327,7 +327,7 @@ static spw_result_t validate_raw_ethernet_config(
     }
 
     io = raw->io_ops;
-    if (io->struct_size < sizeof(spw_raw_ethernet_io_ops_t)) {
+    if (io->struct_size < SPW_RAW_ETHERNET_IO_OPS_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (io->version != SPW_RAW_ETHERNET_IO_OPS_VERSION) {
@@ -341,7 +341,7 @@ static spw_result_t validate_raw_ethernet_config(
     }
 
     runtime = raw->runtime_ops;
-    if (runtime->struct_size < sizeof(spw_runtime_ops_t)) {
+    if (runtime->struct_size < SPW_RUNTIME_OPS_V1_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (runtime->version != SPW_RUNTIME_OPS_VERSION) {
