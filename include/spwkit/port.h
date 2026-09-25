@@ -38,34 +38,34 @@ struct spw_port_workspace_requirements {
 };
 
 /** Query caller-owned storage requirements for the selected backend. */
-spw_result_t spw_port_workspace_requirements(
+SPWKIT_API spw_result_t spw_port_workspace_requirements(
     const spw_port_config_t* config,
     spw_port_workspace_requirements_t* out_requirements);
 
 /** Construct a port entirely inside caller-owned storage. */
-spw_result_t spw_port_open_in_place(const spw_port_config_t* config,
+SPWKIT_API spw_result_t spw_port_open_in_place(const spw_port_config_t* config,
                                     void* workspace,
                                     size_t workspace_size,
                                     spw_port_t** out_port);
 
 /** Hosted convenience open. May allocate dynamically when enabled. */
-spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_port);
+SPWKIT_API spw_result_t spw_port_open(const spw_port_config_t* config, spw_port_t** out_port);
 
 /** Close a port. Requires no in-flight or future operation on this handle. */
-spw_result_t spw_port_close(spw_port_t* port);
-spw_result_t spw_port_start(spw_port_t* port);
-spw_result_t spw_port_stop(spw_port_t* port);
+SPWKIT_API spw_result_t spw_port_close(spw_port_t* port);
+SPWKIT_API spw_result_t spw_port_start(spw_port_t* port);
+SPWKIT_API spw_result_t spw_port_stop(spw_port_t* port);
 /**
  * Reset the local endpoint to ERROR_RESET.
  *
  * A successful reset begins a new zero-copy ownership epoch; pre-reset buffer
  * handles/completions from this port are stale and must not be reused.
  */
-spw_result_t spw_port_reset(spw_port_t* port);
+SPWKIT_API spw_result_t spw_port_reset(spw_port_t* port);
 
-spw_result_t spw_port_get_link_state(const spw_port_t* port,
+SPWKIT_API spw_result_t spw_port_get_link_state(const spw_port_t* port,
                                      spw_link_state_t* out_state);
-spw_result_t spw_port_get_capabilities(const spw_port_t* port,
+SPWKIT_API spw_result_t spw_port_get_capabilities(const spw_port_t* port,
                                        spw_capabilities_t* out_capabilities);
 
 /**
@@ -78,28 +78,28 @@ spw_result_t spw_port_get_capabilities(const spw_port_t* port,
  * rest of the port API, including SPW_TIMEOUT_IMMEDIATE and
  * SPW_TIMEOUT_INFINITE.
  */
-spw_result_t spw_port_wait(spw_port_t* port,
+SPWKIT_API spw_result_t spw_port_wait(spw_port_t* port,
                            spw_ready_events_t interests,
                            spw_timeout_us_t timeout_us,
                            spw_ready_events_t* out_ready);
 
-spw_result_t spw_port_send(spw_port_t* port,
+SPWKIT_API spw_result_t spw_port_send(spw_port_t* port,
                            const spw_packet_t* packet,
                            spw_timeout_us_t timeout_us);
-spw_result_t spw_port_receive(spw_port_t* port,
+SPWKIT_API spw_result_t spw_port_receive(spw_port_t* port,
                               spw_packet_t* packet,
                               spw_timeout_us_t timeout_us);
 
-spw_result_t spw_port_send_time_code(spw_port_t* port,
+SPWKIT_API spw_result_t spw_port_send_time_code(spw_port_t* port,
                                      const spw_time_code_t* time_code,
                                      spw_timeout_us_t timeout_us);
-spw_result_t spw_port_receive_time_code(spw_port_t* port,
+SPWKIT_API spw_result_t spw_port_receive_time_code(spw_port_t* port,
                                         spw_time_code_t* time_code,
                                         spw_timeout_us_t timeout_us);
 
-spw_result_t spw_port_get_statistics(const spw_port_t* port,
+SPWKIT_API spw_result_t spw_port_get_statistics(const spw_port_t* port,
                                      spw_statistics_t* out_statistics);
-spw_result_t spw_port_clear_statistics(spw_port_t* port);
+SPWKIT_API spw_result_t spw_port_clear_statistics(spw_port_t* port);
 
 /**
  * Read backend-neutral fault-domain diagnostics when supported.
@@ -108,10 +108,10 @@ spw_result_t spw_port_clear_statistics(spw_port_t* port);
  * `SPW_ERR_UNSUPPORTED`. Transport and SpaceWire-visible fault counters are
  * deliberately separate.
  */
-spw_result_t spw_port_get_fault_statistics(
+SPWKIT_API spw_result_t spw_port_get_fault_statistics(
     const spw_port_t* port,
     spw_fault_statistics_t* out_statistics);
-spw_result_t spw_port_clear_fault_statistics(spw_port_t* port);
+SPWKIT_API spw_result_t spw_port_clear_fault_statistics(spw_port_t* port);
 
 #ifdef __cplusplus
 } /* extern "C" */

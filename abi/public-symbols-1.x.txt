@@ -1,0 +1,32 @@
+# Candidate SpWKit 1.x public C ABI symbol surface.
+#
+# Pre-1 changes may deliberately update this file in the same reviewed change
+# that changes the public contract. At v1.0.0 this list becomes the frozen
+# 1.x symbol baseline; later 1.x releases may add symbols but must not remove
+# or repurpose existing entries.
+spw_buffer_get_view
+spw_buffer_set_packet
+spw_port_acquire_rx_buffer
+spw_port_acquire_tx_buffer
+spw_port_clear_fault_statistics
+spw_port_clear_statistics
+spw_port_close
+spw_port_get_capabilities
+spw_port_get_fault_statistics
+spw_port_get_link_state
+spw_port_get_statistics
+spw_port_open
+spw_port_open_in_place
+spw_port_receive
+spw_port_receive_time_code
+spw_port_reclaim_tx_buffer
+spw_port_release_rx_buffer
+spw_port_release_tx_buffer
+spw_port_reset
+spw_port_send
+spw_port_send_time_code
+spw_port_start
+spw_port_stop
+spw_port_submit_tx_buffer
+spw_port_wait
+spw_port_workspace_requirements

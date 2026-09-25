@@ -20,6 +20,29 @@ endif()
 # Pure-C public/runtime tests. These targets must stay buildable when CXX is not
 # enabled, and form the behavioral core of the C-only CI profile.
 # -----------------------------------------------------------------------------
+# White-box protocol tests intentionally exercise private implementation units.
+# Keep those symbols out of the shared ABI by linking a test-only static archive
+# instead of relying on libspwkit to export backend/protocol helpers.
+add_library(spwkit_test_internals STATIC
+    ${PROJECT_SOURCE_DIR}/src/backends/device/vspw_device_protocol.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/vspw_tp.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/fragment_reassembler.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/virtual_link_timing.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/deterministic_faults.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/transport_provider.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/vspw_runtime.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/in_memory_transport.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/vspw_engine.c
+    ${PROJECT_SOURCE_DIR}/src/backends/ethernet/vspw_fault_transport.c)
+target_include_directories(spwkit_test_internals
+    PUBLIC ${PROJECT_SOURCE_DIR}/include
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_compile_features(spwkit_test_internals PRIVATE c_std_11)
+set_target_properties(spwkit_test_internals PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS OFF)
+
 add_library(spwkit_api_c_compile OBJECT api_c_compile.c)
 target_link_libraries(spwkit_api_c_compile PRIVATE spwkit::spwkit)
 set_target_properties(spwkit_api_c_compile PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
@@ -45,17 +68,17 @@ target_link_libraries(spwkit_abi_structure_contract_test PRIVATE spwkit::spwkit)
 set_target_properties(spwkit_abi_structure_contract_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
 add_executable(spwkit_vspd_protocol_test vspw_device_protocol.c)
-target_link_libraries(spwkit_vspd_protocol_test PRIVATE spwkit::spwkit)
+target_link_libraries(spwkit_vspd_protocol_test PRIVATE spwkit::spwkit spwkit_test_internals)
 target_include_directories(spwkit_vspd_protocol_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 set_target_properties(spwkit_vspd_protocol_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
 add_executable(spwkit_transport_provider_test transport_provider.c)
-target_link_libraries(spwkit_transport_provider_test PRIVATE spwkit::spwkit)
+target_link_libraries(spwkit_transport_provider_test PRIVATE spwkit::spwkit spwkit_test_internals)
 target_include_directories(spwkit_transport_provider_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 set_target_properties(spwkit_transport_provider_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
 add_executable(spwkit_vspw_engine_test vspw_engine.c)
-target_link_libraries(spwkit_vspw_engine_test PRIVATE spwkit::spwkit)
+target_link_libraries(spwkit_vspw_engine_test PRIVATE spwkit::spwkit spwkit_test_internals)
 target_include_directories(spwkit_vspw_engine_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 set_target_properties(spwkit_vspw_engine_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
@@ -66,7 +89,7 @@ set_target_properties(spwkit_raw_ethernet_backend_test PROPERTIES C_STANDARD 11 
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(spwkit_vspd_seqpacket_test vspw_seqpacket.c)
-    target_link_libraries(spwkit_vspd_seqpacket_test PRIVATE spwkit::spwkit)
+    target_link_libraries(spwkit_vspd_seqpacket_test PRIVATE spwkit::spwkit spwkit_test_internals)
     target_include_directories(spwkit_vspd_seqpacket_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
     set_target_properties(spwkit_vspd_seqpacket_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 endif()
@@ -100,25 +123,25 @@ if(SPWKIT_BUILD_CPP_TESTS)
     target_compile_features(spwkit_api_cpp_compile PRIVATE cxx_std_17)
 
     add_executable(spwkit_vspw_tp_test vspw_tp.cpp)
-    target_link_libraries(spwkit_vspw_tp_test PRIVATE spwkit::spwkit)
+    target_link_libraries(spwkit_vspw_tp_test PRIVATE spwkit::spwkit spwkit_test_internals)
     target_include_directories(spwkit_vspw_tp_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_compile_features(spwkit_vspw_tp_test PRIVATE cxx_std_17)
     spwkit_apply_no_throw_policy(spwkit_vspw_tp_test)
 
     add_executable(spwkit_fragment_reassembler_test fragment_reassembler.cpp)
-    target_link_libraries(spwkit_fragment_reassembler_test PRIVATE spwkit::spwkit)
+    target_link_libraries(spwkit_fragment_reassembler_test PRIVATE spwkit::spwkit spwkit_test_internals)
     target_include_directories(spwkit_fragment_reassembler_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_compile_features(spwkit_fragment_reassembler_test PRIVATE cxx_std_17)
     spwkit_apply_no_throw_policy(spwkit_fragment_reassembler_test)
 
     add_executable(spwkit_virtual_link_timing_test virtual_link_timing.cpp)
-    target_link_libraries(spwkit_virtual_link_timing_test PRIVATE spwkit::spwkit)
+    target_link_libraries(spwkit_virtual_link_timing_test PRIVATE spwkit::spwkit spwkit_test_internals)
     target_include_directories(spwkit_virtual_link_timing_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_compile_features(spwkit_virtual_link_timing_test PRIVATE cxx_std_17)
     spwkit_apply_no_throw_policy(spwkit_virtual_link_timing_test)
 
     add_executable(spwkit_deterministic_faults_test deterministic_faults.cpp)
-    target_link_libraries(spwkit_deterministic_faults_test PRIVATE spwkit::spwkit)
+    target_link_libraries(spwkit_deterministic_faults_test PRIVATE spwkit::spwkit spwkit_test_internals)
     target_include_directories(spwkit_deterministic_faults_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_compile_features(spwkit_deterministic_faults_test PRIVATE cxx_std_17)
     spwkit_apply_no_throw_policy(spwkit_deterministic_faults_test)
@@ -167,7 +190,7 @@ if(SPWKIT_BUILD_CPP_TESTS)
         target_compile_features(spwkit_udp_backend_test PRIVATE cxx_std_17)
 
         add_executable(spwkit_udp_reordering_test udp_reordering.cpp)
-        target_link_libraries(spwkit_udp_reordering_test PRIVATE spwkit::spwkit)
+        target_link_libraries(spwkit_udp_reordering_test PRIVATE spwkit::spwkit spwkit_test_internals)
         target_include_directories(spwkit_udp_reordering_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
         target_compile_features(spwkit_udp_reordering_test PRIVATE cxx_std_17)
         spwkit_apply_no_throw_policy(spwkit_udp_reordering_test)
