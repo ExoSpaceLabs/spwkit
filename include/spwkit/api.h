@@ -4,6 +4,29 @@
 
 #include <stdint.h>
 
+/*
+ * Public shared-library visibility contract.
+ *
+ * Static consumers need no import/export decoration. Shared-library builds
+ * propagate SPWKIT_SHARED through the installed CMake target; libspwkit itself
+ * additionally defines SPWKIT_BUILDING_LIBRARY while compiling.
+ */
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  if defined(SPWKIT_SHARED)
+#    if defined(SPWKIT_BUILDING_LIBRARY)
+#      define SPWKIT_API __declspec(dllexport)
+#    else
+#      define SPWKIT_API __declspec(dllimport)
+#    endif
+#  else
+#    define SPWKIT_API
+#  endif
+#elif defined(__GNUC__) && (__GNUC__ >= 4)
+#  define SPWKIT_API __attribute__((visibility("default")))
+#else
+#  define SPWKIT_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
