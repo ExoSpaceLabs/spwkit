@@ -63,10 +63,15 @@ static spw_result_t raw_construct(void* context,
     const spw_raw_ethernet_config_t* config =
         (const spw_raw_ethernet_config_t*)port_config->backend_config;
     spw_vspw_engine_config_t engine_config;
+    size_t config_copy_size;
     spw_result_t result;
 
     memset(backend, 0, sizeof(*backend));
-    backend->config = *config;
+    config_copy_size = config->struct_size < sizeof(backend->config)
+                           ? config->struct_size
+                           : sizeof(backend->config);
+    memcpy(&backend->config, config, config_copy_size);
+    config = &backend->config;
     backend->transport =
         (spw_transport_provider_t)SPW_TRANSPORT_PROVIDER_INITIALIZER;
     backend->remote_peer =
