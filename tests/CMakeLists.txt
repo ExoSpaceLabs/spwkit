@@ -79,6 +79,7 @@ endif()
 
 if(SPWKIT_BUILD_SIMULATOR)
     target_compile_definitions(spwkit_public_port_test PRIVATE SPWKIT_TEST_SIMULATOR_ENABLED=1)
+    target_compile_definitions(spwkit_abi_structure_contract_test PRIVATE SPWKIT_TEST_SIMULATOR_ENABLED=1)
     add_executable(spwkit_simulator_c_test simulator_c.c)
     target_link_libraries(spwkit_simulator_c_test PRIVATE spwkit::spwkit)
     set_target_properties(spwkit_simulator_c_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
@@ -197,6 +198,16 @@ add_test(NAME public_api_edge_cases COMMAND spwkit_public_edge_cases_test)
 set_tests_properties(public_api_edge_cases PROPERTIES LABELS "unit;contract;edge;c")
 add_test(NAME public_abi_structure_contract COMMAND spwkit_abi_structure_contract_test)
 set_tests_properties(public_abi_structure_contract PROPERTIES LABELS "unit;contract;abi;c")
+add_test(
+    NAME package_version_compatibility_policy
+    COMMAND ${CMAKE_COMMAND}
+        -DVERSION_FILE=${PROJECT_BINARY_DIR}/SpWKitConfigVersion.cmake
+        -DCURRENT_MAJOR=${PROJECT_VERSION_MAJOR}
+        -DCURRENT_MINOR=${PROJECT_VERSION_MINOR}
+        -DCURRENT_PATCH=${PROJECT_VERSION_PATCH}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/package_version_policy.cmake)
+set_tests_properties(package_version_compatibility_policy PROPERTIES
+    LABELS "unit;contract;abi;cmake")
 add_test(NAME vspd_protocol_codec COMMAND spwkit_vspd_protocol_test)
 set_tests_properties(vspd_protocol_codec PROPERTIES LABELS "unit;device;protocol;edge;c")
 add_test(NAME transport_provider_contract COMMAND spwkit_transport_provider_test)
