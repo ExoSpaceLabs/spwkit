@@ -2,6 +2,7 @@
 #ifndef SPWKIT_UDP_H
 #define SPWKIT_UDP_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "spwkit/api.h"
@@ -97,8 +98,12 @@ typedef struct spw_udp_config {
     uint32_t virtual_latency_us;
     uint64_t fault_seed;
     spw_udp_fault_rule_t fault_rules[SPW_UDP_FAULT_RULE_COUNT];
-    uint32_t reserved;
+    uint64_t reserved;
 } spw_udp_config_t;
+
+#define SPW_UDP_CONFIG_MIN_SIZE \
+    (offsetof(spw_udp_config_t, reserved) + \
+     sizeof(((spw_udp_config_t*)0)->reserved))
 
 #define SPW_UDP_FAULT_RULE_INITIALIZER \
     { SPW_UDP_FAULT_ACTION_NONE, SPW_UDP_FAULT_TARGET_ANY, 0u, 0u, 0u, 0u }
