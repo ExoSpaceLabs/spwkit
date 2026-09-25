@@ -2,6 +2,7 @@
 #ifndef SPWKIT_UDP_H
 #define SPWKIT_UDP_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "spwkit/api.h"
