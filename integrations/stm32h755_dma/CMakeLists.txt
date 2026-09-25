@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(spwkit_stm32h755_dma_integration LANGUAGES C ASM)
 
-find_package(SpWKit 0.6 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 
 if(NOT TARGET spwkit::spwkit)
     message(FATAL_ERROR "Installed SpWKit package does not export spwkit::spwkit")
