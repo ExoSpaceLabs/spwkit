@@ -1,6 +1,6 @@
 # VSPW-TP capture and Wireshark tooling
 
-`vspw_tp.lua` is a development/integration dissector for the SpWKit VSPW-TP v1 UDP wire format. Post-v0.7 raw-Ethernet envelope decoding is not implemented yet and is tracked by #240. It is deliberately outside `libspwkit`: installing or running SpWKit does not require Wireshark, tshark, libpcap, Lua, or tcpdump.
+`vspw_tp.lua` is a development/integration dissector for SpWKit VSPW-TP v1 over UDP and the post-v0.7 raw-Ethernet development envelope v2. It is deliberately outside `libspwkit`: installing or running SpWKit does not require Wireshark, tshark, libpcap, Lua, or tcpdump.
 
 The dissector tracks the wire contract documented in `docs/vspw-tp.md`:
 
@@ -13,7 +13,9 @@ The dissector tracks the wire contract documented in `docs/vspw-tp.md`:
 - fragment offset and complete logical payload size;
 - TIME_CODE `{time_count, control_flags}` payload;
 - ACK acknowledged-sender-session payload;
-- structural validation/expert information for unsupported or malformed frames.
+- structural validation/expert information for unsupported or malformed frames;
+- raw-Ethernet v2 subtype/version/declared-length decoding;
+- strict slicing of the inner VSPW frame so trailing Ethernet padding never becomes VSPW data.
 
 ## Capture UDP traffic
 
@@ -39,6 +41,25 @@ sudo ip netns exec spw-a tcpdump -i any -s 0 -w /tmp/vspw-a.pcap udp
 
 The capture point is ordinary IP/UDP. No application instrumentation or private SpWKit API is needed.
 
+## Capture raw-Ethernet traffic
+
+The default development raw-Ethernet binding uses IEEE Local Experimental EtherType 1, `0x88B5`:
+
+```bash
+sudo tcpdump -i eth0 -s 0 -w vspw-raw.pcap 'ether proto 0x88b5'
+```
+
+This EtherType is intentionally a development value for privately administered networks, not a permanent product allocation. If an integration selects another EtherType, capture that value instead and bind it explicitly with Wireshark **Decode As...**.
+
+The raw envelope carried after the Ethernet header is:
+
+```text
+SpWKit subtype (16) | framing major (8) | framing minor (8) |
+declared VSPW length (16) | VSPW-TP frame | optional carrier padding
+```
+
+Framing v2.0 uses subtype `0x5357` and an explicit VSPW length. The dissector passes only those declared VSPW bytes into the existing VSPW decoder; any remaining captured bytes stay visible as `spwraw.padding`.
+
 ## Load the Lua dissector
 
 Launch Wireshark explicitly with the repository copy:
@@ -57,6 +78,8 @@ tshark \
 
 VSPW-TP ports are configurable, so the dissector does not own a hard-coded UDP port. It registers a UDP heuristic based on the `VSPW` magic and also registers for Wireshark **Decode As...**. Decode As is useful when deliberately debugging corrupted magic/version/header data.
 
+For raw Ethernet, the default development EtherType `0x88B5` is registered explicitly. There is no Ethernet heuristic: other EtherTypes are left untouched unless the user selects `spwraw` through Decode As.
+
 CLI Decode As example for UDP port 42000:
 
 ```bash
@@ -64,6 +87,15 @@ tshark \
   -X lua_script:tools/wireshark/vspw_tp.lua \
   -d udp.port==42000,vspw \
   -r vspw.pcap
+```
+
+For a caller-selected raw EtherType, for example `0x88B6`:
+
+```bash
+tshark \
+  -X lua_script:tools/wireshark/vspw_tp.lua \
+  -d ethertype==0x88b6,spwraw \
+  -r vspw-raw.pcap
 ```
 
 ## Useful display filters
@@ -116,6 +148,24 @@ Structurally rejected/unsupported VSPW frames:
 vspw.valid == false
 ```
 
+Raw-Ethernet envelopes:
+
+```text
+spwraw
+```
+
+Rejected raw envelopes:
+
+```text
+spwraw.valid == false
+```
+
+Captured carrier padding beyond the declared VSPW length:
+
+```text
+spwraw.padding
+```
+
 Wireshark expert information also marks malformed/unsupported frames and identifies fragmented DATA as a reassembly note.
 
 ## Relating transport frames to SpaceWire packets
@@ -141,6 +191,12 @@ Transport loss/reordering remains transport behavior. It does not imply SpaceWir
 `validate_dissector.py` builds a small classic-PCAP capture in memory using only the Python standard library, loads the actual Lua dissector through tshark, and verifies:
 
 - heuristic VSPW recognition without claiming unrelated UDP;
+- unchanged UDP VSPW field/filter behavior;
+- default raw-Ethernet v2 envelope recognition;
+- raw subtype/version/declared-length validation;
+- padding exclusion from the inner VSPW frame;
+- caller-selected raw EtherType decoding through Decode As;
+- no heuristic claiming of unrelated Ethernet EtherTypes;
 - valid/unsupported frame handling;
 - KEEPALIVE;
 - two fragments of one DATA logical message;
