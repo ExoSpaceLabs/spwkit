@@ -7,6 +7,8 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
 ### Changed
 
 - Public ABI structure compatibility now has explicit versioned minimum extents for append-only config/provider structs; fixed-size value/output structs are frozen for the 1.x ABI.
+- UDP configuration advances to generation 4 on post-v0.7 `develop`, adding an explicit reserved tail so the append-only extension boundary cannot fall inside compiler tail padding.
+- Backend configuration validation now requires the nested `struct_size` to fit within `backend_config_size`, and CI executes the generated CMake package compatibility policy.
 - Pre-1 shared-library and CMake package compatibility is scoped to the same minor line; v1+ compatibility uses the normal same-major family.
 
 ### Added
