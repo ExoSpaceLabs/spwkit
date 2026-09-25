@@ -13,7 +13,9 @@ else()
     add_compile_options(-UNDEBUG)
 endif()
 
-add_executable(spwkit_vspwd_raw_peer ../vspwd_raw_peer.c)
+add_executable(spwkit_vspwd_raw_peer
+    ../vspwd_raw_peer.c
+    ${PROJECT_SOURCE_DIR}/src/backends/device/vspw_device_protocol.c)
 target_link_libraries(spwkit_vspwd_raw_peer PRIVATE spwkit::spwkit)
 target_include_directories(spwkit_vspwd_raw_peer PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_features(spwkit_vspwd_raw_peer PRIVATE c_std_11)
@@ -22,7 +24,9 @@ set_target_properties(spwkit_vspwd_raw_peer PROPERTIES
     C_STANDARD_REQUIRED YES
     C_EXTENSIONS OFF)
 
-add_executable(spwkit_vspwd_edge ../vspwd_edge.c)
+add_executable(spwkit_vspwd_edge
+    ../vspwd_edge.c
+    ${PROJECT_SOURCE_DIR}/src/backends/device/vspw_device_protocol.c)
 target_link_libraries(spwkit_vspwd_edge PRIVATE spwkit::spwkit)
 target_include_directories(spwkit_vspwd_edge PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_features(spwkit_vspwd_edge PRIVATE c_std_11)
