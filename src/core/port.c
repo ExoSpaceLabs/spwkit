@@ -128,7 +128,8 @@ static spw_result_t validate_device_config(const spw_port_config_t* config) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     device = (const spw_device_config_t*)config->backend_config;
-    if (device->struct_size < SPW_DEVICE_CONFIG_V1_MIN_SIZE) {
+    if (device->struct_size < SPW_DEVICE_CONFIG_V1_MIN_SIZE ||
+        device->struct_size > config->backend_config_size) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (device->version != SPW_DEVICE_CONFIG_VERSION) {
@@ -156,7 +157,8 @@ static spw_result_t validate_driver_config(const spw_port_config_t* config) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     driver = (const spw_driver_config_t*)config->backend_config;
-    if (driver->struct_size < SPW_DRIVER_CONFIG_V2_MIN_SIZE) {
+    if (driver->struct_size < SPW_DRIVER_CONFIG_V2_MIN_SIZE ||
+        driver->struct_size > config->backend_config_size) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (driver->version != SPW_DRIVER_CONFIG_VERSION) {
@@ -211,7 +213,8 @@ static spw_result_t validate_simulator_config(const spw_port_config_t* config) {
     }
 
     simulator = (const spw_simulator_config_t*)config->backend_config;
-    if (simulator->struct_size < SPW_SIMULATOR_CONFIG_V1_MIN_SIZE) {
+    if (simulator->struct_size < SPW_SIMULATOR_CONFIG_V1_MIN_SIZE ||
+        simulator->struct_size > config->backend_config_size) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (simulator->version != SPW_SIMULATOR_CONFIG_VERSION) {
@@ -255,12 +258,13 @@ static spw_result_t validate_udp_config(const spw_port_config_t* config) {
     const spw_udp_config_t* udp;
     size_t i;
     if (config->backend_config == NULL ||
-        config->backend_config_size < SPW_UDP_CONFIG_V3_MIN_SIZE) {
+        config->backend_config_size < SPW_UDP_CONFIG_V4_MIN_SIZE) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
 
     udp = (const spw_udp_config_t*)config->backend_config;
-    if (udp->struct_size < SPW_UDP_CONFIG_V3_MIN_SIZE) {
+    if (udp->struct_size < SPW_UDP_CONFIG_V4_MIN_SIZE ||
+        udp->struct_size > config->backend_config_size) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (udp->version != SPW_UDP_CONFIG_VERSION) {
@@ -270,7 +274,8 @@ static spw_result_t validate_udp_config(const spw_port_config_t* config) {
         udp->fragment_payload_size < 256u || udp->max_retries == 0u ||
         udp->ack_timeout_ms == 0u || udp->keepalive_interval_ms == 0u ||
         udp->peer_timeout_ms <= udp->keepalive_interval_ms ||
-        udp->reserved != 0u || udp->local_address[0] == '\0' ||
+        udp->reserved != 0u || udp->reserved_tail != 0u ||
+        udp->local_address[0] == '\0' ||
         udp->remote_address[0] == '\0') {
         return SPW_ERR_INVALID_ARGUMENT;
     }
@@ -306,7 +311,8 @@ static spw_result_t validate_raw_ethernet_config(
         return SPW_ERR_INVALID_ARGUMENT;
     }
     raw = (const spw_raw_ethernet_config_t*)config->backend_config;
-    if (raw->struct_size < SPW_RAW_ETHERNET_CONFIG_V1_MIN_SIZE) {
+    if (raw->struct_size < SPW_RAW_ETHERNET_CONFIG_V1_MIN_SIZE ||
+        raw->struct_size > config->backend_config_size) {
         return SPW_ERR_INVALID_ARGUMENT;
     }
     if (raw->version != SPW_RAW_ETHERNET_CONFIG_VERSION) {
