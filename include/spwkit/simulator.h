@@ -2,6 +2,7 @@
 #ifndef SPWKIT_SIMULATOR_H
 #define SPWKIT_SIMULATOR_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "spwkit/config.h"
@@ -30,6 +31,10 @@ typedef struct spw_simulator_config {
     spw_simulator_endpoint_t endpoint;
     uint8_t reserved[7];
 } spw_simulator_config_t;
+
+#define SPW_SIMULATOR_CONFIG_MIN_SIZE \
+    (offsetof(spw_simulator_config_t, reserved) + \
+     sizeof(((spw_simulator_config_t*)0)->reserved))
 
 #define SPW_SIMULATOR_CONFIG_INITIALIZER \
     { sizeof(spw_simulator_config_t), SPW_SIMULATOR_CONFIG_VERSION, 0u, \
