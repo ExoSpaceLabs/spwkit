@@ -16,7 +16,10 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
   contract execution;
 - controlled Linux AF_PACKET/veth raw-Ethernet versus UDP performance evidence,
   provider-dispatch microcost evidence and post-refactor UDP comparison against
-  immutable v0.7.0 (#230).
+  immutable v0.7.0 (#230);
+- Wireshark/tshark decoding and deterministic CI validation for raw-Ethernet
+  framing v2.0, including declared-length/padding handling and Decode As support
+  for caller-selected EtherTypes (#240).
 
 ### Changed
 
