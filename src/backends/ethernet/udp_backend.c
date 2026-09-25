@@ -37,14 +37,14 @@ typedef struct spw_udp_backend {
 static bool valid_config(const spw_udp_config_t* config) {
     size_t i;
     if (config == NULL || config->version != SPW_UDP_CONFIG_VERSION ||
-        config->struct_size < SPW_UDP_CONFIG_V3_MIN_SIZE ||
+        config->struct_size < SPW_UDP_CONFIG_V4_MIN_SIZE ||
         config->remote_port == 0u || config->link_id == 0u ||
         config->fragment_payload_size < 256u ||
         config->fragment_payload_size > SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD ||
         config->max_retries == 0u || config->ack_timeout_ms == 0u ||
         config->keepalive_interval_ms == 0u ||
         config->peer_timeout_ms <= config->keepalive_interval_ms ||
-        config->reserved != 0u) {
+        config->reserved != 0u || config->reserved_tail != 0u) {
         return false;
     }
     for (i = 0u; i < SPW_UDP_FAULT_RULE_COUNT; ++i) {
