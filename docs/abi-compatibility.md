@@ -22,6 +22,38 @@ CMake expresses the corrected rule:
 - v1+ shared libraries use `SOVERSION <major>`;
 - v1+ package discovery uses `SameMajorVersion`.
 
+## Exported symbol contract
+
+The shared-library ABI is the explicitly annotated public C surface, not every
+non-static helper that happens to be linked into `libspwkit`.
+
+`SPWKIT_API` marks public C entry points. Shared builds compile libspwkit with
+hidden default visibility and export only those annotated functions. On Windows,
+the installed CMake target propagates `SPWKIT_SHARED` so the same declarations
+become `dllimport` for shared-library consumers and `dllexport` while building
+the library. Static consumers require no decoration.
+
+`abi/public-symbols-1.x.txt` is the candidate 1.x exported-symbol manifest.
+Before v1.0, an intentional breaking API change may update the candidate
+manifest in the same reviewed change. At v1.0.0 the manifest is frozen as the
+1.x minimum symbol set. Compatible later 1.x releases may add public functions,
+but they may not remove or repurpose frozen symbols.
+
+`tools/check_public_symbols.py` compares the built ELF dynamic symbol table
+with this manifest in CI. Missing public symbols and accidentally exported
+internal symbols both fail the ABI job.
+
+## Frozen source consumer
+
+`tests/compat/v1_consumer` is built as an external application against the
+installed CMake package and installed headers. It exercises representative
+lifecycle, copied I/O, readiness, time-code/statistics, zero-copy and DRIVER
+provider types without including anything from `src/`.
+
+Until v1.0 this fixture is the candidate frozen consumer and may change only
+with an intentional reviewed pre-1 contract change. At v1.0 it becomes immutable
+for the 1.x line. Later 1.x CI must continue compiling and linking it unchanged.
+
 ## Size-versioned input structures
 
 The following public input/provider structures are append-only extensible:
