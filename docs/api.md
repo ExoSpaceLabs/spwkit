@@ -18,6 +18,11 @@ flowchart TB
 
 ## ABI primitives
 
+[`abi-compatibility.md`](abi-compatibility.md) is the authoritative public
+type-layout and package-compatibility policy. It classifies opaque handles,
+append-only size/version structures, fixed-layout 1.x values/outputs and scalar
+domains, and defines the pre-1 SONAME/CMake package rules.
+
 `spw_result_t` is a fixed-width signed 32-bit result type. `spw_timeout_us_t` is an unsigned 64-bit timeout expressed in microseconds. `spw_port_t` and `spw_buffer_t` are opaque.
 
 Public operation signatures do not expose POSIX descriptors, socket handles, RTOS objects, DMA addresses/descriptors, AXI/MMIO values, C++ classes, or vendor SDK handles.
