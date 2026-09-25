@@ -393,7 +393,8 @@ endif()
 if(SPWKIT_BUILD_VSPWD)
     add_executable(vspwd
         src/vspwd/main.c
-        src/vspwd/server.c)
+        src/vspwd/server.c
+        src/backends/device/vspw_device_protocol.c)
     target_link_libraries(vspwd PRIVATE spwkit::spwkit)
     target_include_directories(vspwd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_features(vspwd PRIVATE c_std_11)
@@ -406,7 +407,8 @@ endif()
 if(SPWKIT_BUILD_TOOLS)
     add_executable(spwctl
         src/tools/spwctl.c
-        src/tools/vspd_management_client.c)
+        src/tools/vspd_management_client.c
+        src/backends/device/vspw_device_protocol.c)
     target_link_libraries(spwctl PRIVATE spwkit::spwkit)
     target_include_directories(spwctl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_features(spwctl PRIVATE c_std_11)
@@ -417,7 +419,8 @@ if(SPWKIT_BUILD_TOOLS)
 
     add_executable(spwmon
         src/tools/spwmon.c
-        src/tools/vspd_management_client.c)
+        src/tools/vspd_management_client.c
+        src/backends/device/vspw_device_protocol.c)
     target_link_libraries(spwmon PRIVATE spwkit::spwkit)
     target_include_directories(spwmon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_features(spwmon PRIVATE c_std_11)
