@@ -68,6 +68,12 @@ Linux userspace baseline + CPU architecture + SpWKit ABI/version
 
 Source builds remain available when an integration environment requires a particular compiler or hardening profile.
 
+Package-version compatibility follows the public ABI policy in
+[`abi-compatibility.md`](abi-compatibility.md). Pre-1 releases are
+minor-scoped: for example, 0.7.x is one ABI/package family and is not presented
+as binary-compatible with 0.6.x. From v1 onward, compatibility is same-major
+unless a later major release deliberately changes that contract.
+
 ## GHCR runtime image
 
 Stable releases publish one multi-architecture runtime/toolbox image:
