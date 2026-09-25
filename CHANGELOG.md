@@ -4,6 +4,11 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
 
 ## Unreleased
 
+### Changed
+
+- Public ABI structure compatibility now has explicit versioned minimum extents for append-only config/provider structs; fixed-size value/output structs are frozen for the 1.x ABI.
+- Pre-1 shared-library and CMake package compatibility is scoped to the same minor line; v1+ compatibility uses the normal same-major family.
+
 ### Added
 
 - carrier-independent private VSPW engine with transport-provider and runtime

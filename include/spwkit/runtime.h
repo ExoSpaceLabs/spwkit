@@ -2,6 +2,7 @@
 #ifndef SPWKIT_RUNTIME_H
 #define SPWKIT_RUNTIME_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "spwkit/types.h"
@@ -28,6 +29,10 @@ typedef struct spw_runtime_ops {
                              uint64_t delay_us,
                              spw_timeout_us_t timeout_us);
 } spw_runtime_ops_t;
+
+/* Stable minimum extent for the current 1.x-compatible structure contract. */
+#define SPW_RUNTIME_OPS_V1_MIN_SIZE \
+    (offsetof(spw_runtime_ops_t, delay_us) + sizeof(((spw_runtime_ops_t*)0)->delay_us))
 
 #define SPW_RUNTIME_OPS_INITIALIZER \
     { sizeof(spw_runtime_ops_t), SPW_RUNTIME_OPS_VERSION, NULL, NULL }

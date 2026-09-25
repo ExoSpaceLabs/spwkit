@@ -38,6 +38,14 @@ struct spw_port_config {
     size_t backend_config_size;
 };
 
+/*
+ * Minimum byte size for the version-1 contract. Compatible 1.x extensions may
+ * append fields after this boundary without changing SPW_PORT_CONFIG_VERSION.
+ */
+#define SPW_PORT_CONFIG_V1_MIN_SIZE \
+    (offsetof(spw_port_config_t, backend_config_size) + \
+     sizeof(((spw_port_config_t*)0)->backend_config_size))
+
 #define SPW_PORT_CONFIG_INITIALIZER(backend_id_) \
     { sizeof(spw_port_config_t), SPW_PORT_CONFIG_VERSION, \
       (spw_backend_id_t)(backend_id_), 0u, NULL, 0u }

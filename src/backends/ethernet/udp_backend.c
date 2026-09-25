@@ -37,7 +37,7 @@ typedef struct spw_udp_backend {
 static bool valid_config(const spw_udp_config_t* config) {
     size_t i;
     if (config == NULL || config->version != SPW_UDP_CONFIG_VERSION ||
-        config->struct_size < sizeof(spw_udp_config_t) ||
+        config->struct_size < SPW_UDP_CONFIG_V3_MIN_SIZE ||
         config->remote_port == 0u || config->link_id == 0u ||
         config->fragment_payload_size < 256u ||
         config->fragment_payload_size > SPW_VSPW_TP_MAX_FRAGMENT_PAYLOAD ||
@@ -94,7 +94,10 @@ static spw_result_t udp_construct(void* context,
     }
 
     memset(backend, 0, sizeof(*backend));
-    memcpy(&backend->config, config, sizeof(*config));
+    memcpy(&backend->config, config,
+           config->struct_size < sizeof(backend->config)
+               ? config->struct_size
+               : sizeof(backend->config));
 
     backend->udp_transport =
         (spw_transport_provider_t)SPW_TRANSPORT_PROVIDER_INITIALIZER;

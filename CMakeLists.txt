@@ -344,13 +344,24 @@ else()
     set(SPWKIT_TARGET_PIC ON)
 endif()
 
+# SemVer pre-1 releases may break ABI at a minor boundary. Keep each 0.x
+# minor in its own loader/package compatibility family; from 1.0 onward the
+# usual same-major ABI family applies.
+if(PROJECT_VERSION_MAJOR EQUAL 0)
+    set(SPWKIT_ABI_SOVERSION "0.${PROJECT_VERSION_MINOR}")
+    set(SPWKIT_PACKAGE_VERSION_COMPATIBILITY SameMinorVersion)
+else()
+    set(SPWKIT_ABI_SOVERSION "${PROJECT_VERSION_MAJOR}")
+    set(SPWKIT_PACKAGE_VERSION_COMPATIBILITY SameMajorVersion)
+endif()
+
 set_target_properties(spwkit PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED YES
     C_EXTENSIONS OFF
     POSITION_INDEPENDENT_CODE ${SPWKIT_TARGET_PIC}
     VERSION ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR}
+    SOVERSION ${SPWKIT_ABI_SOVERSION}
     EXPORT_NAME spwkit
 )
 
@@ -535,7 +546,7 @@ configure_package_config_file(
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/SpWKitConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
+    COMPATIBILITY ${SPWKIT_PACKAGE_VERSION_COMPATIBILITY}
 )
 
 install(

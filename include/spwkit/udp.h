@@ -2,6 +2,7 @@
 #ifndef SPWKIT_UDP_H
 #define SPWKIT_UDP_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "spwkit/api.h"
@@ -99,6 +100,10 @@ typedef struct spw_udp_config {
     spw_udp_fault_rule_t fault_rules[SPW_UDP_FAULT_RULE_COUNT];
     uint32_t reserved;
 } spw_udp_config_t;
+
+/* Stable minimum extent for the current 1.x-compatible structure contract. */
+#define SPW_UDP_CONFIG_V3_MIN_SIZE \
+    (offsetof(spw_udp_config_t, reserved) + sizeof(((spw_udp_config_t*)0)->reserved))
 
 #define SPW_UDP_FAULT_RULE_INITIALIZER \
     { SPW_UDP_FAULT_ACTION_NONE, SPW_UDP_FAULT_TARGET_ANY, 0u, 0u, 0u, 0u }
