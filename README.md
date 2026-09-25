@@ -349,6 +349,7 @@ See the [ECSS conformance boundary](docs/ecss-conformance.md) and [ECSS-E-ST-50-
 - [Public API](docs/api.md)
 - [Architecture](docs/architecture.md)
 - [Backend contract](docs/backend-contract.md)
+- [Public ABI and structure compatibility](docs/abi-compatibility.md)
 - [Configuration](docs/configuration.md)
 - [Platform support](docs/platform-support.md)
 - [Memory and portability](docs/memory.md)
