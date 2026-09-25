@@ -1,9 +1,10 @@
 -- SPDX-License-Identifier: Apache-2.0
--- VSPW-TP v1 Wireshark Lua dissector for SpWKit development/integration.
+-- VSPW-TP v1 and raw-Ethernet v2 Wireshark Lua dissector for SpWKit development/integration.
 --
 -- This file is tooling only. It is not loaded or linked by libspwkit.
 
 local vspw = Proto("vspw", "Virtual SpaceWire Transport Protocol")
+local spwraw = Proto("spwraw", "SpWKit Raw Ethernet")
 
 local MAGIC = 0x56535057 -- "VSPW"
 local VERSION_MAJOR = 1
@@ -11,6 +12,12 @@ local VERSION_MINOR = 0
 local HEADER_SIZE = 40
 local MAX_FRAGMENT_PAYLOAD = 65467
 local MAX_LOGICAL_PACKET = 16 * 1024 * 1024
+
+local RAW_DEFAULT_ETHERTYPE = 0x88B5
+local RAW_SUBTYPE = 0x5357
+local RAW_VERSION_MAJOR = 2
+local RAW_VERSION_MINOR = 0
+local RAW_ENVELOPE_SIZE = 6
 
 local TYPE_DATA = 1
 local TYPE_TIME_CODE = 2
@@ -103,6 +110,35 @@ local ex_fragment = ProtoExpert.new(
 
 vspw.experts = { ex_malformed, ex_unsupported, ex_fragment }
 
+local f_raw_subtype = ProtoField.uint16("spwraw.subtype", "SpWKit subtype", base.HEX)
+local f_raw_version_major = ProtoField.uint8("spwraw.version_major", "Framing version major", base.DEC)
+local f_raw_version_minor = ProtoField.uint8("spwraw.version_minor", "Framing version minor", base.DEC)
+local f_raw_vspw_length = ProtoField.uint16("spwraw.vspw_length", "Declared VSPW length", base.DEC)
+local f_raw_valid = ProtoField.bool("spwraw.valid", "Structurally valid SpWKit raw-Ethernet v2 envelope")
+local f_raw_padding = ProtoField.bytes("spwraw.padding", "Trailing Ethernet padding / carrier bytes")
+
+spwraw.fields = {
+    f_raw_subtype,
+    f_raw_version_major,
+    f_raw_version_minor,
+    f_raw_vspw_length,
+    f_raw_valid,
+    f_raw_padding,
+}
+
+local ex_raw_malformed = ProtoExpert.new(
+    "spwraw.expert.malformed",
+    "Malformed SpWKit raw-Ethernet envelope",
+    expert.group.MALFORMED,
+    expert.severity.ERROR)
+local ex_raw_unsupported = ProtoExpert.new(
+    "spwraw.expert.unsupported",
+    "Unsupported SpWKit raw-Ethernet subtype or framing version",
+    expert.group.PROTOCOL,
+    expert.severity.WARN)
+
+spwraw.experts = { ex_raw_malformed, ex_raw_unsupported }
+
 local function has_flag(flags, mask)
     return math.floor(flags / mask) % 2 == 1
 end
@@ -150,7 +186,7 @@ local function validate_header(tvb)
                                     MAX_FRAGMENT_PAYLOAD), false
     end
     if length ~= HEADER_SIZE + payload_size then
-        return false, string.format("UDP payload length=%u but header declares %u",
+        return false, string.format("VSPW frame length=%u but header declares %u",
                                     length, HEADER_SIZE + payload_size), false
     end
     if session_is_zero(tvb) then
@@ -369,6 +405,79 @@ function vspw.dissector(tvb, pinfo, tree)
     return length
 end
 
+
+local function validate_raw_envelope(tvb)
+    local length = tvb:len()
+    if length < RAW_ENVELOPE_SIZE then
+        return false, "raw-Ethernet envelope is shorter than six bytes", false
+    end
+
+    local subtype = tvb(0, 2):uint()
+    local version_major = tvb(2, 1):uint()
+    local version_minor = tvb(3, 1):uint()
+    local declared_length = tvb(4, 2):uint()
+
+    if subtype ~= RAW_SUBTYPE then
+        return false, string.format("unsupported SpWKit subtype 0x%04x", subtype), true
+    end
+    if version_major ~= RAW_VERSION_MAJOR or version_minor > RAW_VERSION_MINOR then
+        return false, string.format("unsupported raw-Ethernet framing version %u.%u",
+                                    version_major, version_minor), true
+    end
+    if declared_length < HEADER_SIZE then
+        return false, string.format("declared VSPW length=%u is shorter than %u",
+                                    declared_length, HEADER_SIZE), false
+    end
+    if declared_length > length - RAW_ENVELOPE_SIZE then
+        return false, string.format(
+            "declared VSPW length=%u exceeds available carrier payload=%u",
+            declared_length, length - RAW_ENVELOPE_SIZE), false
+    end
+
+    return true, nil, false
+end
+
+function spwraw.dissector(tvb, pinfo, tree)
+    local length = tvb:len()
+    pinfo.cols.protocol = "SPWRAW"
+
+    local root = tree:add(spwraw, tvb(0, length))
+    if length >= 2 then
+        root:add(f_raw_subtype, tvb(0, 2))
+    end
+    if length >= 3 then
+        root:add(f_raw_version_major, tvb(2, 1))
+    end
+    if length >= 4 then
+        root:add(f_raw_version_minor, tvb(3, 1))
+    end
+    if length >= RAW_ENVELOPE_SIZE then
+        root:add(f_raw_vspw_length, tvb(4, 2))
+    end
+
+    local valid, reason, unsupported = validate_raw_envelope(tvb)
+    root:add(f_raw_valid, valid)
+    if not valid then
+        if unsupported then
+            root:add_proto_expert_info(ex_raw_unsupported, reason)
+        else
+            root:add_proto_expert_info(ex_raw_malformed, reason)
+        end
+        pinfo.cols.info = "SpWKit raw Ethernet: " .. reason
+        return length
+    end
+
+    local declared_length = tvb(4, 2):uint()
+    local carrier_end = RAW_ENVELOPE_SIZE + declared_length
+    if length > carrier_end then
+        root:add(f_raw_padding, tvb(carrier_end, length - carrier_end))
+    end
+
+    local vspw_tvb = tvb(RAW_ENVELOPE_SIZE, declared_length):tvb()
+    vspw.dissector(vspw_tvb, pinfo, root)
+    return length
+end
+
 local function heuristic_udp(tvb, pinfo, tree)
     if tvb:len() < 4 or tvb(0, 4):uint() ~= MAGIC then
         return false
@@ -382,3 +491,10 @@ end
 -- available when a capture contains intentionally malformed magic/headers.
 vspw:register_heuristic("udp", heuristic_udp)
 DissectorTable.get("udp.port"):add_for_decode_as(vspw)
+
+-- The default development EtherType is explicit, not heuristic. This avoids
+-- claiming arbitrary Ethernet traffic. Integrations that select another
+-- EtherType can use Wireshark Decode As... to bind that value to spwraw.
+local ethertype_table = DissectorTable.get("ethertype")
+ethertype_table:add(RAW_DEFAULT_ETHERTYPE, spwraw)
+ethertype_table:add_for_decode_as(spwraw)
