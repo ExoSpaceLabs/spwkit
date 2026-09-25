@@ -66,7 +66,11 @@ static spw_result_t raw_construct(void* context,
     spw_result_t result;
 
     memset(backend, 0, sizeof(*backend));
-    backend->config = *config;
+    memset(&backend->config, 0, sizeof(backend->config));
+    memcpy(&backend->config, config,
+           config->struct_size < sizeof(backend->config)
+               ? config->struct_size
+               : sizeof(backend->config));
     backend->transport =
         (spw_transport_provider_t)SPW_TRANSPORT_PROVIDER_INITIALIZER;
     backend->remote_peer =
