@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-#define SPW_UDP_CONFIG_VERSION 3u
+#define SPW_UDP_CONFIG_VERSION 4u
 #define SPW_UDP_ADDRESS_MAX 64u
 #define SPW_UDP_DEFAULT_FRAGMENT_PAYLOAD 1200u
 #define SPW_UDP_DEFAULT_ACK_TIMEOUT_MS 100u
@@ -99,11 +99,16 @@ typedef struct spw_udp_config {
     uint64_t fault_seed;
     spw_udp_fault_rule_t fault_rules[SPW_UDP_FAULT_RULE_COUNT];
     uint32_t reserved;
+    uint32_t reserved_tail;
 } spw_udp_config_t;
 
-/* Stable minimum extent for the current 1.x-compatible structure contract. */
-#define SPW_UDP_CONFIG_V3_MIN_SIZE \
-    (offsetof(spw_udp_config_t, reserved) + sizeof(((spw_udp_config_t*)0)->reserved))
+/*
+ * v4 makes the append-only extension boundary explicit instead of ending in
+ * implementation tail padding. v3 is the immutable v0.7.0 generation.
+ */
+#define SPW_UDP_CONFIG_V4_MIN_SIZE \
+    (offsetof(spw_udp_config_t, reserved_tail) + \
+     sizeof(((spw_udp_config_t*)0)->reserved_tail))
 
 #define SPW_UDP_FAULT_RULE_INITIALIZER \
     { SPW_UDP_FAULT_ACTION_NONE, SPW_UDP_FAULT_TARGET_ANY, 0u, 0u, 0u, 0u }
@@ -123,7 +128,7 @@ typedef struct spw_udp_config {
         SPW_UDP_FAULT_RULE_INITIALIZER, SPW_UDP_FAULT_RULE_INITIALIZER, \
         SPW_UDP_FAULT_RULE_INITIALIZER, SPW_UDP_FAULT_RULE_INITIALIZER, \
         SPW_UDP_FAULT_RULE_INITIALIZER, SPW_UDP_FAULT_RULE_INITIALIZER }, \
-      0u }
+      0u, 0u }
 
 #ifdef __cplusplus
 } /* extern "C" */
