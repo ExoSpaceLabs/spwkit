@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(spwkit_hardrt_cortex_m_integration LANGUAGES C ASM)
 
 find_package(HardRT 0.4 CONFIG REQUIRED)
-find_package(SpWKit 0.5 CONFIG REQUIRED)
+find_package(SpWKit 0.7 CONFIG REQUIRED)
 
 if(NOT TARGET HardRT::hardrt)
     message(FATAL_ERROR "Installed HardRT package does not export HardRT::hardrt")
