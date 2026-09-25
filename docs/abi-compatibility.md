@@ -30,7 +30,7 @@ The following public input/provider structures are append-only extensible:
 |---|---:|---|
 | `spw_port_config_t` | 1 | `SPW_PORT_CONFIG_V1_MIN_SIZE` |
 | `spw_simulator_config_t` | 1 | `SPW_SIMULATOR_CONFIG_V1_MIN_SIZE` |
-| `spw_udp_config_t` | 3 | `SPW_UDP_CONFIG_V3_MIN_SIZE` |
+| `spw_udp_config_t` | 4 | `SPW_UDP_CONFIG_V4_MIN_SIZE` |
 | `spw_device_config_t` | 1 | `SPW_DEVICE_CONFIG_V1_MIN_SIZE` |
 | `spw_driver_ops_t` | 2 | `SPW_DRIVER_OPS_V2_MIN_SIZE` |
 | `spw_driver_config_t` | 2 | `SPW_DRIVER_CONFIG_V2_MIN_SIZE` |
@@ -54,9 +54,17 @@ For these structures:
    `SPW_ERR_UNSUPPORTED`.
 7. Internal copies are bounded by the caller-declared extent so an older,
    shorter structure is never over-read.
+8. When a containing API also supplies a byte count such as
+   `backend_config_size`, that count must be at least the nested structure's
+   declared `struct_size`.
+9. For the baseline contract generation, each published minimum extent must
+   equal `sizeof(type)`. This forbids hidden compiler tail padding from being
+   mistaken for a future append-only extension slot.
 
-The current UDP generation number 3 and DRIVER generation number 2 predate the
-1.0 ABI freeze. They are structure-contract generations, not SpWKit library
+UDP generation 4 and DRIVER generation 2 predate the
+1.0 ABI freeze. UDP generation 4 is the post-v0.7 development contract; the
+immutable v0.7.0 release used UDP generation 3. Generation 4 makes the UDP
+append boundary explicit instead of ending in implementation tail padding. They are structure-contract generations, not SpWKit library
 major versions.
 
 Initializers continue to set `struct_size = sizeof(current_type)`; the
@@ -102,7 +110,12 @@ core port configuration:
 - accepts its published historical extent;
 - rejects an extent shorter than that contract;
 - accepts extra trailing bytes;
-- rejects an unknown structure generation.
+- rejects an unknown structure generation;
+- rejects a backend structure that advertises more bytes than its containing
+  `backend_config_size`;
+- requires every current append-only minimum extent to equal `sizeof(type)` on
+  each supported compiler;
+- validates the generated CMake package version policy.
 
 The minimum-size constants intentionally name the historical contract extent.
 When a compatible field is appended later, the existing constant and test stay
