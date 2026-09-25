@@ -12,6 +12,12 @@ extern "C" {
 #endif
 
 /*
+ * Public value/output structures in this header are fixed-layout for the 1.x
+ * ABI. Extend them through a new type/function rather than appending fields in
+ * place. See docs/abi-compatibility.md.
+ */
+
+/*
  * Portable result codes. Zero is success; errors are negative.
  *
  * INVALID_ARGUMENT: malformed caller input independent of runtime state.

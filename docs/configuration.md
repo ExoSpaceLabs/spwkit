@@ -77,6 +77,8 @@ config.backend_config_size = sizeof(udp);
 
 The opposite peer swaps local/remote ports and uses the same `link_id`. The initializer uses numeric localhost; another numeric IPv4 address can be copied into the bounded address fields.
 
+Post-v0.7 `develop` uses UDP configuration generation 4. It adds an explicit reserved tail so the append-only ABI boundary ends at real object storage rather than compiler tail padding.
+
 Key configuration areas include:
 
 - fragment payload size;
