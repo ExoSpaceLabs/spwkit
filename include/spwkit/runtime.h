@@ -2,6 +2,7 @@
 #ifndef SPWKIT_RUNTIME_H
 #define SPWKIT_RUNTIME_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "spwkit/types.h"
