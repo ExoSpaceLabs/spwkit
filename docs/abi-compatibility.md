@@ -13,7 +13,9 @@ SpWKit follows SemVer for binary/package compatibility:
 - from `1.0.0` onward, the major version defines the ABI family and compatible
   `1.x` releases retain the 1.x public C ABI.
 
-CMake expresses the same rule:
+Published v0.7.0 is historical evidence and retains the legacy `SOVERSION 0` it shipped with. The corrected rule below applies to post-v0.7 development and subsequent release families; existing release artifacts are not rewritten.
+
+CMake expresses the corrected rule:
 
 - pre-1 shared libraries use `SOVERSION 0.<minor>`;
 - pre-1 package discovery uses `SameMinorVersion`;
