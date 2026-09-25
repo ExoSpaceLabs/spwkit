@@ -132,6 +132,10 @@ typedef struct spw_driver_ops {
         spw_driver_sync_direction_t direction);
 } spw_driver_ops_t;
 
+#define SPW_DRIVER_OPS_MIN_SIZE \
+    (offsetof(spw_driver_ops_t, sync_buffer) + \
+     sizeof(((spw_driver_ops_t*)0)->sync_buffer))
+
 typedef struct spw_driver_config {
     uint32_t struct_size;
     uint32_t version;
@@ -141,6 +145,10 @@ typedef struct spw_driver_config {
     size_t tx_buffer_slots;
     size_t rx_buffer_slots;
 } spw_driver_config_t;
+
+#define SPW_DRIVER_CONFIG_MIN_SIZE \
+    (offsetof(spw_driver_config_t, rx_buffer_slots) + \
+     sizeof(((spw_driver_config_t*)0)->rx_buffer_slots))
 
 #define SPW_DRIVER_OPS_INITIALIZER \
     { sizeof(spw_driver_ops_t), SPW_DRIVER_OPS_VERSION }
