@@ -510,8 +510,12 @@ static spw_result_t device_construct(void* raw,
     device_context_t* context = (device_context_t*)raw;
     const spw_device_config_t* device =
         (const spw_device_config_t*)config->backend_config;
+    const size_t config_copy_size =
+        device->struct_size < sizeof(context->config)
+            ? device->struct_size
+            : sizeof(context->config);
     memset(context, 0, sizeof(*context));
-    context->config = *device;
+    memcpy(&context->config, device, config_copy_size);
     context->fd = -1;
     context->next_request_id = 1u;
     context->next_message_id = 1u;
