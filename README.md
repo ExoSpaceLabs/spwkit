@@ -25,7 +25,7 @@ flowchart TB
     FPGA --> PHY["Physical SpaceWire implementation"]
 ```
 
-The runtime is C11. The optional C++17 layer is header-only and forwards to the same C ABI; it is a convenience surface, not a second implementation.
+The runtime is C11. The optional C++17 layer is header-only and forwards to the same C ABI; it is a convenience surface, not a second implementation. The pre-v1 and planned 1.x type/package compatibility rules are documented in [Public ABI and structure compatibility](docs/abi-compatibility.md).
 
 ## Project status
 
