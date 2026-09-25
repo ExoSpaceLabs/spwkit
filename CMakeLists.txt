@@ -12,6 +12,17 @@ project(
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
+# SemVer compatibility family used by the shared-library SONAME and generated
+# CMake package version file. Before 1.0, each minor release may break ABI;
+# once 1.x begins, ordinary same-major compatibility applies.
+if(PROJECT_VERSION_MAJOR EQUAL 0)
+    set(SPWKIT_SOVERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}")
+    set(SPWKIT_PACKAGE_COMPATIBILITY SameMinorVersion)
+else()
+    set(SPWKIT_SOVERSION "${PROJECT_VERSION_MAJOR}")
+    set(SPWKIT_PACKAGE_COMPATIBILITY SameMajorVersion)
+endif()
+
 option(SPWKIT_BUILD_TESTS "Build SpWKit tests" ON)
 option(SPWKIT_BUILD_CPP_TESTS "Build C++ test fixtures/wrapper tests" ON)
 option(SPWKIT_BUILD_EXAMPLES "Build SpWKit examples" ON)
@@ -350,7 +361,7 @@ set_target_properties(spwkit PROPERTIES
     C_EXTENSIONS OFF
     POSITION_INDEPENDENT_CODE ${SPWKIT_TARGET_PIC}
     VERSION ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR}
+    SOVERSION ${SPWKIT_SOVERSION}
     EXPORT_NAME spwkit
 )
 
@@ -535,7 +546,7 @@ configure_package_config_file(
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/SpWKitConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
+    COMPATIBILITY ${SPWKIT_PACKAGE_COMPATIBILITY}
 )
 
 install(
