@@ -320,14 +320,20 @@ spw_result_t spw_raw_ethernet_transport_init(
     }
 
     memset(transport, 0, sizeof(*transport));
-    transport->config = *config;
+    {
+        const size_t config_copy_size =
+            config->struct_size < sizeof(transport->config)
+                ? config->struct_size
+                : sizeof(transport->config);
+        memcpy(&transport->config, config, config_copy_size);
+    }
     transport->runtime = *runtime;
     transport->max_frame_size =
         frame_size < SPW_RAW_ETHERNET_MAX_FRAME_SIZE
             ? frame_size
             : SPW_RAW_ETHERNET_MAX_FRAME_SIZE;
     if (!spw_transport_peer_id_set(
-            &transport->remote_peer, config->remote_mac,
+            &transport->remote_peer, transport->config.remote_mac,
             SPW_RAW_ETHERNET_MAC_SIZE)) {
         return SPW_ERR_BACKEND;
     }
