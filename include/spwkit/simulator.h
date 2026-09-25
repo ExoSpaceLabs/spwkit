@@ -31,6 +31,10 @@ typedef struct spw_simulator_config {
     uint8_t reserved[7];
 } spw_simulator_config_t;
 
+/* Stable minimum extent for the current 1.x-compatible structure contract. */
+#define SPW_SIMULATOR_CONFIG_V1_MIN_SIZE \
+    (offsetof(spw_simulator_config_t, reserved) + sizeof(((spw_simulator_config_t*)0)->reserved))
+
 #define SPW_SIMULATOR_CONFIG_INITIALIZER \
     { sizeof(spw_simulator_config_t), SPW_SIMULATOR_CONFIG_VERSION, 0u, \
       SPW_SIMULATOR_ENDPOINT_A, {0u, 0u, 0u, 0u, 0u, 0u, 0u} }
