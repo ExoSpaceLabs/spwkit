@@ -28,6 +28,13 @@ add_executable(spwkit_core_types_test core_types.c)
 target_link_libraries(spwkit_core_types_test PRIVATE spwkit::spwkit)
 set_target_properties(spwkit_core_types_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
+add_executable(spwkit_abi_contract_test abi_contract.c)
+target_link_libraries(spwkit_abi_contract_test PRIVATE spwkit::spwkit)
+set_target_properties(spwkit_abi_contract_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
+if(SPWKIT_BUILD_SIMULATOR)
+    target_compile_definitions(spwkit_abi_contract_test PRIVATE SPWKIT_TEST_SIMULATOR_ENABLED=1)
+endif()
+
 add_executable(spwkit_loopback_backend_test loopback_backend.c)
 target_link_libraries(spwkit_loopback_backend_test PRIVATE spwkit::spwkit)
 set_target_properties(spwkit_loopback_backend_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
@@ -185,6 +192,18 @@ add_test(NAME api_headers_c_compile COMMAND ${CMAKE_COMMAND} -E echo "C API head
 set_tests_properties(api_headers_c_compile PROPERTIES LABELS "unit;contract;c")
 add_test(NAME core_public_types COMMAND spwkit_core_types_test)
 set_tests_properties(core_public_types PROPERTIES LABELS "unit;contract;c")
+add_test(NAME public_abi_struct_contract COMMAND spwkit_abi_contract_test)
+set_tests_properties(public_abi_struct_contract PROPERTIES LABELS "unit;contract;abi;c")
+add_test(
+    NAME package_version_compatibility_policy
+    COMMAND ${CMAKE_COMMAND}
+        -DVERSION_FILE=${CMAKE_BINARY_DIR}/SpWKitConfigVersion.cmake
+        -DCURRENT_MAJOR=${PROJECT_VERSION_MAJOR}
+        -DCURRENT_MINOR=${PROJECT_VERSION_MINOR}
+        -DCURRENT_PATCH=${PROJECT_VERSION_PATCH}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/package_version_policy.cmake)
+set_tests_properties(package_version_compatibility_policy
+    PROPERTIES LABELS "unit;contract;abi;cmake")
 add_test(NAME loopback_backend_unit COMMAND spwkit_loopback_backend_test)
 set_tests_properties(loopback_backend_unit PROPERTIES LABELS "unit;c")
 add_test(NAME public_port_dispatch COMMAND spwkit_public_port_test)
