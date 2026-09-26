@@ -112,8 +112,17 @@ int main() {
             assert(held[n] == nullptr);
         }
 
-        /* Reset creates a fresh ownership/lifecycle epoch, then traffic resumes. */
+        /* Reset invalidates application-owned handles from the old epoch. */
+        spw_buffer_t* stale = nullptr;
+        assert(spw_port_acquire_tx_buffer(a, 1u, SPW_TIMEOUT_IMMEDIATE, &stale) == SPW_OK);
+        assert(stale != nullptr);
         assert(spw_port_reset(a) == SPW_OK);
+        spw_buffer_view_t stale_view{};
+        assert(spw_buffer_get_view(stale, &stale_view) == SPW_ERR_INVALID_STATE);
+        assert(spw_port_release_tx_buffer(a, &stale) == SPW_ERR_INVALID_STATE);
+        assert(stale != nullptr);
+
+        /* A fresh epoch starts normally and traffic resumes. */
         assert(spw_port_start(a) == SPW_OK);
         copied_round_trip(b, a, static_cast<std::uint8_t>(i + 33u));
 
