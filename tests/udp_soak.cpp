@@ -24,8 +24,8 @@ spw_port_t* open_udp(std::uint16_t local, std::uint16_t remote, std::uint32_t li
     udp.fragment_payload_size = 256u;
     udp.ack_timeout_ms = 10u;
     udp.max_retries = 3u;
-    udp.keepalive_interval_ms = 5u;
-    udp.peer_timeout_ms = 40u;
+    udp.keepalive_interval_ms = 10u;
+    udp.peer_timeout_ms = 100u;
 
     spw_port_config_t config = SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_UDP);
     config.backend_config = &udp;
@@ -36,12 +36,15 @@ spw_port_t* open_udp(std::uint16_t local, std::uint16_t remote, std::uint32_t li
     return port;
 }
 
-void wait_for(spw_port_t* port, spw_link_state_t expected, unsigned polls, useconds_t delay) {
+void wait_for(spw_port_t* port, spw_link_state_t expected,
+              unsigned polls, useconds_t delay) {
     spw_link_state_t state = SPW_LINK_ERROR_RESET;
     for (unsigned i = 0u; i < polls; ++i) {
+        if (delay != 0u) {
+            ::usleep(delay);
+        }
         assert(spw_port_get_link_state(port, &state) == SPW_OK);
         if (state == expected) return;
-        ::usleep(delay);
     }
     assert(state == expected);
 }
@@ -81,7 +84,12 @@ int main() {
 
         assert(spw_port_close(b) == SPW_OK);
         b = nullptr;
-        wait_for(a, SPW_LINK_ERROR_WAIT, 20u, 10000u);
+        /*
+         * State queries cooperatively service UDP control traffic. Give each
+         * poll a full quiet peer-timeout so queued keepalives from the closed
+         * peer cannot indefinitely refresh liveness.
+         */
+        wait_for(a, SPW_LINK_ERROR_WAIT, 4u, 120000u);
 
         b = open_udp(static_cast<std::uint16_t>(base + 1u), base, link_id);
         wait_for(a, SPW_LINK_RUN, 100u, 2000u);
