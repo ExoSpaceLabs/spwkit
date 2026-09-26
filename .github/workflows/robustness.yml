@@ -38,7 +38,16 @@ jobs:
 
           clang "${common[@]}"             tests/fuzz/vspw_tp_fuzz.c             src/backends/ethernet/vspw_tp.c             -o build-fuzz/vspw_tp_fuzz
 
-          clang "${common[@]}"             tests/fuzz/vspd_frame_fuzz.c             src/backends/device/vspw_device_protocol.c             -o build-fuzz/vspd_frame_fuzz
+          clang "${common[@]}" \
+            tests/fuzz/vspd_frame_fuzz.c \
+            src/backends/device/vspw_device_protocol.c \
+            -o build-fuzz/vspd_frame_fuzz
+
+          clang "${common[@]}" \
+            tests/fuzz/fragment_reassembler_fuzz.c \
+            src/backends/ethernet/fragment_reassembler.c \
+            src/backends/ethernet/vspw_tp.c \
+            -o build-fuzz/fragment_reassembler_fuzz
 
       - name: Run bounded fuzz smoke
         shell: bash
@@ -57,4 +66,7 @@ jobs:
           fi
 
           build-fuzz/vspw_tp_fuzz corpus/vspw             -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
-          build-fuzz/vspd_frame_fuzz corpus/vspd             -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+          build-fuzz/vspd_frame_fuzz corpus/vspd \
+            -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+          build-fuzz/fragment_reassembler_fuzz corpus/reassembly \
+            -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
