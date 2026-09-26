@@ -34,7 +34,7 @@ closed.
 
 ## Lifecycle and reconnect soak
 
-The robustness workflow also runs two sanitizer-backed stateful soak targets:
+The robustness workflow also runs three sanitizer-backed stateful soak targets:
 
 - `simulator_lifecycle_ownership_soak` repeatedly opens, starts, transfers copied
   and zero-copy traffic, exhausts and recovers the TX pool, verifies stale
@@ -42,6 +42,9 @@ The robustness workflow also runs two sanitizer-backed stateful soak targets:
 - `udp_restart_reconnect_soak` sustains bidirectional fragmented traffic while
   repeatedly closing/reopening one peer and requiring the surviving peer to
   observe loss, accept the new transport session, and resume traffic.
+- `device_vspwd_lifecycle_soak` repeatedly starts a fresh Linux `vspwd`
+  daemon, exercises public DEVICE peers through loss/restart/reconnect, and
+  terminates the daemon cleanly before the next iteration.
 
 Ordinary CI uses 10 iterations as a bounded smoke. A manual Robustness workflow
 dispatch defaults to 500 iterations and accepts `soak_iterations` from 1 to
@@ -51,7 +54,8 @@ the same campaign is reproducible locally:
 ```sh
 cmake -S . -B build-soak \
   -DSPWKIT_BUILD_TESTS=ON -DSPWKIT_BUILD_CPP_TESTS=ON \
-  -DSPWKIT_BUILD_SIMULATOR=ON -DSPWKIT_BUILD_UDP=ON
+  -DSPWKIT_BUILD_SIMULATOR=ON -DSPWKIT_BUILD_UDP=ON \
+  -DSPWKIT_BUILD_DEVICE=ON -DSPWKIT_BUILD_VSPWD=ON
 cmake --build build-soak --parallel
 SPWKIT_SOAK_ITERATIONS=500 ctest --test-dir build-soak -L soak --output-on-failure
 ```
