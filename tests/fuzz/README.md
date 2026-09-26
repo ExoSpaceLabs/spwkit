@@ -30,3 +30,34 @@ mkdir -p corpus/vspw
 Any input that exposes a defect should be minimized and committed as a
 regression fixture in a follow-up change before the defect is considered
 closed.
+
+
+## Lifecycle and reconnect soak
+
+The robustness workflow also runs two sanitizer-backed stateful soak targets:
+
+- `simulator_lifecycle_ownership_soak` repeatedly opens, starts, transfers copied
+  and zero-copy traffic, exhausts and recovers the TX pool, verifies stale
+  zero-copy handles are rejected across reset epochs, then stops and closes.
+- `udp_restart_reconnect_soak` sustains bidirectional fragmented traffic while
+  repeatedly closing/reopening one peer and requiring the surviving peer to
+  observe loss, accept the new transport session, and resume traffic.
+
+Ordinary CI uses 10 iterations as a bounded smoke. A manual Robustness workflow
+dispatch defaults to 500 iterations and accepts `soak_iterations` from 1 to
+10000. The exact iteration count is exported as `SPWKIT_SOAK_ITERATIONS`, so
+the same campaign is reproducible locally:
+
+```sh
+cmake -S . -B build-soak \
+  -DSPWKIT_BUILD_TESTS=ON -DSPWKIT_BUILD_CPP_TESTS=ON \
+  -DSPWKIT_BUILD_SIMULATOR=ON -DSPWKIT_BUILD_UDP=ON
+cmake --build build-soak --parallel
+SPWKIT_SOAK_ITERATIONS=500 ctest --test-dir build-soak -L soak --output-on-failure
+```
+
+The UDP fault engine is not enabled in this soak; reconnect behavior is driven
+by deterministic peer close/reopen cycles. The simulator payload patterns are
+derived from the iteration number, so no random seed is required. These runs
+are software robustness evidence only and are not physical SpaceWire
+qualification.

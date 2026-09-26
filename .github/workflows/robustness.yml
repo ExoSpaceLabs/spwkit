@@ -14,6 +14,10 @@ on:
         description: Seconds per fuzz target
         required: false
         default: "60"
+      soak_iterations:
+        description: Lifecycle/reconnect soak iterations
+        required: false
+        default: "500"
 
 permissions:
   contents: read
@@ -38,7 +42,16 @@ jobs:
 
           clang "${common[@]}"             tests/fuzz/vspw_tp_fuzz.c             src/backends/ethernet/vspw_tp.c             -o build-fuzz/vspw_tp_fuzz
 
-          clang "${common[@]}"             tests/fuzz/vspd_frame_fuzz.c             src/backends/device/vspw_device_protocol.c             -o build-fuzz/vspd_frame_fuzz
+          clang "${common[@]}" \
+            tests/fuzz/vspd_frame_fuzz.c \
+            src/backends/device/vspw_device_protocol.c \
+            -o build-fuzz/vspd_frame_fuzz
+
+          clang "${common[@]}" \
+            tests/fuzz/fragment_reassembler_fuzz.c \
+            src/backends/ethernet/fragment_reassembler.c \
+            src/backends/ethernet/vspw_tp.c \
+            -o build-fuzz/fragment_reassembler_fuzz
 
       - name: Run bounded fuzz smoke
         shell: bash
@@ -57,4 +70,60 @@ jobs:
           fi
 
           build-fuzz/vspw_tp_fuzz corpus/vspw             -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
-          build-fuzz/vspd_frame_fuzz corpus/vspd             -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+          build-fuzz/vspd_frame_fuzz corpus/vspd \
+            -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+          build-fuzz/fragment_reassembler_fuzz corpus/reassembly \
+            -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+
+
+  lifecycle-soak:
+    name: Lifecycle / ownership / reconnect soak
+    runs-on: ubuntu-24.04
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure sanitizer soak build
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build-soak \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=ON \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=ON \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build-soak --parallel
+
+      - name: Run bounded soak
+        shell: bash
+        env:
+          DISPATCH_ITERATIONS: ${{ github.event.inputs.soak_iterations }}
+        run: |
+          set -euo pipefail
+          iterations="${DISPATCH_ITERATIONS:-10}"
+          [[ "$iterations" =~ ^[0-9]+$ ]] || {
+            echo "soak_iterations must be an integer" >&2
+            exit 2
+          }
+          if (( iterations < 1 || iterations > 10000 )); then
+            echo "soak_iterations must be between 1 and 10000" >&2
+            exit 2
+          fi
+          export SPWKIT_SOAK_ITERATIONS="$iterations"
+          ctest --test-dir build-soak -L soak --output-on-failure --no-tests=error
