@@ -14,13 +14,17 @@ on:
         description: Seconds per fuzz target
         required: false
         default: "60"
+      soak_iterations:
+        description: Repetitions per lifecycle/ownership/reconnect soak test
+        required: false
+        default: "250"
 
 permissions:
   contents: read
 
 jobs:
   parser-fuzz-smoke:
-    name: Parser fuzz / ASan + UBSan
+    name: Parser/reassembly fuzz / ASan + UBSan
     runs-on: ubuntu-24.04
     env:
       ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
@@ -36,9 +40,21 @@ jobs:
           common=(-std=c11 -g -O1 -fno-omit-frame-pointer
                   -fsanitize=fuzzer,address,undefined -Isrc)
 
-          clang "${common[@]}"             tests/fuzz/vspw_tp_fuzz.c             src/backends/ethernet/vspw_tp.c             -o build-fuzz/vspw_tp_fuzz
+          clang "${common[@]}" \
+            tests/fuzz/vspw_tp_fuzz.c \
+            src/backends/ethernet/vspw_tp.c \
+            -o build-fuzz/vspw_tp_fuzz
 
-          clang "${common[@]}"             tests/fuzz/vspd_frame_fuzz.c             src/backends/device/vspw_device_protocol.c             -o build-fuzz/vspd_frame_fuzz
+          clang "${common[@]}" \
+            tests/fuzz/vspd_frame_fuzz.c \
+            src/backends/device/vspw_device_protocol.c \
+            -o build-fuzz/vspd_frame_fuzz
+
+          clang "${common[@]}" \
+            tests/fuzz/fragment_reassembler_fuzz.c \
+            src/backends/ethernet/fragment_reassembler.c \
+            src/backends/ethernet/vspw_tp.c \
+            -o build-fuzz/fragment_reassembler_fuzz
 
       - name: Run bounded fuzz smoke
         shell: bash
@@ -56,5 +72,63 @@ jobs:
             exit 2
           fi
 
-          build-fuzz/vspw_tp_fuzz corpus/vspw             -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
-          build-fuzz/vspd_frame_fuzz corpus/vspd             -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+          build-fuzz/vspw_tp_fuzz corpus/vspw \
+            -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+          build-fuzz/vspd_frame_fuzz corpus/vspd \
+            -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+          build-fuzz/fragment_reassembler_fuzz corpus/reassembly \
+            -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+
+  lifecycle-soak-smoke:
+    name: Lifecycle/ownership/reconnect soak / ASan + UBSan
+    runs-on: ubuntu-24.04
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure sanitizer soak build
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build-soak \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=ON \
+            -DSPWKIT_BUILD_CPP_TESTS=ON \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=ON \
+            -DSPWKIT_BUILD_UDP=ON \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=ON \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build-soak --parallel
+
+      - name: Repeat lifecycle and ownership contracts
+        shell: bash
+        env:
+          DISPATCH_ITERATIONS: ${{ github.event.inputs.soak_iterations }}
+        run: |
+          set -euo pipefail
+          iterations="${DISPATCH_ITERATIONS:-10}"
+          [[ "$iterations" =~ ^[0-9]+$ ]] || {
+            echo "soak_iterations must be an integer" >&2
+            exit 2
+          }
+          if (( iterations < 1 || iterations > 10000 )); then
+            echo "soak_iterations must be between 1 and 10000" >&2
+            exit 2
+          fi
+
+          ctest --test-dir build-soak --output-on-failure \
+            -R '^(backend_contract_loopback|backend_contract_simulator|backend_contract_udp|udp_distributed_backend)$' \
+            --repeat "until-fail:$iterations"
