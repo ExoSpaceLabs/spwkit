@@ -30,3 +30,31 @@ mkdir -p corpus/vspw
 Any input that exposes a defect should be minimized and committed as a
 regression fixture in a follow-up change before the defect is considered
 closed.
+
+
+## Lifecycle/ownership/reconnect soak
+
+The `Robustness` workflow also repeats representative public-contract paths
+under ASan and UBSan:
+
+- loopback contract: lifecycle plus zero-copy ownership and reset-epoch checks;
+- simulator contract: repeated virtual lifecycle/reset behavior;
+- UDP contract: distributed lifecycle, disconnect/restart and session recovery;
+- UDP backend integration: fragmented traffic, retry/deduplication and peer
+  loss/reconnect.
+
+Ordinary CI uses 10 repetitions per selected test. A manual workflow dispatch
+defaults to 250 repetitions and accepts `soak_iterations` from 1 through
+10000. The exact repetition count is therefore recorded with the workflow run,
+along with the commit SHA and sanitizer configuration.
+
+For a local campaign, configure the same sanitizer build and run:
+
+```sh
+ctest --test-dir build-soak --output-on-failure \
+  -R '^(backend_contract_loopback|backend_contract_simulator|backend_contract_udp|udp_distributed_backend)$' \
+  --repeat until-fail:250
+```
+
+These campaigns are software robustness evidence. They do not qualify the
+physical SpaceWire interface or replace hardware validation.
