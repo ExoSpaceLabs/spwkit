@@ -120,6 +120,16 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
         LABELS "device;contract;integration;process;restart;c"
         TIMEOUT 45)
 
+    add_test(
+        NAME device_vspwd_lifecycle_soak
+        COMMAND bash
+                ${CMAKE_CURRENT_SOURCE_DIR}/run_vspwd_soak.sh
+                $<TARGET_FILE:vspwd>
+                $<TARGET_FILE:spwkit_device_public_peer>)
+    set_tests_properties(device_vspwd_lifecycle_soak PROPERTIES
+        LABELS "robustness;soak;device;contract;integration;process;restart;c"
+        TIMEOUT 600)
+
     if(SPWKIT_UDP_RUNTIME_SUPPORTED AND SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
         add_test(
             NAME vspwd_udp_bridge_remote_restart
