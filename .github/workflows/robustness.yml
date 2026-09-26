@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p build-fuzz corpus/vspw corpus/vspd
+          mkdir -p build-fuzz corpus/vspw corpus/vspd corpus/reassembly
           common=(-std=c11 -g -O1 -fno-omit-frame-pointer
                   -fsanitize=fuzzer,address,undefined -Isrc)
 
