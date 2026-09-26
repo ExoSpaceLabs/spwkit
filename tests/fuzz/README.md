@@ -10,6 +10,8 @@ not public API and not physical SpaceWire qualification.
   exercised through the encoder as a round-trip safety path.
 - `vspd_frame_fuzz`: VSPD header decoding and complete-record validation, with
   valid decoded headers exercised through the encoder.
+- `fragment_reassembler_fuzz`: bounded fragment streams covering ordering,
+  duplicates, overlap/conflict handling, completion boundaries and reset safety.
 
 The ordinary CI workflow runs a short deterministic smoke using libFuzzer,
 ASan and UBSan. Longer campaigns can reuse the same binaries with a larger
