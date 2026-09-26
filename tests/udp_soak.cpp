@@ -7,7 +7,14 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
+#include <thread>
+
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 
@@ -36,17 +43,35 @@ spw_port_t* open_udp(std::uint16_t local, std::uint16_t remote, std::uint32_t li
     return port;
 }
 
+void sleep_us(unsigned delay_us) {
+    if (delay_us != 0u) {
+        std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
+    }
+}
+
 void wait_for(spw_port_t* port, spw_link_state_t expected,
-              unsigned polls, useconds_t delay) {
+              unsigned polls, unsigned delay_us) {
     spw_link_state_t state = SPW_LINK_ERROR_RESET;
     for (unsigned i = 0u; i < polls; ++i) {
-        if (delay != 0u) {
-            ::usleep(delay);
-        }
+        sleep_us(delay_us);
         assert(spw_port_get_link_state(port, &state) == SPW_OK);
         if (state == expected) return;
     }
     assert(state == expected);
+}
+
+void wait_running_pair(spw_port_t* a, spw_port_t* b,
+                       unsigned polls, unsigned delay_us) {
+    spw_link_state_t a_state = SPW_LINK_ERROR_RESET;
+    spw_link_state_t b_state = SPW_LINK_ERROR_RESET;
+    for (unsigned i = 0u; i < polls; ++i) {
+        sleep_us(delay_us);
+        assert(spw_port_get_link_state(a, &a_state) == SPW_OK);
+        assert(spw_port_get_link_state(b, &b_state) == SPW_OK);
+        if (a_state == SPW_LINK_RUN && b_state == SPW_LINK_RUN) return;
+    }
+    assert(a_state == SPW_LINK_RUN);
+    assert(b_state == SPW_LINK_RUN);
 }
 
 void send_receive(spw_port_t* from, spw_port_t* to, std::uint8_t seed) {
@@ -68,14 +93,18 @@ void send_receive(spw_port_t* from, spw_port_t* to, std::uint8_t seed) {
 } // namespace
 
 int main() {
+#ifdef _WIN32
+    const unsigned process_id = static_cast<unsigned>(::_getpid());
+#else
+    const unsigned process_id = static_cast<unsigned>(::getpid());
+#endif
     const std::uint16_t base = static_cast<std::uint16_t>(
-        52000u + (static_cast<unsigned>(::getpid()) % 500u) * 2u);
+        52000u + (process_id % 500u) * 2u);
     constexpr std::uint32_t link_id = 0x534f414bu;
 
     spw_port_t* a = open_udp(base, static_cast<std::uint16_t>(base + 1u), link_id);
     spw_port_t* b = open_udp(static_cast<std::uint16_t>(base + 1u), base, link_id);
-    wait_for(a, SPW_LINK_RUN, 100u, 1000u);
-    wait_for(b, SPW_LINK_RUN, 100u, 1000u);
+    wait_running_pair(a, b, 100u, 1000u);
 
     const unsigned count = iterations();
     for (unsigned i = 0u; i < count; ++i) {
@@ -92,8 +121,7 @@ int main() {
         wait_for(a, SPW_LINK_ERROR_WAIT, 4u, 120000u);
 
         b = open_udp(static_cast<std::uint16_t>(base + 1u), base, link_id);
-        wait_for(a, SPW_LINK_RUN, 100u, 2000u);
-        wait_for(b, SPW_LINK_RUN, 100u, 2000u);
+        wait_running_pair(a, b, 100u, 2000u);
 
         /* Traffic after every new peer session proves rollover did not leave stale state. */
         send_receive(a, b, static_cast<std::uint8_t>(i + 151u));
