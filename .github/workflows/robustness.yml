@@ -1,0 +1,60 @@
+name: Robustness
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches:
+      - develop
+      - 'feat/**'
+      - 'fix/**'
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: Seconds per fuzz target
+        required: false
+        default: "60"
+
+permissions:
+  contents: read
+
+jobs:
+  parser-fuzz-smoke:
+    name: Parser fuzz / ASan + UBSan
+    runs-on: ubuntu-24.04
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build fuzz targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-fuzz corpus/vspw corpus/vspd corpus/reassembly
+          common=(-std=c11 -g -O1 -fno-omit-frame-pointer
+                  -fsanitize=fuzzer,address,undefined -Isrc)
+
+          clang "${common[@]}"             tests/fuzz/vspw_tp_fuzz.c             src/backends/ethernet/vspw_tp.c             -o build-fuzz/vspw_tp_fuzz
+
+          clang "${common[@]}"             tests/fuzz/vspd_frame_fuzz.c             src/backends/device/vspw_device_protocol.c             -o build-fuzz/vspd_frame_fuzz
+
+      - name: Run bounded fuzz smoke
+        shell: bash
+        env:
+          DISPATCH_SECONDS: ${{ github.event.inputs.fuzz_seconds }}
+        run: |
+          set -euo pipefail
+          seconds="${DISPATCH_SECONDS:-20}"
+          [[ "$seconds" =~ ^[0-9]+$ ]] || {
+            echo "fuzz_seconds must be an integer" >&2
+            exit 2
+          }
+          if (( seconds < 1 || seconds > 3600 )); then
+            echo "fuzz_seconds must be between 1 and 3600" >&2
+            exit 2
+          fi
+
+          build-fuzz/vspw_tp_fuzz corpus/vspw             -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
+          build-fuzz/vspd_frame_fuzz corpus/vspd             -max_total_time="$seconds" -timeout=5 -rss_limit_mb=2048
