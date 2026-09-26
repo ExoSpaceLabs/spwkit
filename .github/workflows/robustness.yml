@@ -4,7 +4,10 @@ on:
   pull_request:
     branches: [develop]
   push:
-    branches: [develop]
+    branches:
+      - develop
+      - 'feat/**'
+      - 'fix/**'
   workflow_dispatch:
     inputs:
       fuzz_seconds:
