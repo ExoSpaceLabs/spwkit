@@ -25,6 +25,8 @@
 #define PEER_MAX_PACKET 4096u
 #define PEER_MAX_ITERATIONS 4096u
 #define PEER_LINK_ID UINT32_C(0x44534153)
+#define TEST_HEADER_BYTES 12u
+#define TEST_FLAG_MEASURE 0x01u
 
 typedef struct packet_context {
     char interface_name[IFNAMSIZ];
@@ -40,6 +42,7 @@ static const uint8_t BOARD_MAC[SPW_RAW_ETHERNET_MAC_SIZE] = {
 static const uint8_t DONE_PACKET[8] = {
     'S', 'P', 'W', 'D', 'O', 'N', 'E', '1'
 };
+static const uint8_t TEST_MAGIC[4] = {'S', 'P', 'W', 'P'};
 static uint8_t g_tx[PEER_MAX_PACKET];
 static uint8_t g_rx[PEER_MAX_PACKET];
 static uint64_t g_samples[PEER_MAX_ITERATIONS];
@@ -310,10 +313,25 @@ static uint64_t percentile(const uint64_t* sorted,
     return sorted[rank - 1u];
 }
 
-static void fill_payload(size_t size, uint32_t sequence) {
+static void fill_payload(size_t size,
+                         uint32_t sequence,
+                         bool measured) {
     size_t i;
-    for (i = 0u; i < size; ++i) {
-        g_tx[i] = (uint8_t)((sequence * 17u + (uint32_t)i * 13u) & 0xffu);
+    if (size < TEST_HEADER_BYTES) {
+        return;
+    }
+    memcpy(g_tx, TEST_MAGIC, sizeof(TEST_MAGIC));
+    g_tx[4] = measured ? TEST_FLAG_MEASURE : 0u;
+    g_tx[5] = 0u;
+    g_tx[6] = 0u;
+    g_tx[7] = 0u;
+    g_tx[8] = (uint8_t)(sequence >> 24u);
+    g_tx[9] = (uint8_t)(sequence >> 16u);
+    g_tx[10] = (uint8_t)(sequence >> 8u);
+    g_tx[11] = (uint8_t)sequence;
+    for (i = TEST_HEADER_BYTES; i < size; ++i) {
+        g_tx[i] =
+            (uint8_t)((sequence * 17u + (uint32_t)i * 13u) & 0xffu);
     }
 }
 
@@ -331,11 +349,14 @@ static int wait_run(spw_port_t* port) {
     return 0;
 }
 
-static int exchange(spw_port_t* port, size_t size, uint32_t sequence) {
+static int exchange(spw_port_t* port,
+                    size_t size,
+                    uint32_t sequence,
+                    bool measured) {
     spw_packet_t tx;
     spw_packet_t rx;
 
-    fill_payload(size, sequence);
+    fill_payload(size, sequence, measured);
     tx = (spw_packet_t){g_tx, size, size, SPW_TERMINATOR_EOP};
     rx = (spw_packet_t){g_rx, 0u, sizeof(g_rx), SPW_TERMINATOR_EEP};
 
@@ -357,11 +378,11 @@ static int run_size(spw_port_t* port,
     long double sum = 0.0L;
 
     for (i = 0u; i < warmup; ++i) {
-        if (!exchange(port, payload_size, (*sequence)++)) return 0;
+        if (!exchange(port, payload_size, (*sequence)++, false)) return 0;
     }
     for (i = 0u; i < iterations; ++i) {
         const uint64_t start = monotonic_ns();
-        if (!exchange(port, payload_size, (*sequence)++)) return 0;
+        if (!exchange(port, payload_size, (*sequence)++, true)) return 0;
         g_samples[i] = monotonic_ns() - start;
         sum += (long double)g_samples[i];
     }
