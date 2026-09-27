@@ -56,8 +56,10 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
             (SPW_VSPW_TP_FLAG_FRAGMENT_START |
              SPW_VSPW_TP_FLAG_FRAGMENT_END);
         const size_t available = size - (cursor + 5u);
+        const uint32_t available_u16 =
+            available > UINT16_MAX ? UINT16_MAX : (uint32_t)available;
         const uint32_t length =
-            requested < available ? requested : (uint32_t)available;
+            requested < available_u16 ? requested : available_u16;
 
         cursor += 5u;
 
