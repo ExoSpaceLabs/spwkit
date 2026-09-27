@@ -1,0 +1,177 @@
+name: DAS STM32H755 raw Ethernet
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'integrations/das_stm32h755_raw_eth/**'
+      - 'scripts/stm32h755_das_raw_eth_test.sh'
+      - 'scripts/gdb/stm32h755_das_raw_eth_*.gdb'
+      - '.github/workflows/das-stm32h755-raw-ethernet.yml'
+  pull_request:
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'integrations/das_stm32h755_raw_eth/**'
+      - 'scripts/stm32h755_das_raw_eth_test.sh'
+      - 'scripts/gdb/stm32h755_das_raw_eth_*.gdb'
+      - '.github/workflows/das-stm32h755-raw-ethernet.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-build:
+    name: DAS H755 raw-Ethernet build/link
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DAS_COMMIT: b10fa1e8ceb021c406d0c15c7020c0114fe0469f
+      STM32_CUBE_H7_COMMIT: f5c0b7a2b1f6eb26fde150f72edb2d7deb647066
+
+    steps:
+      - name: Checkout SpWKit
+        uses: actions/checkout@v6
+
+      - name: Checkout pinned DAS
+        uses: actions/checkout@v6
+        with:
+          repository: Inczert/device-abstraction-stack
+          ref: ${{ env.DAS_COMMIT }}
+          path: external/das
+
+      - name: Validate runner syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/stm32h755_das_raw_eth_test.sh
+          test "$(git -C external/das rev-parse HEAD)" = "$DAS_COMMIT"
+
+      - name: Install build toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi \
+            libnewlib-arm-none-eabi \
+            git
+
+      - name: Fetch pinned STM32 CMSIS headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cube="${RUNNER_TEMP}/STM32CubeH7"
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/STMicroelectronics/STM32CubeH7.git "$cube"
+          git -C "$cube" sparse-checkout init --cone
+          git -C "$cube" sparse-checkout set \
+            Drivers/CMSIS/Include \
+            Drivers/CMSIS/Device/ST/STM32H7xx
+          git -C "$cube" checkout "$STM32_CUBE_H7_COMMIT"
+          git -C "$cube" submodule update --init --depth 1 \
+            Drivers/CMSIS/Device/ST/STM32H7xx
+          test -f "$cube/Drivers/CMSIS/Include/core_cm7.h"
+          test -f "$cube/Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h755xx.h"
+          echo "STM32_CUBE_H7_DIR=$cube" >> "$GITHUB_ENV"
+
+      - name: Build compact Cortex-M7 SpWKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="$GITHUB_WORKSPACE/external/das/cmake/toolchains/arm-none-eabi.cmake"
+          cmake -S . -B build/das-spwkit \
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
+            -DDAS_CORE=cm7 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/das-spwkit-install" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_ENABLE_HEAP=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=OFF \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DSPWKIT_VSPW_PACKET_CAPACITY=4096 \
+            -DSPWKIT_VSPW_CARRIER_CAPACITY=1500
+          cmake --build build/das-spwkit --parallel
+          cmake --install build/das-spwkit
+
+      - name: Build and install pinned DAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="$GITHUB_WORKSPACE/external/das/cmake/toolchains/arm-none-eabi.cmake"
+          cmake -S external/das -B build/das \
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
+            -DDAS_CORE=cm7 \
+            -DDAS_DEVICE=nucleo_h755zi_q \
+            -DSTM32_CUBE_H7_DIR="$STM32_CUBE_H7_DIR" \
+            -DDAS_BUILD_HARDWARE_TESTS=OFF \
+            -DDAS_BUILD_LINK_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/das --parallel
+          cmake --install build/das --prefix "$GITHUB_WORKSPACE/build/das-install"
+
+      - name: Cross-build SpWKit over DAS Ethernet firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="$GITHUB_WORKSPACE/external/das/cmake/toolchains/arm-none-eabi.cmake"
+          cmake -S integrations/das_stm32h755_raw_eth -B build/das-raw-firmware \
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
+            -DDAS_CORE=cm7 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build/das-spwkit-install;$GITHUB_WORKSPACE/build/das-install" \
+            -DSPWKIT_DAS_HOST_MAC=02:00:00:00:00:02
+          cmake --build build/das-raw-firmware --parallel
+          elf="build/das-raw-firmware/spwkit_das_stm32h755_raw_eth.elf"
+          test -s "$elf"
+          arm-none-eabi-nm -g "$elf" | grep -q 'g_spwkit_das_raw_evidence'
+          if arm-none-eabi-nm -u "$elf" | grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free|printf|puts|write|read|socket|poll)$'; then
+            echo "Unexpected hosted runtime dependency in DAS raw-Ethernet firmware" >&2
+            arm-none-eabi-nm -u "$elf" >&2
+            exit 1
+          fi
+          arm-none-eabi-size "$elf"
+
+      - name: Build Linux AF_PACKET peer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/host-spwkit \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/host-install" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPWKIT_BUILD_TESTS=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_SIMULATOR=OFF \
+            -DSPWKIT_BUILD_UDP=OFF \
+            -DSPWKIT_BUILD_DEVICE=OFF \
+            -DSPWKIT_BUILD_VSPWD=OFF \
+            -DSPWKIT_BUILD_TOOLS=OFF \
+            -DSPWKIT_BUILD_CUSE=OFF \
+            -DSPWKIT_ENABLE_HEAP=ON \
+            -DSPWKIT_ENABLE_CPP=OFF \
+            -DSPWKIT_VSPW_PACKET_CAPACITY=4096 \
+            -DSPWKIT_VSPW_CARRIER_CAPACITY=1500
+          cmake --build build/host-spwkit --parallel
+          cmake --install build/host-spwkit
+          cmake -S integrations/das_stm32h755_raw_eth/host -B build/das-host-peer \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build/host-install"
+          cmake --build build/das-host-peer --parallel
+          test -x build/das-host-peer/spwkit_das_host_peer

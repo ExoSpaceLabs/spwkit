@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+#ifndef SPWKIT_DAS_PEER_CONFIG_H
+#define SPWKIT_DAS_PEER_CONFIG_H
+
+#define SPWKIT_DAS_HOST_MAC_BYTES \
+    { @MAC0@, @MAC1@, @MAC2@, @MAC3@, @MAC4@, @MAC5@ }
+
+#endif
