@@ -16,6 +16,28 @@
 #define SPWKIT_DAS_LINK_ID UINT32_C(0x44534153)
 #define SPWKIT_DAS_EVIDENCE_MAGIC UINT32_C(0x53504441)
 #define SPWKIT_DAS_PASS_PHASE UINT32_C(0x0000700d)
+#define SPWKIT_DAS_CORE_HZ UINT32_C(400000000)
+#define SPWKIT_DAS_PROFILE_ROWS 4u
+#define SPWKIT_DAS_PROFILE_SAMPLES 128u
+#define SPWKIT_DAS_TEST_HEADER_BYTES 12u
+#define SPWKIT_DAS_TEST_FLAG_MEASURE 0x01u
+
+#define SPWKIT_DEMCR (*(volatile uint32_t*)UINT32_C(0xE000EDFC))
+#define SPWKIT_DWT_CTRL (*(volatile uint32_t*)UINT32_C(0xE0001000))
+#define SPWKIT_DWT_CYCCNT (*(volatile uint32_t*)UINT32_C(0xE0001004))
+#define SPWKIT_DEMCR_TRCENA (UINT32_C(1) << 24u)
+#define SPWKIT_DWT_CTRL_CYCCNTENA UINT32_C(1)
+
+typedef struct spw_das_profile_row {
+    uint32_t payload_bytes;
+    volatile uint32_t count;
+    volatile uint32_t tx_api_cycles[SPWKIT_DAS_PROFILE_SAMPLES];
+    volatile uint32_t tx_das_cycles[SPWKIT_DAS_PROFILE_SAMPLES];
+    volatile uint32_t tx_das_calls[SPWKIT_DAS_PROFILE_SAMPLES];
+    volatile uint32_t rx_post_das_cycles[SPWKIT_DAS_PROFILE_SAMPLES];
+    volatile uint32_t rx_das_cycles[SPWKIT_DAS_PROFILE_SAMPLES];
+    volatile uint32_t rx_das_calls[SPWKIT_DAS_PROFILE_SAMPLES];
+} spw_das_profile_row_t;
 
 typedef struct spw_das_evidence {
     uint32_t magic;
@@ -30,13 +52,23 @@ typedef struct spw_das_evidence {
     volatile uint32_t rx_packets;
     volatile uint32_t tx_bytes;
     volatile uint32_t rx_bytes;
+    uint32_t core_hz;
+    uint32_t profile_row_count;
+    spw_das_profile_row_t profile[SPWKIT_DAS_PROFILE_ROWS];
 } spw_das_evidence_t;
 
 volatile spw_das_evidence_t g_spwkit_das_raw_evidence = {
-    SPWKIT_DAS_EVIDENCE_MAGIC,
-    0u,
-    UINT32_MAX,
-    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+    .magic = SPWKIT_DAS_EVIDENCE_MAGIC,
+    .phase = 0u,
+    .result = UINT32_MAX,
+    .core_hz = SPWKIT_DAS_CORE_HZ,
+    .profile_row_count = SPWKIT_DAS_PROFILE_ROWS,
+    .profile = {
+        {.payload_bytes = 64u},
+        {.payload_bytes = 256u},
+        {.payload_bytes = 1024u},
+        {.payload_bytes = 4096u}
+    }
 };
 
 static alignas(max_align_t) uint8_t g_workspace[SPWKIT_DAS_WORKSPACE_BYTES];
@@ -51,6 +83,29 @@ static const uint8_t HOST_MAC[DAS_ETH_MAC_ADDRESS_SIZE] =
 static const uint8_t DONE_PACKET[8] = {
     'S', 'P', 'W', 'D', 'O', 'N', 'E', '1'
 };
+static const uint8_t TEST_MAGIC[4] = {'S', 'P', 'W', 'P'};
+
+static void cycle_counter_prepare(void) {
+    SPWKIT_DEMCR |= SPWKIT_DEMCR_TRCENA;
+    SPWKIT_DWT_CYCCNT = 0u;
+    SPWKIT_DWT_CTRL |= SPWKIT_DWT_CTRL_CYCCNTENA;
+    __asm__ __volatile__("" ::: "memory");
+}
+
+static uint32_t cycle_counter_read(void* context) {
+    (void)context;
+    __asm__ __volatile__("" ::: "memory");
+    return SPWKIT_DWT_CYCCNT;
+}
+
+static uint32_t cycle_delta(uint32_t start, uint32_t end) {
+    return end - start;
+}
+
+static uint32_t u64_delta_u32(uint64_t start, uint64_t end) {
+    const uint64_t delta = end - start;
+    return delta > UINT32_MAX ? UINT32_MAX : (uint32_t)delta;
+}
 
 static void fail(uint32_t code) {
     g_spwkit_das_raw_evidence.result = code;
@@ -81,6 +136,60 @@ static int is_done_packet(const spw_packet_t* packet) {
            memcmp(packet->data, DONE_PACKET, sizeof(DONE_PACKET)) == 0;
 }
 
+static int measured_profile_row(const spw_packet_t* packet) {
+    uint32_t row;
+    if (packet->length < SPWKIT_DAS_TEST_HEADER_BYTES ||
+        memcmp(packet->data, TEST_MAGIC, sizeof(TEST_MAGIC)) != 0 ||
+        (packet->data[4] & SPWKIT_DAS_TEST_FLAG_MEASURE) == 0u) {
+        return -1;
+    }
+    for (row = 0u; row < SPWKIT_DAS_PROFILE_ROWS; ++row) {
+        if (g_spwkit_das_raw_evidence.profile[row].payload_bytes ==
+            packet->length) {
+            return (int)row;
+        }
+    }
+    return -1;
+}
+
+static void store_profile_sample(
+    int row_index,
+    uint32_t tx_api_cycles,
+    const spw_das_raw_io_metrics_t* rx_before,
+    const spw_das_raw_io_metrics_t* rx_after,
+    uint32_t rx_api_return_cycle,
+    const spw_das_raw_io_metrics_t* tx_before,
+    const spw_das_raw_io_metrics_t* tx_after) {
+    spw_das_profile_row_t* row;
+    uint32_t index;
+
+    if (row_index < 0 || row_index >= (int)SPWKIT_DAS_PROFILE_ROWS) {
+        return;
+    }
+    row = (spw_das_profile_row_t*)&g_spwkit_das_raw_evidence.profile[row_index];
+    index = row->count;
+    if (index >= SPWKIT_DAS_PROFILE_SAMPLES) {
+        fail(0x404u);
+    }
+
+    row->tx_api_cycles[index] = tx_api_cycles;
+    row->tx_das_cycles[index] =
+        u64_delta_u32(tx_before->tx_das_cycles, tx_after->tx_das_cycles);
+    row->tx_das_calls[index] =
+        tx_after->tx_das_calls - tx_before->tx_das_calls;
+    row->rx_das_cycles[index] =
+        u64_delta_u32(rx_before->rx_ready_das_cycles,
+                      rx_after->rx_ready_das_cycles);
+    row->rx_das_calls[index] =
+        rx_after->rx_ready_das_calls - rx_before->rx_ready_das_calls;
+    row->rx_post_das_cycles[index] =
+        row->rx_das_calls[index] == 0u
+            ? 0u
+            : cycle_delta(rx_after->last_rx_ready_cycle,
+                          rx_api_return_cycle);
+    row->count = index + 1u;
+}
+
 int main(void) {
     das_eth_config_t eth_config = {{0}};
     das_eth_t eth = DAS_ETH_INVALID;
@@ -95,10 +204,11 @@ int main(void) {
 
     g_spwkit_das_raw_evidence.phase = 1u;
     if (das_board_led_init_all(false) != DAS_OK ||
-        das_clock_set_frequency(UINT32_C(400000000)) != DAS_OK ||
+        das_clock_set_frequency(SPWKIT_DAS_CORE_HZ) != DAS_OK ||
         das_time_init() != DAS_OK) {
         fail(0x101u);
     }
+    cycle_counter_prepare();
 
     memcpy(eth_config.mac, BOARD_MAC, sizeof(BOARD_MAC));
     if (das_board_eth_init(DAS_BOARD_ETH_RJ45, &eth_config, &eth) != DAS_OK ||
@@ -108,6 +218,8 @@ int main(void) {
 
     g_spwkit_das_raw_evidence.phase = 2u;
     spw_das_raw_io_init(&g_raw_io, eth);
+    spw_das_raw_io_set_cycle_counter(
+        &g_raw_io, cycle_counter_read, NULL);
     raw = (spw_raw_ethernet_config_t)
         SPW_RAW_ETHERNET_CONFIG_INITIALIZER(
             &SPW_DAS_RAW_ETHERNET_IO_OPS,
@@ -121,8 +233,8 @@ int main(void) {
     raw.fragment_payload_size = 1400u;
     raw.ack_timeout_ms = 20u;
     raw.max_retries = 3u;
-    raw.keepalive_interval_ms = 100u;
-    raw.peer_timeout_ms = 1000u;
+    raw.keepalive_interval_ms = 1000u;
+    raw.peer_timeout_ms = 3000u;
 
     port_config.backend_config = &raw;
     port_config.backend_config_size = sizeof(raw);
@@ -170,8 +282,20 @@ int main(void) {
             sizeof(g_rx),
             SPW_TERMINATOR_EOP
         };
-        spw_result_t result =
-            spw_port_receive(port, &incoming, UINT64_C(50000));
+        spw_das_raw_io_metrics_t rx_before = {0};
+        spw_das_raw_io_metrics_t rx_after = {0};
+        spw_das_raw_io_metrics_t tx_before = {0};
+        spw_das_raw_io_metrics_t tx_after = {0};
+        uint32_t rx_api_return_cycle;
+        uint32_t tx_start;
+        uint32_t tx_end;
+        int profile_row;
+        spw_result_t result;
+
+        spw_das_raw_io_get_metrics(&g_raw_io, &rx_before);
+        result = spw_port_receive(port, &incoming, UINT64_C(50000));
+        rx_api_return_cycle = cycle_counter_read(NULL);
+        spw_das_raw_io_get_metrics(&g_raw_io, &rx_after);
 
         if (result == SPW_ERR_TIMEOUT || result == SPW_ERR_LINK_UNAVAILABLE) {
             spw_link_state_t state = SPW_LINK_ERROR_RESET;
@@ -206,6 +330,7 @@ int main(void) {
             }
         }
 
+        profile_row = measured_profile_row(&incoming);
         {
             spw_packet_t outgoing = {
                 incoming.data,
@@ -213,10 +338,24 @@ int main(void) {
                 incoming.length,
                 incoming.terminator
             };
-            if (spw_port_send(port, &outgoing, UINT64_C(500000)) != SPW_OK) {
+            spw_das_raw_io_get_metrics(&g_raw_io, &tx_before);
+            tx_start = cycle_counter_read(NULL);
+            result = spw_port_send(port, &outgoing, UINT64_C(500000));
+            tx_end = cycle_counter_read(NULL);
+            spw_das_raw_io_get_metrics(&g_raw_io, &tx_after);
+            if (result != SPW_OK) {
                 fail(0x403u);
             }
         }
+        store_profile_sample(
+            profile_row,
+            cycle_delta(tx_start, tx_end),
+            &rx_before,
+            &rx_after,
+            rx_api_return_cycle,
+            &tx_before,
+            &tx_after);
+
         ++echoed;
         (void)das_board_led_toggle(DAS_BOARD_LED_YELLOW);
     }
