@@ -32,6 +32,7 @@ cleanup() {
 trap cleanup EXIT
 
 start_daemon() {
+  rm -f "$socket_path"
   : >"$daemon_log"
   "$daemon" --socket "$socket_path" >>"$daemon_log" 2>&1 &
   daemon_pid=$!
