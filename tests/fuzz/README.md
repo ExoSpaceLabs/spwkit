@@ -42,9 +42,10 @@ The robustness workflow also runs three sanitizer-backed stateful soak targets:
 - `udp_restart_reconnect_soak` sustains bidirectional fragmented traffic while
   repeatedly closing/reopening one peer and requiring the surviving peer to
   observe loss, accept the new transport session, and resume traffic.
-- `device_vspwd_lifecycle_soak` repeatedly starts a fresh Linux `vspwd`
-  daemon, exercises public DEVICE peers through loss/restart/reconnect, and
-  terminates the daemon cleanly before the next iteration.
+- `device_vspwd_lifecycle_soak` repeatedly exercises both Linux process-loss
+  directions: one public DEVICE peer is closed/restarted while `vspwd`
+  survives, then `vspwd` itself is terminated/restarted while both public
+  DEVICE handles remain alive, reconnect, return to `RUN`, and resume traffic.
 
 Ordinary CI uses 10 iterations as a bounded smoke. A manual Robustness workflow
 dispatch defaults to 500 iterations and accepts `soak_iterations` from 1 to
@@ -61,7 +62,9 @@ SPWKIT_SOAK_ITERATIONS=500 ctest --test-dir build-soak -L soak --output-on-failu
 ```
 
 The UDP fault engine is not enabled in this soak; reconnect behavior is driven
-by deterministic peer close/reopen cycles. The simulator payload patterns are
-derived from the iteration number, so no random seed is required. These runs
+by deterministic peer close/reopen cycles. DEVICE recovery is driven by
+deterministic client and daemon process restarts at the same AF_UNIX endpoint.
+The simulator payload patterns are derived from the iteration number, so no
+random seed is required. These runs
 are software robustness evidence only and are not physical SpaceWire
 qualification.
