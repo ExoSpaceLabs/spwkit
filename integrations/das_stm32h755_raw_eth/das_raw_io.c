@@ -1,0 +1,259 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "das_raw_io.h"
+
+#include <das/time.h>
+
+#include <string.h>
+
+static spw_result_t map_result(das_result_t result) {
+    switch (result) {
+    case DAS_OK: return SPW_OK;
+    case DAS_ERROR_INVALID_ARGUMENT: return SPW_ERR_INVALID_ARGUMENT;
+    case DAS_ERROR_UNSUPPORTED: return SPW_ERR_UNSUPPORTED;
+    case DAS_ERROR_TIMEOUT: return SPW_ERR_TIMEOUT;
+    case DAS_ERROR_NOT_READY: return SPW_ERR_LINK_UNAVAILABLE;
+    case DAS_ERROR_IO:
+    default:
+        return SPW_ERR_BACKEND;
+    }
+}
+
+static bool timeout_expired(das_time_ms_t start,
+                            spw_timeout_us_t timeout_us) {
+    if (timeout_us == SPW_TIMEOUT_INFINITE) {
+        return false;
+    }
+    return (uint64_t)das_time_elapsed_ms(start) * UINT64_C(1000) >= timeout_us;
+}
+
+static spw_result_t poll_one(spw_das_raw_io_t* context) {
+    size_t received = 0u;
+    das_result_t result;
+
+    if (context->pending_valid) {
+        return SPW_OK;
+    }
+    result = das_eth_receive(context->eth,
+                             context->pending_frame,
+                             sizeof(context->pending_frame),
+                             &received);
+    if (result != DAS_OK) {
+        return map_result(result);
+    }
+    if (received != 0u) {
+        context->pending_size = received;
+        context->pending_valid = true;
+    }
+    return SPW_OK;
+}
+
+static spw_result_t wait_for_rx(spw_das_raw_io_t* context,
+                                spw_timeout_us_t timeout_us) {
+    const das_time_ms_t start = das_time_now_ms();
+
+    for (;;) {
+        spw_result_t result = poll_one(context);
+        if (result != SPW_OK) {
+            return result;
+        }
+        if (context->pending_valid) {
+            return SPW_OK;
+        }
+        if (timeout_us == SPW_TIMEOUT_IMMEDIATE ||
+            timeout_expired(start, timeout_us)) {
+            return SPW_ERR_TIMEOUT;
+        }
+        (void)das_delay_ms(1u);
+    }
+}
+
+static spw_result_t io_start(void* raw) {
+    spw_das_raw_io_t* context = (spw_das_raw_io_t*)raw;
+    if (context == NULL || !das_eth_is_valid(context->eth)) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    context->started = true;
+    return SPW_OK;
+}
+
+static spw_result_t io_stop(void* raw) {
+    spw_das_raw_io_t* context = (spw_das_raw_io_t*)raw;
+    if (context == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    context->started = false;
+    context->pending_valid = false;
+    context->pending_size = 0u;
+    return SPW_OK;
+}
+
+static spw_result_t io_reset(void* raw) {
+    return io_stop(raw);
+}
+
+static spw_result_t io_send_frame(void* raw,
+                                  const uint8_t* frame,
+                                  size_t frame_size,
+                                  spw_timeout_us_t timeout_us) {
+    spw_das_raw_io_t* context = (spw_das_raw_io_t*)raw;
+    das_eth_link_state_t link = {0};
+    das_result_t result;
+    (void)timeout_us;
+
+    if (context == NULL || !context->started || frame == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    result = das_eth_link_state(context->eth, &link);
+    if (result != DAS_OK) {
+        return map_result(result);
+    }
+    if (!link.up) {
+        return SPW_ERR_LINK_UNAVAILABLE;
+    }
+    return map_result(das_eth_send(context->eth, frame, frame_size));
+}
+
+static spw_result_t io_receive_frame(void* raw,
+                                     uint8_t* frame,
+                                     size_t frame_capacity,
+                                     size_t* out_frame_size,
+                                     spw_timeout_us_t timeout_us) {
+    spw_das_raw_io_t* context = (spw_das_raw_io_t*)raw;
+    spw_result_t result;
+
+    if (context == NULL || !context->started || frame == NULL ||
+        out_frame_size == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_frame_size = 0u;
+    result = wait_for_rx(context, timeout_us);
+    if (result != SPW_OK) {
+        return result;
+    }
+    if (context->pending_size > frame_capacity) {
+        return SPW_ERR_BUFFER_TOO_SMALL;
+    }
+
+    memcpy(frame, context->pending_frame, context->pending_size);
+    *out_frame_size = context->pending_size;
+    context->pending_valid = false;
+    context->pending_size = 0u;
+    return SPW_OK;
+}
+
+static spw_result_t io_wait(void* raw,
+                            spw_raw_ethernet_ready_t interests,
+                            spw_timeout_us_t timeout_us,
+                            spw_raw_ethernet_ready_t* out_ready) {
+    spw_das_raw_io_t* context = (spw_das_raw_io_t*)raw;
+    das_eth_link_state_t link = {0};
+    spw_result_t rx_result = SPW_ERR_TIMEOUT;
+    das_result_t link_result;
+
+    if (context == NULL || !context->started || out_ready == NULL ||
+        interests == SPW_RAW_ETHERNET_READY_NONE) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_ready = SPW_RAW_ETHERNET_READY_NONE;
+
+    if ((interests & SPW_RAW_ETHERNET_READY_RX) != 0u) {
+        rx_result = wait_for_rx(context, timeout_us);
+        if (rx_result == SPW_OK) {
+            *out_ready |= SPW_RAW_ETHERNET_READY_RX;
+        } else if (rx_result != SPW_ERR_TIMEOUT) {
+            return rx_result;
+        }
+    }
+
+    if ((interests & SPW_RAW_ETHERNET_READY_TX) != 0u) {
+        link_result = das_eth_link_state(context->eth, &link);
+        if (link_result != DAS_OK) {
+            return map_result(link_result);
+        }
+        if (link.up) {
+            *out_ready |= SPW_RAW_ETHERNET_READY_TX;
+        }
+    }
+
+    return *out_ready == SPW_RAW_ETHERNET_READY_NONE
+               ? SPW_ERR_TIMEOUT
+               : SPW_OK;
+}
+
+static spw_result_t io_get_max_frame_size(const void* raw,
+                                          size_t* out_frame_size) {
+    const spw_das_raw_io_t* context = (const spw_das_raw_io_t*)raw;
+    if (context == NULL || out_frame_size == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    *out_frame_size = DAS_ETH_MAX_FRAME_SIZE;
+    return SPW_OK;
+}
+
+static spw_result_t io_get_link_up(const void* raw, bool* out_link_up) {
+    const spw_das_raw_io_t* context = (const spw_das_raw_io_t*)raw;
+    das_eth_link_state_t link = {0};
+    das_result_t result;
+
+    if (context == NULL || out_link_up == NULL) {
+        return SPW_ERR_INVALID_ARGUMENT;
+    }
+    result = das_eth_link_state(context->eth, &link);
+    if (result != DAS_OK) {
+        return map_result(result);
+    }
+    *out_link_up = link.up;
+    return SPW_OK;
+}
+
+static uint64_t runtime_now_us(const void* context) {
+    (void)context;
+    return (uint64_t)das_time_now_ms() * UINT64_C(1000);
+}
+
+static spw_result_t runtime_delay_us(void* context,
+                                     uint64_t delay_us,
+                                     spw_timeout_us_t timeout_us) {
+    uint64_t rounded_ms;
+    (void)context;
+
+    if (delay_us == 0u) {
+        return SPW_OK;
+    }
+    if (timeout_us != SPW_TIMEOUT_INFINITE && timeout_us < delay_us) {
+        return SPW_ERR_TIMEOUT;
+    }
+    rounded_ms = (delay_us + UINT64_C(999)) / UINT64_C(1000);
+    if (rounded_ms > UINT32_MAX) {
+        return SPW_ERR_TIMEOUT;
+    }
+    return map_result(das_delay_ms((uint32_t)rounded_ms));
+}
+
+void spw_das_raw_io_init(spw_das_raw_io_t* context, das_eth_t eth) {
+    if (context == NULL) {
+        return;
+    }
+    memset(context, 0, sizeof(*context));
+    context->eth = eth;
+}
+
+const spw_raw_ethernet_io_ops_t SPW_DAS_RAW_ETHERNET_IO_OPS = {
+    sizeof(spw_raw_ethernet_io_ops_t),
+    SPW_RAW_ETHERNET_IO_OPS_VERSION,
+    io_start,
+    io_stop,
+    io_reset,
+    io_send_frame,
+    io_receive_frame,
+    io_wait,
+    io_get_max_frame_size,
+    io_get_link_up
+};
+
+const spw_runtime_ops_t SPW_DAS_RUNTIME_OPS = {
+    sizeof(spw_runtime_ops_t),
+    SPW_RUNTIME_OPS_VERSION,
+    runtime_now_us,
+    runtime_delay_us
+};
