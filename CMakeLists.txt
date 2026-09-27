@@ -28,6 +28,36 @@ option(SPWKIT_ENABLE_PROFILING "Enable compile-time paired profiling probes" OFF
 set(SPWKIT_PROFILE_START "" CACHE STRING "Start probe ID used when SPWKIT_ENABLE_PROFILING=ON")
 set(SPWKIT_PROFILE_END "" CACHE STRING "End probe ID used when SPWKIT_ENABLE_PROFILING=ON")
 
+set(SPWKIT_VSPW_PACKET_CAPACITY "1048576" CACHE STRING
+    "Maximum logical VSPW packet bytes retained by one transport engine")
+set(SPWKIT_VSPW_CARRIER_CAPACITY "65507" CACHE STRING
+    "Maximum VSPW carrier-frame bytes retained by one transport engine")
+
+foreach(_spwkit_capacity_var IN ITEMS
+        SPWKIT_VSPW_PACKET_CAPACITY
+        SPWKIT_VSPW_CARRIER_CAPACITY)
+    if(NOT "${${_spwkit_capacity_var}}" MATCHES "^[0-9]+$")
+        message(FATAL_ERROR
+            "${_spwkit_capacity_var} must be a positive integer")
+    endif()
+endforeach()
+if(SPWKIT_VSPW_PACKET_CAPACITY LESS 256 OR
+   SPWKIT_VSPW_PACKET_CAPACITY GREATER 16777216)
+    message(FATAL_ERROR
+        "SPWKIT_VSPW_PACKET_CAPACITY must be between 256 and 16777216 bytes")
+endif()
+if(SPWKIT_VSPW_CARRIER_CAPACITY LESS 296 OR
+   SPWKIT_VSPW_CARRIER_CAPACITY GREATER 65507)
+    message(FATAL_ERROR
+        "SPWKIT_VSPW_CARRIER_CAPACITY must be between 296 and 65507 bytes")
+endif()
+
+# These tune private VSPW engine storage only. The public API remains opaque
+# and reports the effective logical packet ceiling through capabilities.
+add_compile_definitions(
+    SPWKIT_VSPW_ENGINE_PACKET_CAPACITY=${SPWKIT_VSPW_PACKET_CAPACITY}
+    SPWKIT_VSPW_ENGINE_CARRIER_CAPACITY=${SPWKIT_VSPW_CARRIER_CAPACITY})
+
 set(_spwkit_tx_profile_probes
     SPW_PROFILE_ID_TX_API_ENTRY
     SPW_PROFILE_ID_TX_BACKEND_ENTRY
