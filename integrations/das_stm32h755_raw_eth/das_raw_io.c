@@ -26,21 +26,39 @@ static bool timeout_expired(das_time_ms_t start,
     return (uint64_t)das_time_elapsed_ms(start) * UINT64_C(1000) >= timeout_us;
 }
 
+static uint32_t cycle_delta(uint32_t start, uint32_t end) {
+    return end - start;
+}
+
 static spw_result_t poll_one(spw_das_raw_io_t* context) {
     size_t received = 0u;
     das_result_t result;
+    uint32_t start = 0u;
+    uint32_t end = 0u;
 
     if (context->pending_valid) {
         return SPW_OK;
+    }
+    if (context->cycle_read != NULL) {
+        start = context->cycle_read(context->cycle_context);
     }
     result = das_eth_receive(context->eth,
                              context->pending_frame,
                              sizeof(context->pending_frame),
                              &received);
+    if (context->cycle_read != NULL) {
+        end = context->cycle_read(context->cycle_context);
+    }
     if (result != DAS_OK) {
         return map_result(result);
     }
     if (received != 0u) {
+        if (context->cycle_read != NULL) {
+            context->metrics.rx_ready_das_cycles +=
+                (uint64_t)cycle_delta(start, end);
+            ++context->metrics.rx_ready_das_calls;
+            context->metrics.last_rx_ready_cycle = end;
+        }
         context->pending_size = received;
         context->pending_valid = true;
     }
@@ -113,7 +131,23 @@ static spw_result_t io_send_frame(void* raw,
     if (!link.up) {
         return SPW_ERR_LINK_UNAVAILABLE;
     }
-    return map_result(das_eth_send(context->eth, frame, frame_size));
+    {
+        uint32_t start = 0u;
+        uint32_t end = 0u;
+        if (context->cycle_read != NULL) {
+            start = context->cycle_read(context->cycle_context);
+        }
+        result = das_eth_send(context->eth, frame, frame_size);
+        if (context->cycle_read != NULL) {
+            end = context->cycle_read(context->cycle_context);
+            if (result == DAS_OK) {
+                context->metrics.tx_das_cycles +=
+                    (uint64_t)cycle_delta(start, end);
+                ++context->metrics.tx_das_calls;
+            }
+        }
+    }
+    return map_result(result);
 }
 
 static spw_result_t io_receive_frame(void* raw,
@@ -244,6 +278,29 @@ void spw_das_raw_io_init(spw_das_raw_io_t* context, das_eth_t eth) {
     }
     memset(context, 0, sizeof(*context));
     context->eth = eth;
+}
+
+void spw_das_raw_io_set_cycle_counter(spw_das_raw_io_t* context,
+                                      spw_das_cycle_read_fn read_cycles,
+                                      void* cycle_context) {
+    if (context == NULL) {
+        return;
+    }
+    context->cycle_read = read_cycles;
+    context->cycle_context = cycle_context;
+    memset(&context->metrics, 0, sizeof(context->metrics));
+}
+
+void spw_das_raw_io_get_metrics(const spw_das_raw_io_t* context,
+                                spw_das_raw_io_metrics_t* out_metrics) {
+    if (out_metrics == NULL) {
+        return;
+    }
+    if (context == NULL) {
+        memset(out_metrics, 0, sizeof(*out_metrics));
+        return;
+    }
+    *out_metrics = context->metrics;
 }
 
 const spw_raw_ethernet_io_ops_t SPW_DAS_RAW_ETHERNET_IO_OPS = {
