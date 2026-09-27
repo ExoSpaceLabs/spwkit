@@ -35,6 +35,7 @@ SPW_BACKEND_LOOPBACK
 SPW_BACKEND_SIMULATOR
 SPW_BACKEND_UDP
 SPW_BACKEND_DEVICE
+SPW_BACKEND_RAW_ETHERNET
 SPW_BACKEND_DRIVER
 ```
 
@@ -194,3 +195,33 @@ permanent protocol assignment. Applications must set the EtherType explicitly.
 
 No AF_PACKET, lwIP, MCU SDK, DAS or RTOS type enters this public configuration
 surface.
+
+### Embedded VSPW storage profile
+
+The UDP and raw-Ethernet backends share a transport-independent VSPW engine.
+Hosted builds retain the default storage limits:
+
+```text
+SPWKIT_VSPW_PACKET_CAPACITY=1048576
+SPWKIT_VSPW_CARRIER_CAPACITY=65507
+```
+
+Those defaults favor large hosted packets, but they are unnecessarily large
+for a bounded MCU carrier. Embedded builds may lower both private storage
+ceilings without changing the public API. For example, the STM32H755
+raw-Ethernet integration uses:
+
+```sh
+-DSPWKIT_VSPW_PACKET_CAPACITY=4096
+-DSPWKIT_VSPW_CARRIER_CAPACITY=1500
+```
+
+The logical packet capacity must be 256..16777216 bytes. The carrier capacity
+must be 296..65507 bytes and must still fit the configured VSPW header plus
+fragment payload. A configuration whose fragment size exceeds the compiled
+carrier capacity is rejected.
+
+The effective logical packet limit is reported through
+`spw_port_get_capabilities()`; applications must not assume the hosted
+1 MiB default. The tuning changes only private engine storage. It does not
+alter VSPW-TP wire fields or expose platform-specific memory types.
