@@ -27,5 +27,5 @@ for ((i = 1; i <= iterations; ++i)); do
   # the other survives, verifies recovery, and then terminates the daemon.
   # Repeating the complete fixture therefore covers both daemon lifecycle and
   # client restart/reconnect without maintaining a second protocol harness.
-  "$script_dir/run_vspwd_pair.sh" "$daemon" "$peer"
+  bash "$script_dir/run_vspwd_pair.sh" "$daemon" "$peer"
 done
