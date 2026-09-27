@@ -1,0 +1,29 @@
+name: Governance audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  branch-protection:
+    name: Protected main and develop
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require protected release and integration branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for branch in main develop; do
+            protected="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${branch}" --jq '.protected')"
+            if [[ "$protected" != "true" ]]; then
+              echo "${branch} is not protected" >&2
+              exit 1
+            fi
+            echo "${branch}: protected"
+          done
