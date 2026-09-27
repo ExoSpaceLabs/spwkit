@@ -34,6 +34,13 @@ Do not weaken or bypass a test because a backend behaves differently. If the dif
 
 See [docs/testing.md](docs/testing.md) and [tests/README.md](tests/README.md).
 
+## Branch and release governance
+
+Changes land through protected pull-request branches: `develop` is the
+integration branch and `main` is the release boundary. The required
+protection policy, release flow and recovery procedures are documented in
+[docs/release-governance.md](docs/release-governance.md).
+
 ## Commit style
 
 Use Conventional Commits with the project scope, for example:
