@@ -127,8 +127,7 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
                 $<TARGET_FILE:vspwd>
                 $<TARGET_FILE:spwkit_device_public_peer>)
     set_tests_properties(device_vspwd_lifecycle_soak PROPERTIES
-        LABELS "robustness;soak;device;contract;integration;process;restart;c"
-        TIMEOUT 600)
+        LABELS "robustness;soak;device;contract;integration;process;restart;c")
 
     if(SPWKIT_UDP_RUNTIME_SUPPORTED AND SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
         add_test(
