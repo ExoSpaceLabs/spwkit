@@ -19,7 +19,7 @@ unsigned iterations() {
     errno = 0;
     const unsigned long parsed = std::strtoul(value, &end, 10);
     assert(errno == 0 && end != value && *end == '\0');
-    assert(parsed >= 1u && parsed <= 100000u);
+    assert(parsed >= 1u && parsed <= 10000u);
     return static_cast<unsigned>(parsed);
 }
 
