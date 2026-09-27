@@ -1,0 +1,83 @@
+# STM32H755 raw Ethernet over DAS
+
+This integration binds SpWKit's transport-independent raw-Ethernet backend to
+the Layer-2 Ethernet API provided by DAS on the NUCLEO-H755ZI-Q.
+
+The dependency direction remains:
+
+```text
+application
+  -> SpWKit public API
+     -> VSPW-TP engine
+        -> spw_raw_ethernet_io_ops_t
+           -> integration adapter
+              -> DAS Ethernet
+                 -> STM32H755 ETH MAC/DMA
+                    -> RMII / LAN8742A / CN14
+```
+
+SpWKit has no direct dependency on DAS. The adapter is integration code only.
+
+## Reproducible baseline
+
+- DAS commit: `b10fa1e8ceb021c406d0c15c7020c0114fe0469f`
+- STM32CubeH7 commit: `f5c0b7a2b1f6eb26fde150f72edb2d7deb647066`
+- board: NUCLEO-H755ZI-Q, CM7
+- board MAC: `02:00:00:00:00:01`
+- EtherType: `0x88B5`
+- VSPW link ID: `0x44534153`
+- logical packet capacity: 4096 bytes
+- VSPW carrier storage capacity: 1500 bytes
+- fragment payload: 1400 bytes
+
+The compact SpWKit profile requires about 21 KiB of port workspace on the
+current implementation and is guarded by a 32 KiB CI ceiling.
+
+## Hardware run
+
+Requirements:
+
+- NUCLEO-H755ZI-Q connected over ST-LINK;
+- Ethernet cable on CN14 to a Linux Ethernet interface;
+- JP6/JP7 fitted for the board Ethernet route;
+- pinned DAS and STM32CubeH7 checkouts;
+- OpenOCD, Arm GNU toolchain, CMake, and gdb-multiarch or arm-none-eabi-gdb;
+- sudo permission for AF_PACKET raw sockets and bringing the Linux interface up.
+
+Run:
+
+```sh
+bash scripts/stm32h755_das_raw_eth_test.sh \
+  --das-root /path/to/device-abstraction-stack \
+  --stm32h7-root /path/to/STM32CubeH7 \
+  --interface enp0s31f6
+```
+
+The script performs a clean build of compact Cortex-M7 SpWKit, pinned DAS,
+board firmware, native compact SpWKit and the Linux AF_PACKET peer. It flashes
+the CM7 image, establishes VSPW RUN over physical Ethernet, exercises 64, 256,
+1024 and 4096 byte echo traffic, records host RTT distributions, and validates
+the board evidence structure through GDB.
+
+Expected final markers:
+
+```text
+HOST_RESULT: PASS
+RESULT: PASS
+STM32H755 DAS raw-Ethernet HIL: PASS
+```
+
+Evidence files are retained below
+`build/das-raw-eth/evidence/` by default.
+
+## Current measurement boundary
+
+DAS Ethernet is polling-only in this baseline. A call to `das_eth_send()`
+includes the board-side copy/cache work, descriptor submission and polling
+until the TX DMA descriptor returns to software. `das_eth_receive()` exposes
+a completed RX descriptor and performs cache invalidation/copy.
+
+Therefore this integration can provide real MAC/DMA/PHY carrier evidence and
+physical PC-to-board-to-PC RTT now. It must not claim IRQ-to-worker latency:
+there is no IRQ-driven DAS Ethernet path yet. That metric remains not
+applicable until such a path exists.
