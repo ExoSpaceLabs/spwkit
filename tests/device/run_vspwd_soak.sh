@@ -24,10 +24,9 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 for ((i = 1; i <= iterations; ++i)); do
   echo "[vspwd-soak] iteration $i/$iterations"
-  # run_vspwd_pair starts a fresh daemon, disconnects/restarts one client while
-  # the other survives, verifies recovery, and then terminates the daemon.
-  # Repeating the complete fixture therefore covers both daemon lifecycle and
-  # client restart/reconnect without maintaining a second protocol harness.
+  # First exercise client loss/restart while the daemon survives, then restart
+  # the daemon itself while both public DEVICE handles survive and reconnect.
+  # Repeating both proven fixtures covers both process-loss directions.
   bash "$script_dir/run_vspwd_pair.sh" "$daemon" "$peer"
   bash "$script_dir/run_vspwd_daemon_restart.sh" "$daemon" "$daemon_restart_peer"
 done
