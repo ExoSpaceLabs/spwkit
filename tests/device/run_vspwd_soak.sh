@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: $0 /path/to/vspwd /path/to/device_public_peer" >&2
+if [[ $# -ne 3 ]]; then
+  echo "usage: $0 /path/to/vspwd /path/to/device_public_peer /path/to/device_daemon_restart_peer" >&2
   exit 2
 fi
 
 daemon="$1"
 peer="$2"
+daemon_restart_peer="$3"
 iterations="${SPWKIT_SOAK_ITERATIONS:-10}"
 
 [[ "$iterations" =~ ^[0-9]+$ ]] || {
@@ -28,4 +29,5 @@ for ((i = 1; i <= iterations; ++i)); do
   # Repeating the complete fixture therefore covers both daemon lifecycle and
   # client restart/reconnect without maintaining a second protocol harness.
   bash "$script_dir/run_vspwd_pair.sh" "$daemon" "$peer"
+  bash "$script_dir/run_vspwd_daemon_restart.sh" "$daemon" "$daemon_restart_peer"
 done
