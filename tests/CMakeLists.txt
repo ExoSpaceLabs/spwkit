@@ -87,6 +87,11 @@ target_link_libraries(spwkit_raw_ethernet_backend_test PRIVATE spwkit::spwkit)
 target_include_directories(spwkit_raw_ethernet_backend_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 set_target_properties(spwkit_raw_ethernet_backend_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
+add_executable(spwkit_raw_ethernet_workspace_test raw_ethernet_workspace.c)
+target_link_libraries(spwkit_raw_ethernet_workspace_test PRIVATE spwkit::spwkit)
+set_target_properties(spwkit_raw_ethernet_workspace_test PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(spwkit_vspd_seqpacket_test vspw_seqpacket.c)
     target_link_libraries(spwkit_vspd_seqpacket_test PRIVATE spwkit::spwkit spwkit_test_internals)
@@ -247,6 +252,9 @@ add_test(NAME vspw_engine_in_memory COMMAND spwkit_vspw_engine_test)
 set_tests_properties(vspw_engine_in_memory PROPERTIES LABELS "unit;transport;integration;contract;c")
 add_test(NAME raw_ethernet_public_backend COMMAND spwkit_raw_ethernet_backend_test)
 set_tests_properties(raw_ethernet_public_backend PROPERTIES LABELS "unit;transport;integration;contract;raw-ethernet;c")
+add_test(NAME raw_ethernet_workspace_requirements COMMAND spwkit_raw_ethernet_workspace_test)
+set_tests_properties(raw_ethernet_workspace_requirements PROPERTIES
+    LABELS "unit;transport;contract;raw-ethernet;workspace;c")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME vspd_seqpacket_transport COMMAND spwkit_vspd_seqpacket_test)
