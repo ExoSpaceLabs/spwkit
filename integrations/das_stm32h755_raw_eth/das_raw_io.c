@@ -100,8 +100,11 @@ static spw_result_t io_send_frame(void* raw,
     das_result_t result;
     (void)timeout_us;
 
-    if (context == NULL || !context->started || frame == NULL) {
+    if (context == NULL || frame == NULL) {
         return SPW_ERR_INVALID_ARGUMENT;
+    }
+    if (!context->started) {
+        return SPW_ERR_INVALID_STATE;
     }
     result = das_eth_link_state(context->eth, &link);
     if (result != DAS_OK) {
@@ -156,15 +159,7 @@ static spw_result_t io_wait(void* raw,
     }
     *out_ready = SPW_RAW_ETHERNET_READY_NONE;
 
-    if ((interests & SPW_RAW_ETHERNET_READY_RX) != 0u) {
-        rx_result = wait_for_rx(context, timeout_us);
-        if (rx_result == SPW_OK) {
-            *out_ready |= SPW_RAW_ETHERNET_READY_RX;
-        } else if (rx_result != SPW_ERR_TIMEOUT) {
-            return rx_result;
-        }
-    }
-
+    /* TX readiness is level-triggered and should not wait behind an RX poll. */
     if ((interests & SPW_RAW_ETHERNET_READY_TX) != 0u) {
         link_result = das_eth_link_state(context->eth, &link);
         if (link_result != DAS_OK) {
@@ -172,6 +167,19 @@ static spw_result_t io_wait(void* raw,
         }
         if (link.up) {
             *out_ready |= SPW_RAW_ETHERNET_READY_TX;
+        }
+    }
+
+    if ((interests & SPW_RAW_ETHERNET_READY_RX) != 0u) {
+        rx_result = wait_for_rx(
+            context,
+            *out_ready != SPW_RAW_ETHERNET_READY_NONE
+                ? SPW_TIMEOUT_IMMEDIATE
+                : timeout_us);
+        if (rx_result == SPW_OK) {
+            *out_ready |= SPW_RAW_ETHERNET_READY_RX;
+        } else if (rx_result != SPW_ERR_TIMEOUT) {
+            return rx_result;
         }
     }
 
