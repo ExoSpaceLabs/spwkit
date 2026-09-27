@@ -18,6 +18,8 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     spw_fragment_reassembler_t reassembler;
     size_t cursor = 0u;
     unsigned fragment_count = 0u;
+    uint32_t total_size;
+    uint8_t message_flags;
 
     memset(storage, 0, sizeof(storage));
     spw_fragment_reassembler_init(
@@ -25,43 +27,42 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         SPW_FRAGMENT_COVERAGE_WORDS(FUZZ_CAPACITY));
 
     /*
-     * Input is a sequence of compact fragment descriptors:
-     *   offset:u16, length:u16, flags:u8, payload:length
-     * total_size and message_id are shared so the fuzzer concentrates on
-     * ordering, duplication, overlap and boundary semantics.
+     * Keep message metadata stable across the generated fragment stream so
+     * multi-fragment inputs exercise real ordering/overlap/completion behavior
+     * instead of immediately collapsing into metadata conflicts.
+     *
+     * Input layout:
+     *   total_size:u16, message_flags:u8,
+     *   repeated { offset:u16, length:u16, boundary_flags:u8, payload:length }
      */
+    if (size < 3u) {
+        spw_fragment_reassembler_reset(&reassembler);
+        return 0;
+    }
+
+    total_size = 1u + (read_u16_le(data) % FUZZ_CAPACITY);
+    message_flags =
+        (data[2] & 0x01u) != 0u ? SPW_VSPW_TP_FLAG_EEP : SPW_VSPW_TP_FLAG_EOP;
+    if ((data[2] & 0x02u) != 0u) {
+        message_flags |= SPW_VSPW_TP_FLAG_ACK_REQUIRED;
+    }
+    cursor = 3u;
+
     while (cursor + 5u <= size && fragment_count < FUZZ_MAX_FRAGMENTS) {
         spw_vspw_tp_header_t header = SPW_VSPW_TP_HEADER_INITIALIZER;
         const uint32_t offset = read_u16_le(data + cursor);
         const uint32_t requested = read_u16_le(data + cursor + 2u);
-        const uint8_t raw_flags = data[cursor + 4u];
+        const uint8_t boundary_flags = data[cursor + 4u] &
+            (SPW_VSPW_TP_FLAG_FRAGMENT_START |
+             SPW_VSPW_TP_FLAG_FRAGMENT_END);
         const size_t available = size - (cursor + 5u);
         const uint32_t length =
             requested < available ? requested : (uint32_t)available;
-        uint32_t total_size;
 
         cursor += 5u;
-        total_size = offset + length;
-        if (total_size == 0u || total_size > FUZZ_CAPACITY) {
-            if (length > available) {
-                break;
-            }
-            cursor += length;
-            ++fragment_count;
-            continue;
-        }
-
-        /* Keep the message fragmented; unfragmented packets bypass this unit. */
-        if (offset == 0u && length == total_size) {
-            total_size = total_size < FUZZ_CAPACITY ? total_size + 1u : total_size;
-        }
 
         header.type = SPW_VSPW_TP_DATA;
-        header.flags = raw_flags &
-            (SPW_VSPW_TP_FLAG_EOP | SPW_VSPW_TP_FLAG_EEP |
-             SPW_VSPW_TP_FLAG_FRAGMENT_START |
-             SPW_VSPW_TP_FLAG_FRAGMENT_END |
-             SPW_VSPW_TP_FLAG_ACK_REQUIRED);
+        header.flags = message_flags | boundary_flags;
         header.payload_size = (uint16_t)length;
         header.session_id = 1u;
         header.message_id = 1u;
@@ -71,7 +72,7 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         (void)spw_fragment_reassembler_push(
             &reassembler, &header, data + cursor);
 
-        /* Exact replay must never corrupt state, regardless of first result. */
+        /* Exact replay must remain idempotent and memory-safe. */
         (void)spw_fragment_reassembler_push(
             &reassembler, &header, data + cursor);
 
