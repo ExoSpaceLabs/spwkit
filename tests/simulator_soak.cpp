@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cassert>
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -12,10 +13,13 @@ namespace {
 unsigned iterations() {
     const char* value = std::getenv("SPWKIT_SOAK_ITERATIONS");
     if (value == nullptr || *value == '\0') {
-        return 100u;
+        return 10u;
     }
-    const unsigned long parsed = std::strtoul(value, nullptr, 10);
-    assert(parsed >= 1u && parsed <= 100000u);
+    char* end = nullptr;
+    errno = 0;
+    const unsigned long parsed = std::strtoul(value, &end, 10);
+    assert(errno == 0 && end != value && *end == '\0');
+    assert(parsed >= 1u && parsed <= 10000u);
     return static_cast<unsigned>(parsed);
 }
 

@@ -44,6 +44,14 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS OFF)
 
+    add_executable(spwkit_device_daemon_restart_peer ../device_daemon_restart_peer.c)
+    target_link_libraries(spwkit_device_daemon_restart_peer PRIVATE spwkit::spwkit)
+    target_compile_features(spwkit_device_daemon_restart_peer PRIVATE c_std_11)
+    set_target_properties(spwkit_device_daemon_restart_peer PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS OFF)
+
     if(SPWKIT_UDP_RUNTIME_SUPPORTED AND SPWKIT_ENABLE_HEAP)
         add_executable(spwkit_device_bridge_peer ../device_bridge_peer.c)
         target_link_libraries(spwkit_device_bridge_peer PRIVATE spwkit::spwkit)
@@ -119,6 +127,26 @@ if(SPWKIT_DEVICE_RUNTIME_SUPPORTED)
     set_tests_properties(device_public_api_process_pair_restart PROPERTIES
         LABELS "device;contract;integration;process;restart;c"
         TIMEOUT 45)
+
+    add_test(
+        NAME device_vspwd_daemon_restart_reconnect
+        COMMAND bash
+                ${CMAKE_CURRENT_SOURCE_DIR}/run_vspwd_daemon_restart.sh
+                $<TARGET_FILE:vspwd>
+                $<TARGET_FILE:spwkit_device_daemon_restart_peer>)
+    set_tests_properties(device_vspwd_daemon_restart_reconnect PROPERTIES
+        LABELS "device;contract;integration;process;restart;c"
+        TIMEOUT 45)
+
+    add_test(
+        NAME device_vspwd_lifecycle_soak
+        COMMAND bash
+                ${CMAKE_CURRENT_SOURCE_DIR}/run_vspwd_soak.sh
+                $<TARGET_FILE:vspwd>
+                $<TARGET_FILE:spwkit_device_public_peer>
+                $<TARGET_FILE:spwkit_device_daemon_restart_peer>)
+    set_tests_properties(device_vspwd_lifecycle_soak PROPERTIES
+        LABELS "robustness;soak;device;contract;integration;process;restart;c")
 
     if(SPWKIT_UDP_RUNTIME_SUPPORTED AND SPWKIT_BUILD_TOOLS AND SPWKIT_ENABLE_HEAP)
         add_test(
