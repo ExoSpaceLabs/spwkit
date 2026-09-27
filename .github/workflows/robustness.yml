@@ -116,7 +116,7 @@ jobs:
           DISPATCH_ITERATIONS: ${{ github.event.inputs.soak_iterations }}
         run: |
           set -euo pipefail
-          iterations="${DISPATCH_ITERATIONS:-10}"
+          iterations="${DISPATCH_ITERATIONS:-500}"
           [[ "$iterations" =~ ^[0-9]+$ ]] || {
             echo "soak_iterations must be an integer" >&2
             exit 2
