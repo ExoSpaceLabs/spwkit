@@ -19,6 +19,34 @@ set $rx=(unsigned int)g_spwkit_das_raw_evidence.rx_packets
 set $tx_bytes=(unsigned int)g_spwkit_das_raw_evidence.tx_bytes
 set $rx_bytes=(unsigned int)g_spwkit_das_raw_evidence.rx_bytes
 
+set $core_hz=(unsigned int)g_spwkit_das_raw_evidence.core_hz
+
+set $app_tx_count=(unsigned int)g_spwkit_das_raw_evidence.app_send_cycles.count
+set $app_tx_min=(unsigned int)g_spwkit_das_raw_evidence.app_send_cycles.min_cycles
+set $app_tx_max=(unsigned int)g_spwkit_das_raw_evidence.app_send_cycles.max_cycles
+set $app_tx_total=(unsigned long long)g_spwkit_das_raw_evidence.app_send_cycles.total_cycles
+
+set $app_rx_count=(unsigned int)g_spwkit_das_raw_evidence.app_receive_cycles.count
+set $app_rx_min=(unsigned int)g_spwkit_das_raw_evidence.app_receive_cycles.min_cycles
+set $app_rx_max=(unsigned int)g_spwkit_das_raw_evidence.app_receive_cycles.max_cycles
+set $app_rx_total=(unsigned long long)g_spwkit_das_raw_evidence.app_receive_cycles.total_cycles
+
+set $das_tx_count=(unsigned int)g_spwkit_das_raw_evidence.das_tx_cycles.count
+set $das_tx_min=(unsigned int)g_spwkit_das_raw_evidence.das_tx_cycles.min_cycles
+set $das_tx_max=(unsigned int)g_spwkit_das_raw_evidence.das_tx_cycles.max_cycles
+set $das_tx_total=(unsigned long long)g_spwkit_das_raw_evidence.das_tx_cycles.total_cycles
+
+set $das_rx_poll_count=(unsigned int)g_spwkit_das_raw_evidence.das_rx_poll_cycles.count
+set $das_rx_poll_min=(unsigned int)g_spwkit_das_raw_evidence.das_rx_poll_cycles.min_cycles
+set $das_rx_poll_max=(unsigned int)g_spwkit_das_raw_evidence.das_rx_poll_cycles.max_cycles
+set $das_rx_poll_total=(unsigned long long)g_spwkit_das_raw_evidence.das_rx_poll_cycles.total_cycles
+
+set $das_rx_success_count=(unsigned int)g_spwkit_das_raw_evidence.das_rx_success_cycles.count
+set $das_rx_success_min=(unsigned int)g_spwkit_das_raw_evidence.das_rx_success_cycles.min_cycles
+set $das_rx_success_max=(unsigned int)g_spwkit_das_raw_evidence.das_rx_success_cycles.max_cycles
+set $das_rx_success_total=(unsigned long long)g_spwkit_das_raw_evidence.das_rx_success_cycles.total_cycles
+set $das_rx_empty_polls=(unsigned int)g_spwkit_das_raw_evidence.das_rx_empty_polls
+
 printf "magic=0x%08x\n", $magic
 printf "phase=0x%08x\n", $phase
 printf "result=0x%08x\n", $result
@@ -32,7 +60,30 @@ printf "rx_packets=%u\n", $rx
 printf "tx_bytes=%u\n", $tx_bytes
 printf "rx_bytes=%u\n", $rx_bytes
 
-if $magic == 0x53504441 && $phase == 0x0000700d && $result == 0 && $workspace > 0 && $workspace <= 32768 && $max_packet == 4096 && $speed > 0 && $echoed > 0 && $tx == $echoed && $rx == ($echoed + 1)
+printf "core_hz=%u\n", $core_hz
+printf "app_send_count=%u\n", $app_tx_count
+printf "app_send_min_cycles=%u\n", $app_tx_min
+printf "app_send_max_cycles=%u\n", $app_tx_max
+printf "app_send_total_cycles=%llu\n", $app_tx_total
+printf "app_receive_count=%u\n", $app_rx_count
+printf "app_receive_min_cycles=%u\n", $app_rx_min
+printf "app_receive_max_cycles=%u\n", $app_rx_max
+printf "app_receive_total_cycles=%llu\n", $app_rx_total
+printf "das_tx_count=%u\n", $das_tx_count
+printf "das_tx_min_cycles=%u\n", $das_tx_min
+printf "das_tx_max_cycles=%u\n", $das_tx_max
+printf "das_tx_total_cycles=%llu\n", $das_tx_total
+printf "das_rx_poll_count=%u\n", $das_rx_poll_count
+printf "das_rx_poll_min_cycles=%u\n", $das_rx_poll_min
+printf "das_rx_poll_max_cycles=%u\n", $das_rx_poll_max
+printf "das_rx_poll_total_cycles=%llu\n", $das_rx_poll_total
+printf "das_rx_success_count=%u\n", $das_rx_success_count
+printf "das_rx_success_min_cycles=%u\n", $das_rx_success_min
+printf "das_rx_success_max_cycles=%u\n", $das_rx_success_max
+printf "das_rx_success_total_cycles=%llu\n", $das_rx_success_total
+printf "das_rx_empty_polls=%u\n", $das_rx_empty_polls
+
+if $magic == 0x53504441 && $phase == 0x0000700d && $result == 0 && $workspace > 0 && $workspace <= 32768 && $max_packet == 4096 && $speed > 0 && $echoed > 0 && $tx == $echoed && $rx == ($echoed + 1) && $core_hz == 400000000 && $app_tx_count == $echoed && $app_rx_count == ($echoed + 1) && $das_tx_count > 0 && $das_rx_success_count > 0
   printf "RESULT: PASS\n"
 else
   printf "RESULT: FAIL\n"
