@@ -5,6 +5,38 @@
 
 #include <string.h>
 
+#define SPW_DAS_DEMCR (*(volatile uint32_t*)UINT32_C(0xE000EDFC))
+#define SPW_DAS_DWT_CTRL (*(volatile uint32_t*)UINT32_C(0xE0001000))
+#define SPW_DAS_DWT_CYCCNT (*(volatile uint32_t*)UINT32_C(0xE0001004))
+#define SPW_DAS_DEMCR_TRCENA (UINT32_C(1) << 24u)
+#define SPW_DAS_DWT_CTRL_CYCCNTENA (UINT32_C(1) << 0u)
+
+static void cycle_counter_prepare(void) {
+    SPW_DAS_DEMCR |= SPW_DAS_DEMCR_TRCENA;
+    SPW_DAS_DWT_CYCCNT = 0u;
+    SPW_DAS_DWT_CTRL |= SPW_DAS_DWT_CTRL_CYCCNTENA;
+}
+
+uint32_t spw_das_cycle_counter_read(void) {
+    __asm__ __volatile__("" ::: "memory");
+    return SPW_DAS_DWT_CYCCNT;
+}
+
+static void record_cycles(spw_das_cycle_stats_t* stats, uint32_t cycles) {
+    if (stats->count == 0u || cycles < stats->min_cycles) {
+        stats->min_cycles = cycles;
+    }
+    if (cycles > stats->max_cycles) {
+        stats->max_cycles = cycles;
+    }
+    ++stats->count;
+    stats->total_cycles += (uint64_t)cycles;
+}
+
+static uint32_t elapsed_cycles(uint32_t start) {
+    return spw_das_cycle_counter_read() - start;
+}
+
 static spw_result_t map_result(das_result_t result) {
     switch (result) {
     case DAS_OK: return SPW_OK;
@@ -33,16 +65,24 @@ static spw_result_t poll_one(spw_das_raw_io_t* context) {
     if (context->pending_valid) {
         return SPW_OK;
     }
-    result = das_eth_receive(context->eth,
-                             context->pending_frame,
-                             sizeof(context->pending_frame),
-                             &received);
-    if (result != DAS_OK) {
-        return map_result(result);
-    }
-    if (received != 0u) {
-        context->pending_size = received;
-        context->pending_valid = true;
+    {
+        const uint32_t start = spw_das_cycle_counter_read();
+        result = das_eth_receive(context->eth,
+                                 context->pending_frame,
+                                 sizeof(context->pending_frame),
+                                 &received);
+        const uint32_t cycles = elapsed_cycles(start);
+        record_cycles(&context->stats.rx_poll, cycles);
+        if (result != DAS_OK) {
+            return map_result(result);
+        }
+        if (received != 0u) {
+            record_cycles(&context->stats.rx_success, cycles);
+            context->pending_size = received;
+            context->pending_valid = true;
+        } else {
+            ++context->stats.rx_empty_polls;
+        }
     }
     return SPW_OK;
 }
@@ -113,7 +153,13 @@ static spw_result_t io_send_frame(void* raw,
     if (!link.up) {
         return SPW_ERR_LINK_UNAVAILABLE;
     }
-    return map_result(das_eth_send(context->eth, frame, frame_size));
+    {
+        const uint32_t start = spw_das_cycle_counter_read();
+        const das_result_t send_result =
+            das_eth_send(context->eth, frame, frame_size);
+        record_cycles(&context->stats.tx_send, elapsed_cycles(start));
+        return map_result(send_result);
+    }
 }
 
 static spw_result_t io_receive_frame(void* raw,
@@ -244,6 +290,15 @@ void spw_das_raw_io_init(spw_das_raw_io_t* context, das_eth_t eth) {
     }
     memset(context, 0, sizeof(*context));
     context->eth = eth;
+    cycle_counter_prepare();
+}
+
+void spw_das_raw_io_get_stats(const spw_das_raw_io_t* context,
+                              spw_das_raw_io_stats_t* out_stats) {
+    if (context == NULL || out_stats == NULL) {
+        return;
+    }
+    *out_stats = context->stats;
 }
 
 const spw_raw_ethernet_io_ops_t SPW_DAS_RAW_ETHERNET_IO_OPS = {
