@@ -10,6 +10,7 @@ on:
       - 'CMakeLists.txt'
       - 'integrations/das_stm32h755_raw_eth/**'
       - 'scripts/stm32h755_das_raw_eth_test.sh'
+      - 'scripts/summarize_stm32h755_das_raw_eth.py'
       - 'scripts/gdb/stm32h755_das_raw_eth_*.gdb'
       - '.github/workflows/das-stm32h755-raw-ethernet.yml'
   pull_request:
@@ -20,6 +21,7 @@ on:
       - 'CMakeLists.txt'
       - 'integrations/das_stm32h755_raw_eth/**'
       - 'scripts/stm32h755_das_raw_eth_test.sh'
+      - 'scripts/summarize_stm32h755_das_raw_eth.py'
       - 'scripts/gdb/stm32h755_das_raw_eth_*.gdb'
       - '.github/workflows/das-stm32h755-raw-ethernet.yml'
   workflow_dispatch:
@@ -52,6 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/stm32h755_das_raw_eth_test.sh
+          python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth.py
           test "$(git -C external/das rev-parse HEAD)" = "$DAS_COMMIT"
 
       - name: Install build toolchains

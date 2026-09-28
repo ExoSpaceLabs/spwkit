@@ -102,8 +102,13 @@ int main() {
 #else
     const unsigned process_id = static_cast<unsigned>(::getpid());
 #endif
+    /*
+     * Keep the soak pair below the default dynamic/ephemeral ranges used by
+     * current Windows and Linux CI hosts. The previous 52000+ range could
+     * collide with unrelated transient sockets on Windows runners.
+     */
     const std::uint16_t base = static_cast<std::uint16_t>(
-        52000u + (process_id % 500u) * 2u);
+        20000u + (process_id % 5000u) * 2u);
     constexpr std::uint32_t link_id = 0x534f414bu;
 
     spw_port_t* a = open_udp(base, static_cast<std::uint16_t>(base + 1u), link_id);

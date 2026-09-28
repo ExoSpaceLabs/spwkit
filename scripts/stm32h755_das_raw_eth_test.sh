@@ -67,7 +67,7 @@ need() {
 }
 
 for command in cmake git openocd arm-none-eabi-gcc arm-none-eabi-nm \
-               arm-none-eabi-size ip sudo timeout tee grep; do
+               arm-none-eabi-size ip sudo timeout tee grep python3; do
   need "$command"
 done
 if command -v gdb-multiarch >/dev/null 2>&1; then
@@ -142,6 +142,7 @@ LOG_DIR="$BUILD_ROOT/evidence"
 OPENOCD_LOG="$LOG_DIR/openocd.log"
 HOST_LOG="$LOG_DIR/host-rtt.jsonl"
 GDB_LOG="$LOG_DIR/board-evidence.log"
+SUMMARY_MD="$LOG_DIR/performance-summary.md"
 
 cleanup() {
   if [[ -n "${OPENOCD_PID:-}" ]] && kill -0 "$OPENOCD_PID" 2>/dev/null; then
@@ -275,7 +276,25 @@ echo "[8/8] Read board evidence"
   -x "$ROOT_DIR/scripts/gdb/stm32h755_das_raw_eth_evidence.gdb" 2>&1 | tee "$GDB_LOG"
 grep -q '^RESULT: PASS$' "$GDB_LOG"
 
+python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
+  --host "$HOST_LOG" \
+  --board "$GDB_LOG" \
+  --output "$SUMMARY_MD"
+
 echo "STM32H755 DAS raw-Ethernet HIL: PASS"
 echo "Host RTT evidence:  $HOST_LOG"
 echo "Board evidence:     $GDB_LOG"
+echo "Summary:            $SUMMARY_MD"
+echo "OpenOCD log:        $OPENOCD_LOG"
+ "$GDB_LOG"
+
+python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
+  --host "$HOST_LOG" \
+  --board "$GDB_LOG" \
+  --output "$SUMMARY_MD"
+
+echo "STM32H755 DAS raw-Ethernet HIL: PASS"
+echo "Host RTT evidence:  $HOST_LOG"
+echo "Board evidence:     $GDB_LOG"
+echo "Summary:            $SUMMARY_MD"
 echo "OpenOCD log:        $OPENOCD_LOG"
