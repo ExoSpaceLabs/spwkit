@@ -56,8 +56,9 @@ bash scripts/stm32h755_das_raw_eth_test.sh \
 The script performs a clean build of compact Cortex-M7 SpWKit, pinned DAS,
 board firmware, native compact SpWKit and the Linux AF_PACKET peer. It flashes
 the CM7 image, establishes VSPW RUN over physical Ethernet, exercises 64, 256,
-1024 and 4096 byte echo traffic, records host RTT distributions, and validates
-the board evidence structure through GDB.
+1024 and 4096 byte echo traffic, records host RTT distributions, captures
+STM32 DWT cycle evidence, validates the board evidence structure through GDB,
+and emits a Markdown performance summary.
 
 Expected final markers:
 
@@ -68,7 +69,22 @@ STM32H755 DAS raw-Ethernet HIL: PASS
 ```
 
 Evidence files are retained below
-`build/das-raw-eth/evidence/` by default.
+`build/das-raw-eth/evidence/` by default:
+
+- `host-rtt.jsonl`: physical PC↔STM32 RTT distributions by logical payload;
+- `board-evidence.log`: debugger-readable board state and raw cycle counters;
+- `performance-summary.md`: generated combined report suitable for issue
+  evidence;
+- `openocd.log`: debugger/server log.
+
+The board timing evidence uses the Cortex-M7 DWT cycle counter at the configured
+400 MHz core clock. It records:
+
+- successful logical `spw_port_send()` echo cost;
+- successful `spw_port_receive()` call cost, explicitly polling-inclusive;
+- `das_eth_send()` carrier-call cost;
+- all `das_eth_receive()` poll cost plus successful-receive cost;
+- empty RX poll count.
 
 ## Current measurement boundary
 
@@ -77,7 +93,12 @@ includes the board-side copy/cache work, descriptor submission and polling
 until the TX DMA descriptor returns to software. `das_eth_receive()` exposes
 a completed RX descriptor and performs cache invalidation/copy.
 
-Therefore this integration can provide real MAC/DMA/PHY carrier evidence and
-physical PC-to-board-to-PC RTT now. It must not claim IRQ-to-worker latency:
-there is no IRQ-driven DAS Ethernet path yet. That metric remains not
-applicable until such a path exists.
+Therefore this integration can provide real MAC/DMA/PHY carrier evidence,
+board-side cycle costs, polling burden, and physical PC-to-board-to-PC RTT.
+The DAS TX timing includes its copy/cache work, descriptor submission and
+polling until completion. Successful DAS RX timing covers completed-descriptor
+handling plus cache invalidation/copy.
+
+It must not claim IRQ-to-worker latency: there is no IRQ-driven DAS Ethernet
+path yet. That metric is not applicable to this baseline and remains a future
+comparison point if DAS gains an interrupt-driven Ethernet path.
