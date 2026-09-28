@@ -274,7 +274,7 @@ grep -q '^HOST_RESULT: PASS$' "$HOST_LOG"
 echo "[8/8] Read board evidence"
 "$GDB_BIN" -q "$ELF" -batch \
   -x "$ROOT_DIR/scripts/gdb/stm32h755_das_raw_eth_evidence.gdb" 2>&1 | tee "$GDB_LOG"
-grep -q '^RESULT: PASS
+grep -q '^RESULT: PASS$' "$GDB_LOG"
 
 python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
   --host "$HOST_LOG" \
