@@ -16,6 +16,7 @@
 #define SPWKIT_DAS_LINK_ID UINT32_C(0x44534153)
 #define SPWKIT_DAS_EVIDENCE_MAGIC UINT32_C(0x53504441)
 #define SPWKIT_DAS_PASS_PHASE UINT32_C(0x0000700d)
+#define SPWKIT_DAS_CORE_HZ UINT32_C(400000000)
 
 typedef struct spw_das_evidence {
     uint32_t magic;
@@ -30,14 +31,24 @@ typedef struct spw_das_evidence {
     volatile uint32_t rx_packets;
     volatile uint32_t tx_bytes;
     volatile uint32_t rx_bytes;
+    volatile uint32_t core_hz;
+    volatile spw_das_cycle_stats_t app_send_cycles;
+    volatile spw_das_cycle_stats_t app_receive_cycles;
+    volatile spw_das_cycle_stats_t das_tx_cycles;
+    volatile spw_das_cycle_stats_t das_rx_poll_cycles;
+    volatile spw_das_cycle_stats_t das_rx_success_cycles;
+    volatile uint32_t das_rx_empty_polls;
 } spw_das_evidence_t;
 
 volatile spw_das_evidence_t g_spwkit_das_raw_evidence = {
-    SPWKIT_DAS_EVIDENCE_MAGIC,
-    0u,
-    UINT32_MAX,
-    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+    .magic = SPWKIT_DAS_EVIDENCE_MAGIC,
+    .phase = 0u,
+    .result = UINT32_MAX,
+    .core_hz = SPWKIT_DAS_CORE_HZ
 };
+
+static spw_das_cycle_stats_t g_app_send_cycles;
+static spw_das_cycle_stats_t g_app_receive_cycles;
 
 static alignas(max_align_t) uint8_t g_workspace[SPWKIT_DAS_WORKSPACE_BYTES];
 static uint8_t g_rx[SPWKIT_DAS_PACKET_BYTES];
@@ -74,6 +85,17 @@ static int wait_for_run(spw_port_t* port) {
         (void)das_delay_ms(1u);
     }
     return 0;
+}
+
+static void record_cycles(spw_das_cycle_stats_t* stats, uint32_t cycles) {
+    if (stats->count == 0u || cycles < stats->min_cycles) {
+        stats->min_cycles = cycles;
+    }
+    if (cycles > stats->max_cycles) {
+        stats->max_cycles = cycles;
+    }
+    ++stats->count;
+    stats->total_cycles += (uint64_t)cycles;
 }
 
 static int is_done_packet(const spw_packet_t* packet) {
@@ -170,8 +192,11 @@ int main(void) {
             sizeof(g_rx),
             SPW_TERMINATOR_EOP
         };
+        const uint32_t receive_start = spw_das_cycle_counter_read();
         spw_result_t result =
             spw_port_receive(port, &incoming, UINT64_C(50000));
+        const uint32_t receive_cycles =
+            spw_das_cycle_counter_read() - receive_start;
 
         if (result == SPW_ERR_TIMEOUT || result == SPW_ERR_LINK_UNAVAILABLE) {
             spw_link_state_t state = SPW_LINK_ERROR_RESET;
@@ -181,6 +206,7 @@ int main(void) {
         if (result != SPW_OK) {
             fail(0x401u);
         }
+        record_cycles(&g_app_receive_cycles, receive_cycles);
 
         if (is_done_packet(&incoming)) {
             spw_statistics_t statistics = {0};
@@ -194,8 +220,20 @@ int main(void) {
                 (uint32_t)statistics.rx_packets;
             g_spwkit_das_raw_evidence.tx_bytes =
                 (uint32_t)statistics.tx_bytes;
+            spw_das_raw_io_stats_t raw_stats;
             g_spwkit_das_raw_evidence.rx_bytes =
                 (uint32_t)statistics.rx_bytes;
+            spw_das_raw_io_get_stats(&g_raw_io, &raw_stats);
+            g_spwkit_das_raw_evidence.app_send_cycles = g_app_send_cycles;
+            g_spwkit_das_raw_evidence.app_receive_cycles =
+                g_app_receive_cycles;
+            g_spwkit_das_raw_evidence.das_tx_cycles = raw_stats.tx_send;
+            g_spwkit_das_raw_evidence.das_rx_poll_cycles =
+                raw_stats.rx_poll;
+            g_spwkit_das_raw_evidence.das_rx_success_cycles =
+                raw_stats.rx_success;
+            g_spwkit_das_raw_evidence.das_rx_empty_polls =
+                raw_stats.rx_empty_polls;
             g_spwkit_das_raw_evidence.result = 0u;
             g_spwkit_das_raw_evidence.phase = SPWKIT_DAS_PASS_PHASE;
             (void)das_board_led_set(DAS_BOARD_LED_YELLOW, true);
@@ -213,9 +251,15 @@ int main(void) {
                 incoming.length,
                 incoming.terminator
             };
-            if (spw_port_send(port, &outgoing, UINT64_C(500000)) != SPW_OK) {
+            const uint32_t send_start = spw_das_cycle_counter_read();
+            const spw_result_t send_result =
+                spw_port_send(port, &outgoing, UINT64_C(500000));
+            const uint32_t send_cycles =
+                spw_das_cycle_counter_read() - send_start;
+            if (send_result != SPW_OK) {
                 fail(0x403u);
             }
+            record_cycles(&g_app_send_cycles, send_cycles);
         }
         ++echoed;
         (void)das_board_led_toggle(DAS_BOARD_LED_YELLOW);
