@@ -6,6 +6,15 @@ set mem inaccessible-by-default off
 target extended-remote :3333
 monitor halt
 
+set $pc_value=(unsigned int)$pc
+set $lr_value=(unsigned int)$lr
+set $xpsr_value=(unsigned int)$xpsr
+set $cfsr=*(unsigned int*)0xE000ED28
+set $hfsr=*(unsigned int*)0xE000ED2C
+set $mmfar=*(unsigned int*)0xE000ED34
+set $bfar=*(unsigned int*)0xE000ED38
+set $shcsr=*(unsigned int*)0xE000ED24
+
 set $magic=(unsigned int)g_spwkit_das_raw_evidence.magic
 set $phase=(unsigned int)g_spwkit_das_raw_evidence.phase
 set $result=(unsigned int)g_spwkit_das_raw_evidence.result
@@ -47,6 +56,14 @@ set $das_rx_success_max=(unsigned int)g_spwkit_das_raw_evidence.das_rx_success_c
 set $das_rx_success_total=(unsigned long long)g_spwkit_das_raw_evidence.das_rx_success_cycles.total_cycles
 set $das_rx_empty_polls=(unsigned int)g_spwkit_das_raw_evidence.das_rx_empty_polls
 
+printf "halt_pc=0x%08x\n", $pc_value
+printf "halt_lr=0x%08x\n", $lr_value
+printf "halt_xpsr=0x%08x\n", $xpsr_value
+printf "scb_cfsr=0x%08x\n", $cfsr
+printf "scb_hfsr=0x%08x\n", $hfsr
+printf "scb_mmfar=0x%08x\n", $mmfar
+printf "scb_bfar=0x%08x\n", $bfar
+printf "scb_shcsr=0x%08x\n", $shcsr
 printf "magic=0x%08x\n", $magic
 printf "phase=0x%08x\n", $phase
 printf "result=0x%08x\n", $result
