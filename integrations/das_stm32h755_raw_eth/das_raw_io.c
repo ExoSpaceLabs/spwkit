@@ -74,10 +74,17 @@ static spw_result_t poll_one(spw_das_raw_io_t* context) {
         const uint32_t cycles = elapsed_cycles(start);
         record_cycles(&context->stats.rx_poll, cycles);
         if (result != DAS_OK) {
+            ++context->stats.rx_errors;
             return map_result(result);
         }
         if (received != 0u) {
             record_cycles(&context->stats.rx_success, cycles);
+            context->stats.last_rx_size = (uint32_t)received;
+            if (received >= sizeof(context->stats.last_rx_header)) {
+                memcpy(context->stats.last_rx_header,
+                       context->pending_frame,
+                       sizeof(context->stats.last_rx_header));
+            }
             context->pending_size = received;
             context->pending_valid = true;
         } else {
@@ -158,6 +165,17 @@ static spw_result_t io_send_frame(void* raw,
         const das_result_t send_result =
             das_eth_send(context->eth, frame, frame_size);
         record_cycles(&context->stats.tx_send, elapsed_cycles(start));
+        context->stats.last_tx_size = (uint32_t)frame_size;
+        if (frame_size >= sizeof(context->stats.last_tx_header)) {
+            memcpy(context->stats.last_tx_header,
+                   frame,
+                   sizeof(context->stats.last_tx_header));
+        }
+        if (send_result == DAS_OK) {
+            ++context->stats.tx_successes;
+        } else {
+            ++context->stats.tx_failures;
+        }
         return map_result(send_result);
     }
 }

@@ -37,7 +37,14 @@ typedef struct spw_das_evidence {
     volatile spw_das_cycle_stats_t das_tx_cycles;
     volatile spw_das_cycle_stats_t das_rx_poll_cycles;
     volatile spw_das_cycle_stats_t das_rx_success_cycles;
+    volatile uint32_t das_tx_successes;
+    volatile uint32_t das_tx_failures;
+    volatile uint32_t das_rx_errors;
     volatile uint32_t das_rx_empty_polls;
+    volatile uint32_t das_last_tx_size;
+    volatile uint32_t das_last_rx_size;
+    volatile uint8_t das_last_tx_header[14];
+    volatile uint8_t das_last_rx_header[14];
 } spw_das_evidence_t;
 
 volatile spw_das_evidence_t g_spwkit_das_raw_evidence = {
@@ -71,7 +78,18 @@ static void snapshot_raw_stats(void) {
     g_spwkit_das_raw_evidence.das_tx_cycles = raw_stats.tx_send;
     g_spwkit_das_raw_evidence.das_rx_poll_cycles = raw_stats.rx_poll;
     g_spwkit_das_raw_evidence.das_rx_success_cycles = raw_stats.rx_success;
+    g_spwkit_das_raw_evidence.das_tx_successes = raw_stats.tx_successes;
+    g_spwkit_das_raw_evidence.das_tx_failures = raw_stats.tx_failures;
+    g_spwkit_das_raw_evidence.das_rx_errors = raw_stats.rx_errors;
     g_spwkit_das_raw_evidence.das_rx_empty_polls = raw_stats.rx_empty_polls;
+    g_spwkit_das_raw_evidence.das_last_tx_size = raw_stats.last_tx_size;
+    g_spwkit_das_raw_evidence.das_last_rx_size = raw_stats.last_rx_size;
+    memcpy((void*)g_spwkit_das_raw_evidence.das_last_tx_header,
+           raw_stats.last_tx_header,
+           sizeof(raw_stats.last_tx_header));
+    memcpy((void*)g_spwkit_das_raw_evidence.das_last_rx_header,
+           raw_stats.last_rx_header,
+           sizeof(raw_stats.last_rx_header));
 }
 
 static void fail(uint32_t code) {
