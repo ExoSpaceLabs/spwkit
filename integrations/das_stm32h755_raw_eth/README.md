@@ -20,7 +20,7 @@ SpWKit has no direct dependency on DAS. The adapter is integration code only.
 
 ## Reproducible baseline
 
-- DAS commit: `b10fa1e8ceb021c406d0c15c7020c0114fe0469f`
+- DAS commit: `4b768ef86b43652c94cc91b1c77e247fa37ebd8a`
 - STM32CubeH7 commit: `f5c0b7a2b1f6eb26fde150f72edb2d7deb647066`
 - board: NUCLEO-H755ZI-Q, CM7
 - board MAC: `02:00:00:00:00:01`
