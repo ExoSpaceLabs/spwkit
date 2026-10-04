@@ -48,10 +48,20 @@ Run:
 
 ```sh
 bash scripts/stm32h755_das_raw_eth_test.sh \
-  --das-root /path/to/device-abstraction-stack \
-  --stm32h7-root /path/to/STM32CubeH7 \
   --interface enp0s31f6
 ```
+
+By default the runner prepares its pinned public dependencies automatically
+under `thirdparty/`:
+
+- `thirdparty/device-abstraction-stack`;
+- `thirdparty/STM32CubeH7`.
+
+Missing checkouts are cloned automatically. Existing clean checkouts are
+fetched/checked out to the exact pinned revisions before the build, so stale
+dependencies cannot silently contaminate HIL evidence. The optional
+`--das-root` and `--stm32h7-root` arguments remain available for custom
+checkout locations; local modifications are never discarded automatically.
 
 The script performs a clean build of compact Cortex-M7 SpWKit, pinned DAS,
 board firmware, native compact SpWKit and the Linux AF_PACKET peer. It flashes
