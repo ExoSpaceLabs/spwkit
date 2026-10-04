@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DAS_ROOT="${DAS_ROOT:-}"
-STM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR:-}"
+DAS_ROOT="${DAS_ROOT:-$ROOT_DIR/thirdparty/device-abstraction-stack}"
+STM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR:-$ROOT_DIR/thirdparty/STM32CubeH7}"
 INTERFACE=""
 BUILD_ROOT="${SPWKIT_DAS_RAW_BUILD_ROOT:-$ROOT_DIR/build/das-raw-eth}"
 OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-/usr/share/openocd/scripts}"
@@ -14,13 +14,12 @@ OPENOCD_PID=""
 
 PINNED_DAS_SHA="b10fa1e8ceb021c406d0c15c7020c0114fe0469f"
 PINNED_CUBE_SHA="f5c0b7a2b1f6eb26fde150f72edb2d7deb647066"
+source "$ROOT_DIR/scripts/lib/thirdparty.sh"
 
 usage() {
   cat <<'USAGE'
 Usage:
   bash scripts/stm32h755_das_raw_eth_test.sh \
-    --das-root /path/to/device-abstraction-stack \
-    --stm32h7-root /path/to/STM32CubeH7 \
     --interface enpXsY [options]
 
 Builds a compact no-heap SpWKit raw-Ethernet backend, DAS for the
@@ -29,8 +28,10 @@ It then flashes the board, runs physical Ethernet echo/RTT traffic, and checks
 the debugger-visible board evidence.
 
 Options:
-  --das-root DIR          DAS checkout at the pinned develop commit.
-  --stm32h7-root DIR      STM32CubeH7 checkout root.
+  --das-root DIR          Optional DAS checkout root.
+                          Default: <repo>/thirdparty/device-abstraction-stack (auto-managed).
+  --stm32h7-root DIR      Optional STM32CubeH7 checkout root.
+                          Default: <repo>/thirdparty/STM32CubeH7 (auto-managed).
   --interface IFACE       Linux Ethernet interface connected to CN14.
   --build-root DIR        Clean build root.
   --iterations N          Measured RTT exchanges per payload size (default 128).
@@ -87,35 +88,20 @@ fi
   echo "--warmup must be 0..4096" >&2
   exit 2
 }
-[[ -n "$DAS_ROOT" && -n "$STM32_CUBE_H7_DIR" && -n "$INTERFACE" ]] || {
+[[ -n "$INTERFACE" ]] || {
   usage >&2
   exit 2
 }
 
-DAS_ROOT="$(cd "$DAS_ROOT" && pwd)"
-STM32_CUBE_H7_DIR="$(cd "$STM32_CUBE_H7_DIR" && pwd)"
+spwkit_prepare_das "$DAS_ROOT" "$PINNED_DAS_SHA"
+spwkit_prepare_stm32cubeh7 "$STM32_CUBE_H7_DIR" "$PINNED_CUBE_SHA"
+DAS_SHA="$(git -C "$DAS_ROOT" rev-parse HEAD)"
+CUBE_SHA="$(git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD)"
+
 [[ -d "/sys/class/net/$INTERFACE" ]] || {
   echo "Network interface not found: $INTERFACE" >&2
   exit 2
 }
-
-DAS_SHA="$(git -C "$DAS_ROOT" rev-parse HEAD)"
-[[ "$DAS_SHA" == "$PINNED_DAS_SHA" ]] || {
-  echo "DAS must be at $PINNED_DAS_SHA; found $DAS_SHA" >&2
-  exit 2
-}
-if git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD >/dev/null 2>&1; then
-  CUBE_SHA="$(git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD)"
-  [[ "$CUBE_SHA" == "$PINNED_CUBE_SHA" ]] || {
-    echo "STM32CubeH7 must be at $PINNED_CUBE_SHA; found $CUBE_SHA" >&2
-    exit 2
-  }
-fi
-for file in \
-  "$STM32_CUBE_H7_DIR/Drivers/CMSIS/Include/core_cm7.h" \
-  "$STM32_CUBE_H7_DIR/Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h755xx.h"; do
-  [[ -f "$file" ]] || { echo "Missing CMSIS file: $file" >&2; exit 2; }
-done
 
 HOST_MAC="$(cat "/sys/class/net/$INTERFACE/address")"
 [[ "$HOST_MAC" =~ ^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$ ]] || {
@@ -275,18 +261,6 @@ echo "[8/8] Read board evidence"
 "$GDB_BIN" -q "$ELF" -batch \
   -x "$ROOT_DIR/scripts/gdb/stm32h755_das_raw_eth_evidence.gdb" 2>&1 | tee "$GDB_LOG"
 grep -q '^RESULT: PASS$' "$GDB_LOG"
-
-python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
-  --host "$HOST_LOG" \
-  --board "$GDB_LOG" \
-  --output "$SUMMARY_MD"
-
-echo "STM32H755 DAS raw-Ethernet HIL: PASS"
-echo "Host RTT evidence:  $HOST_LOG"
-echo "Board evidence:     $GDB_LOG"
-echo "Summary:            $SUMMARY_MD"
-echo "OpenOCD log:        $OPENOCD_LOG"
- "$GDB_LOG"
 
 python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
   --host "$HOST_LOG" \
