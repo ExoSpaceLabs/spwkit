@@ -299,6 +299,18 @@ static const spw_runtime_ops_t RUNTIME_OPS = {
     runtime_now_us, runtime_delay
 };
 
+static const char* link_state_name(spw_link_state_t state) {
+    switch (state) {
+    case SPW_LINK_ERROR_RESET: return "ERROR_RESET";
+    case SPW_LINK_ERROR_WAIT: return "ERROR_WAIT";
+    case SPW_LINK_READY: return "READY";
+    case SPW_LINK_STARTED: return "STARTED";
+    case SPW_LINK_CONNECTING: return "CONNECTING";
+    case SPW_LINK_RUN: return "RUN";
+    default: return "UNKNOWN";
+    }
+}
+
 static uint64_t monotonic_ns(void) {
     struct timespec now;
     if (clock_gettime(CLOCK_MONOTONIC_RAW, &now) != 0) return 0u;
@@ -469,9 +481,9 @@ int main(int argc, char** argv) {
         }
         fprintf(stderr,
                 "failed to establish VSPW raw-Ethernet RUN state "
-                "(state=%d tx_frames=%llu tx_bytes=%llu "
+                "(state=%s/%u tx_frames=%llu tx_bytes=%llu "
                 "rx_frames=%llu rx_bytes=%llu)\n",
-                (int)state,
+                link_state_name(state), (unsigned)state,
                 (unsigned long long)io.tx_frames,
                 (unsigned long long)io.tx_bytes,
                 (unsigned long long)io.rx_frames,
