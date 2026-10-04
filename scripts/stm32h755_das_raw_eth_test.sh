@@ -68,7 +68,7 @@ need() {
 }
 
 for command in cmake git openocd arm-none-eabi-gcc arm-none-eabi-nm \
-               arm-none-eabi-size ip sudo timeout tee grep python3; do
+               arm-none-eabi-size arm-none-eabi-addr2line ip sudo timeout tee grep python3; do
   need "$command"
 done
 if command -v gdb-multiarch >/dev/null 2>&1; then
@@ -129,6 +129,57 @@ OPENOCD_LOG="$LOG_DIR/openocd.log"
 HOST_LOG="$LOG_DIR/host-rtt.jsonl"
 GDB_LOG="$LOG_DIR/board-evidence.log"
 SUMMARY_MD="$LOG_DIR/performance-summary.md"
+RUN_LOG_DIR="$BUILD_ROOT/logs"
+BUILD_BOARD_LOG="$RUN_LOG_DIR/01-board-spwkit.log"
+BUILD_DAS_LOG="$RUN_LOG_DIR/02-das.log"
+BUILD_FIRMWARE_LOG="$RUN_LOG_DIR/03-firmware.log"
+BUILD_HOST_LOG="$RUN_LOG_DIR/04-host.log"
+FLASH_LOG="$RUN_LOG_DIR/06-flash.log"
+
+status() {
+  printf '[HIL] %s\n' "$*"
+}
+
+pass() {
+  printf '[HIL] PASS: %s\n' "$*"
+}
+
+fail_with_log() {
+  local message="$1"
+  local log="$2"
+  printf '[HIL] FAIL: %s\n' "$message" >&2
+  if [[ -f "$log" ]]; then
+    printf '[HIL] ---- last 60 log lines: %s ----\n' "$log" >&2
+    tail -n 60 "$log" >&2
+  fi
+  exit 1
+}
+
+net_stat() {
+  cat "/sys/class/net/$INTERFACE/statistics/$1"
+}
+
+board_phase_name() {
+  case "$1" in
+    0x00000000) echo "reset / not started" ;;
+    0x00000001) echo "board clocks/time initialization" ;;
+    0x00000002) echo "Ethernet initialized; SpWKit port setup" ;;
+    0x00000003) echo "physical link up; waiting for VSPW RUN" ;;
+    0x00000004) echo "VSPW RUN; payload echo loop" ;;
+    0x0000700d) echo "test complete" ;;
+    0xdead0101) echo "board LED/clock/time initialization failed" ;;
+    0xdead0102) echo "DAS Ethernet initialization failed" ;;
+    0xdead0201) echo "SpWKit workspace requirements failed" ;;
+    0xdead0202) echo "SpWKit port open/capabilities failed" ;;
+    0xdead0203) echo "SpWKit port start failed" ;;
+    0xdead0301) echo "VSPW failed to reach RUN" ;;
+    0xdead0302) echo "physical Ethernet link unavailable" ;;
+    0xdead0401) echo "SpWKit receive failed" ;;
+    0xdead0402) echo "SpWKit statistics read failed" ;;
+    0xdead0403) echo "SpWKit echo send failed" ;;
+    *) echo "unknown phase" ;;
+  esac
+}
 
 cleanup() {
   if [[ -n "${OPENOCD_PID:-}" ]] && kill -0 "$OPENOCD_PID" 2>/dev/null; then
@@ -139,9 +190,16 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 rm -rf -- "$BUILD_ROOT"
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" "$RUN_LOG_DIR"
 
-echo "[1/8] Build compact Cortex-M7 SpWKit"
+status "SpWKit STM32H755 raw-Ethernet HIL"
+status "interface=$INTERFACE host_mac=$HOST_MAC"
+status "DAS revision=$DAS_SHA"
+status "STM32CubeH7 revision=$CUBE_SHA"
+status "full build/debug logs: $RUN_LOG_DIR"
+
+status "[1/8] Build compact Cortex-M7 SpWKit"
+if ! ( set -e
 cmake -S "$ROOT_DIR" -B "$BOARD_SPWKIT_BUILD" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DDAS_CORE=cm7 \
@@ -165,7 +223,13 @@ cmake -S "$ROOT_DIR" -B "$BOARD_SPWKIT_BUILD" \
 cmake --build "$BOARD_SPWKIT_BUILD" --parallel
 cmake --install "$BOARD_SPWKIT_BUILD"
 
-echo "[2/8] Build pinned DAS"
+) >"$BUILD_BOARD_LOG" 2>&1; then
+  fail_with_log "Cortex-M7 SpWKit build failed" "$BUILD_BOARD_LOG"
+fi
+pass "[1/8] Cortex-M7 SpWKit built"
+
+status "[2/8] Build pinned DAS"
+if ! ( set -e
 cmake -S "$DAS_ROOT" -B "$DAS_BUILD" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DDAS_CORE=cm7 \
@@ -177,7 +241,13 @@ cmake -S "$DAS_ROOT" -B "$DAS_BUILD" \
 cmake --build "$DAS_BUILD" --parallel
 cmake --install "$DAS_BUILD" --prefix "$DAS_INSTALL"
 
-echo "[3/8] Build STM32H755 SpWKit/DAS raw-Ethernet firmware"
+) >"$BUILD_DAS_LOG" 2>&1; then
+  fail_with_log "pinned DAS build failed" "$BUILD_DAS_LOG"
+fi
+pass "[2/8] DAS built"
+
+status "[3/8] Build STM32H755 SpWKit/DAS raw-Ethernet firmware"
+if ! ( set -e
 cmake -S "$ROOT_DIR/integrations/das_stm32h755_raw_eth" -B "$FIRMWARE_BUILD" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DDAS_CORE=cm7 \
@@ -187,9 +257,14 @@ cmake -S "$ROOT_DIR/integrations/das_stm32h755_raw_eth" -B "$FIRMWARE_BUILD" \
 cmake --build "$FIRMWARE_BUILD" --parallel
 [[ -s "$ELF" ]] || { echo "Firmware not found: $ELF" >&2; exit 1; }
 arm-none-eabi-nm -g "$ELF" | grep -q 'g_spwkit_das_raw_evidence'
-arm-none-eabi-size "$ELF"
 
-echo "[4/8] Build native compact SpWKit and AF_PACKET peer"
+) >"$BUILD_FIRMWARE_LOG" 2>&1; then
+  fail_with_log "STM32H755 HIL firmware build failed" "$BUILD_FIRMWARE_LOG"
+fi
+pass "[3/8] firmware built: $(arm-none-eabi-size "$ELF" | tail -n 1)"
+
+status "[4/8] Build native compact SpWKit and AF_PACKET peer"
+if ! ( set -e
 cmake -S "$ROOT_DIR" -B "$HOST_SPWKIT_BUILD" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$HOST_SPWKIT_INSTALL" \
@@ -217,10 +292,18 @@ cmake -S "$ROOT_DIR/integrations/das_stm32h755_raw_eth/host" \
 cmake --build "$HOST_PEER_BUILD" --parallel
 [[ -x "$HOST_PEER" ]] || { echo "Host peer not found: $HOST_PEER" >&2; exit 1; }
 
-echo "[5/8] Bring up Linux Ethernet interface $INTERFACE ($HOST_MAC)"
-sudo ip link set dev "$INTERFACE" up
+) >"$BUILD_HOST_LOG" 2>&1; then
+  fail_with_log "Linux AF_PACKET peer build failed" "$BUILD_HOST_LOG"
+fi
+pass "[4/8] host AF_PACKET peer built"
 
-echo "[6/8] Start OpenOCD and flash/run CM7 firmware"
+status "[5/8] Bring up Linux Ethernet interface $INTERFACE ($HOST_MAC)"
+sudo ip link set dev "$INTERFACE" up
+status "host link: $(ip -br link show dev "$INTERFACE")"
+status "carrier(before board start)=$(cat "/sys/class/net/$INTERFACE/carrier" 2>/dev/null || echo 0)"
+pass "[5/8] host interface prepared"
+
+status "[6/8] Start OpenOCD and flash/run CM7 firmware"
 openocd -s "$OPENOCD_SCRIPTS" \
   -f "$ROOT_DIR/scripts/openocd_h755.cfg" \
   -c "init; reset halt" >"$OPENOCD_LOG" 2>&1 &
@@ -238,19 +321,27 @@ grep -q "Listening on port 3333 for gdb connections" "$OPENOCD_LOG" || {
   echo "OpenOCD GDB server did not become ready" >&2
   exit 1
 }
-"$GDB_BIN" -q "$ELF" -batch \
-  -x "$ROOT_DIR/scripts/gdb/stm32h755_das_raw_eth_start.gdb"
+if ! "$GDB_BIN" -q "$ELF" -batch \
+  -x "$ROOT_DIR/scripts/gdb/stm32h755_das_raw_eth_start.gdb" >"$FLASH_LOG" 2>&1; then
+  fail_with_log "flash/start GDB sequence failed" "$FLASH_LOG"
+fi
 
 for _ in $(seq 1 100); do
   [[ "$(cat "/sys/class/net/$INTERFACE/carrier" 2>/dev/null || echo 0)" == "1" ]] && break
   sleep 0.1
 done
 [[ "$(cat "/sys/class/net/$INTERFACE/carrier" 2>/dev/null || echo 0)" == "1" ]] || {
-  echo "No Ethernet carrier on $INTERFACE after board start" >&2
-  exit 1
+  fail_with_log "no Ethernet carrier on $INTERFACE after board start" "$OPENOCD_LOG"
 }
+status "carrier(after board start)=1"
+pass "[6/8] firmware flashed and physical Ethernet carrier detected"
 
-echo "[7/8] Run physical AF_PACKET/VSPW echo and RTT campaign"
+HOST_TX_PACKETS_BEFORE="$(net_stat tx_packets)"
+HOST_RX_PACKETS_BEFORE="$(net_stat rx_packets)"
+HOST_TX_BYTES_BEFORE="$(net_stat tx_bytes)"
+HOST_RX_BYTES_BEFORE="$(net_stat rx_bytes)"
+
+status "[7/8] Run physical AF_PACKET/VSPW echo and RTT campaign"
 set +e
 sudo "$HOST_PEER" \
   --interface "$INTERFACE" \
@@ -258,26 +349,51 @@ sudo "$HOST_PEER" \
   --warmup "$WARMUP" 2>&1 | tee "$HOST_LOG"
 HOST_RC=${PIPESTATUS[0]}
 set -e
+HOST_TX_PACKETS_AFTER="$(net_stat tx_packets)"
+HOST_RX_PACKETS_AFTER="$(net_stat rx_packets)"
+HOST_TX_BYTES_AFTER="$(net_stat tx_bytes)"
+HOST_RX_BYTES_AFTER="$(net_stat rx_bytes)"
+status "host NIC delta: tx_packets=$((HOST_TX_PACKETS_AFTER-HOST_TX_PACKETS_BEFORE)) rx_packets=$((HOST_RX_PACKETS_AFTER-HOST_RX_PACKETS_BEFORE)) tx_bytes=$((HOST_TX_BYTES_AFTER-HOST_TX_BYTES_BEFORE)) rx_bytes=$((HOST_RX_BYTES_AFTER-HOST_RX_BYTES_BEFORE))"
+if (( HOST_RC == 0 )); then
+  pass "[7/8] VSPW raw-Ethernet campaign completed"
+else
+  status "[7/8] VSPW campaign failed; collecting board evidence before exit"
+fi
 
-echo "[8/8] Read board evidence"
+status "[8/8] Read board/fault evidence"
 set +e
 "$GDB_BIN" -q "$ELF" -batch \
-  -x "$ROOT_DIR/scripts/gdb/stm32h755_das_raw_eth_evidence.gdb" 2>&1 | tee "$GDB_LOG"
-GDB_RC=${PIPESTATUS[0]}
+  -x "$ROOT_DIR/scripts/gdb/stm32h755_das_raw_eth_evidence.gdb" >"$GDB_LOG" 2>&1
+GDB_RC=$?
 set -e
 
+if [[ -f "$GDB_LOG" ]]; then
+  grep -E '^(halt_pc|halt_lr|halt_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|das_tx_count|das_rx_poll_count|das_rx_success_count|das_rx_empty_polls)=' "$GDB_LOG" || true
+  grep -E '^RESULT:' "$GDB_LOG" || true
+
+  BOARD_PHASE="$(sed -n 's/^phase=//p' "$GDB_LOG" | tail -n 1)"
+  HALT_PC="$(sed -n 's/^halt_pc=//p' "$GDB_LOG" | tail -n 1)"
+  if [[ -n "$BOARD_PHASE" ]]; then
+    status "board phase: $BOARD_PHASE ($(board_phase_name "$BOARD_PHASE"))"
+  fi
+  if [[ -n "$HALT_PC" ]]; then
+    HALT_LOCATION="$(arm-none-eabi-addr2line -f -C -e "$ELF" "$HALT_PC" | paste -sd ' ' -)"
+    status "MCU halt location: $HALT_LOCATION"
+  fi
+fi
+
 if (( HOST_RC != 0 )); then
-  echo "Host VSPW campaign failed with exit code $HOST_RC" >&2
-  echo "Host evidence:      $HOST_LOG" >&2
-  echo "Board evidence:     $GDB_LOG" >&2
-  echo "OpenOCD log:        $OPENOCD_LOG" >&2
+  echo "[HIL] FAIL: host VSPW campaign exited $HOST_RC" >&2
+  echo "[HIL] inspect: $HOST_LOG" >&2
+  echo "[HIL] inspect: $GDB_LOG" >&2
+  echo "[HIL] inspect: $OPENOCD_LOG" >&2
   exit "$HOST_RC"
 fi
 if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS$' "$GDB_LOG"; then
-  echo "Board evidence did not satisfy the HIL contract" >&2
-  echo "Host evidence:      $HOST_LOG" >&2
-  echo "Board evidence:     $GDB_LOG" >&2
-  echo "OpenOCD log:        $OPENOCD_LOG" >&2
+  echo "[HIL] FAIL: board evidence did not satisfy the HIL contract" >&2
+  echo "[HIL] inspect: $HOST_LOG" >&2
+  echo "[HIL] inspect: $GDB_LOG" >&2
+  echo "[HIL] inspect: $OPENOCD_LOG" >&2
   exit 1
 fi
 
@@ -286,8 +402,13 @@ python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
   --board "$GDB_LOG" \
   --output "$SUMMARY_MD"
 
+pass "[8/8] board evidence validated"
+echo
+echo "========== HIL RESULT =========="
 echo "STM32H755 DAS raw-Ethernet HIL: PASS"
-echo "Host RTT evidence:  $HOST_LOG"
-echo "Board evidence:     $GDB_LOG"
-echo "Summary:            $SUMMARY_MD"
-echo "OpenOCD log:        $OPENOCD_LOG"
+echo "Performance summary: $SUMMARY_MD"
+echo "Host RTT evidence:   $HOST_LOG"
+echo "Board evidence:      $GDB_LOG"
+echo "OpenOCD log:         $OPENOCD_LOG"
+echo "Build/debug logs:    $RUN_LOG_DIR"
+echo "================================"

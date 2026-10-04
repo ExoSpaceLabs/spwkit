@@ -299,6 +299,18 @@ static const spw_runtime_ops_t RUNTIME_OPS = {
     runtime_now_us, runtime_delay
 };
 
+static const char* link_state_name(spw_link_state_t state) {
+    switch (state) {
+    case SPW_LINK_ERROR_RESET: return "ERROR_RESET";
+    case SPW_LINK_ERROR_WAIT: return "ERROR_WAIT";
+    case SPW_LINK_READY: return "READY";
+    case SPW_LINK_STARTED: return "STARTED";
+    case SPW_LINK_CONNECTING: return "CONNECTING";
+    case SPW_LINK_RUN: return "RUN";
+    default: return "UNKNOWN";
+    }
+}
+
 static uint64_t monotonic_ns(void) {
     struct timespec now;
     if (clock_gettime(CLOCK_MONOTONIC_RAW, &now) != 0) return 0u;
@@ -330,10 +342,25 @@ static void fill_payload(size_t size, uint32_t sequence) {
 
 static int wait_run(spw_port_t* port) {
     unsigned attempt;
+    spw_link_state_t previous = UINT8_MAX;
+    fprintf(stderr, "[host] waiting for VSPW raw-Ethernet RUN\n");
     for (attempt = 0u; attempt < 20000u; ++attempt) {
         spw_link_state_t state = SPW_LINK_ERROR_RESET;
         if (spw_port_get_link_state(port, &state) != SPW_OK) return 0;
-        if (state == SPW_LINK_RUN) return 1;
+        if (state != previous) {
+            fprintf(stderr, "[host] VSPW state -> %s/%u\n",
+                    link_state_name(state), (unsigned)state);
+            previous = state;
+        }
+        if (state == SPW_LINK_RUN) {
+            fprintf(stderr, "[host] VSPW RUN established after %u ms\n",
+                    attempt);
+            return 1;
+        }
+        if (attempt != 0u && (attempt % 5000u) == 0u) {
+            fprintf(stderr, "[host] still waiting for RUN (%u ms)\n",
+                    attempt);
+        }
         {
             struct timespec delay = {0, 1000000L};
             (void)nanosleep(&delay, NULL);
@@ -469,9 +496,9 @@ int main(int argc, char** argv) {
         }
         fprintf(stderr,
                 "failed to establish VSPW raw-Ethernet RUN state "
-                "(state=%d tx_frames=%llu tx_bytes=%llu "
+                "(state=%s/%u tx_frames=%llu tx_bytes=%llu "
                 "rx_frames=%llu rx_bytes=%llu)\n",
-                (int)state,
+                link_state_name(state), (unsigned)state,
                 (unsigned long long)io.tx_frames,
                 (unsigned long long)io.tx_bytes,
                 (unsigned long long)io.rx_frames,
