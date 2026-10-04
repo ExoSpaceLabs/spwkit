@@ -286,20 +286,95 @@ The evidence supports three conclusions for the #229 abstraction itself:
    optimization target: raw TX benefits from bypassing UDP/IP while the
    current copied raw RX path is slower and noisier than loopback UDP.
 
-Embedded MAC/DMA/IRQ scheduling still requires separate target evidence.
+The provider/UDP conclusions are now complemented by physical STM32H755
+raw-Ethernet evidence below.
 
-## Remaining #230 evidence
+## Physical STM32H755 raw-Ethernet evidence
 
-Still required:
+A NUCLEO-H755ZI-Q running the DAS STM32H755 Ethernet driver was connected by
+physical 100-Mbit Ethernet to a Linux host using the SpWKit AF_PACKET peer.
+The embedded firmware used the same transport-independent VSPW engine and the
+DAS raw-Ethernet provider boundary.
 
-- PC -> embedded and embedded -> PC raw-Ethernet instrumentation;
-- embedded -> embedded evidence when the hardware setup makes that useful;
-- DMA setup/completion and IRQ-to-worker timing;
-- physical-carrier throughput/jitter and any platform copy below
-  `spw_raw_ethernet_io_ops_t`;
-- evaluation of whether reducing the documented extra raw-Ethernet copies is
-  worth extending the transport ownership contract.
+The successful campaign used:
 
-The AF_PACKET/veth result is real host raw-frame evidence, but it is still not
-physical Ethernet or embedded-driver evidence. In-memory raw-frame results
-remain functional/software-boundary evidence only.
+- Cortex-M7 core clock: 400 MHz;
+- physical Ethernet: 100 Mbps, full duplex;
+- logical payloads: 64, 256, 1024 and 4096 bytes;
+- warmup: 16;
+- measured iterations: 128 per payload;
+- raw Ethernet EtherType: `0x88B5`;
+- board MAC: `02:00:00:00:00:01`;
+- host MAC: `54:05:db:d9:be:c2`.
+
+The campaign completed 576 echoed logical packets with no Cortex-M fault,
+no DAS TX failures and no DAS RX errors. The final raw Ethernet headers were
+correct in both directions:
+
+```text
+board -> host: 54:05:db:d9:be:c2 02:00:00:00:00:01 ethertype=88b5
+host -> board: 02:00:00:00:00:01 54:05:db:d9:be:c2 ethertype=88b5
+```
+
+### Physical RTT distribution
+
+| Payload | Median RTT | p95 | p99 | Min | Max |
+|---|---:|---:|---:|---:|---:|
+| 64 B | 1.334611 ms | 2.001227 ms | 2.137038 ms | 1.270924 ms | 2.245726 ms |
+| 256 B | 1.340420 ms | 1.989710 ms | 2.019317 ms | 1.296188 ms | 2.052158 ms |
+| 1024 B | 1.991375 ms | 2.034370 ms | 2.097814 ms | 1.871563 ms | 2.117539 ms |
+| 4096 B | 24.286346 ms | 24.515212 ms | 24.951681 ms | 3.335479 ms | 24.974830 ms |
+
+The 4096-byte case is visibly bimodal/long-tail relative to the smaller
+payloads and should not be summarized by its mean alone. It is fragmented over
+multiple carrier frames and exercises ACK/retry/keepalive and polling more
+heavily than the smaller payloads.
+
+### Board-side cycle decomposition
+
+| Boundary | Samples | Mean cycles | Mean time | Min cycles | Max cycles |
+|---|---:|---:|---:|---:|---:|
+| `spw_port_send()` logical echo | 576 | 344068.37 | 860.171 us | 219366 | 654218 |
+| successful `spw_port_receive()`, polling-inclusive | 577 | 1605197.93 | 4.013 ms | 230254 | 9359704 |
+| `das_eth_send()` carrier call | 2020 | 71115.61 | 177.789 us | 53091 | 117721 |
+| successful `das_eth_receive()` carrier call | 2172 | 7009.68 | 17.524 us | 1694 | 19090 |
+| all `das_eth_receive()` polls | 4313 | 3700.18 | 9.250 us | 290 | 19090 |
+
+The DAS path is currently polling-only. Therefore IRQ-to-worker latency is not
+a meaningful metric for this baseline and is explicitly not reported as if it
+existed. The measured RX application call includes polling wait time by
+design.
+
+The physical run also exposed two integration defects before producing valid
+performance evidence:
+
+1. the Cortex-M hard-float image initially raised UsageFault.NOCP until the
+   pinned DAS startup enabled CP10/CP11;
+2. the HIL firmware initially called `spw_port_start()` before DAS reported
+   PHY link-up, causing the first VSPW keepalive to fail with
+   `SPW_ERR_LINK_UNAVAILABLE`. The firmware now waits for physical link-up
+   before starting VSPW.
+
+These fixes are part of the measured path and are not excluded from the
+record.
+
+## #230 completion boundary
+
+The hardware-bound acceptance item is now satisfied:
+
+- PC -> embedded physical raw-Ethernet path measured;
+- embedded -> PC physical raw-Ethernet path measured through the same echo
+  campaign;
+- MAC/DMA-facing DAS send/receive cost measured in Cortex-M7 cycles;
+- physical RTT distribution captured;
+- VSPW application-level send/receive cost captured;
+- embedded workspace recorded at 20960 bytes;
+- carrier TX/RX success/error counts and final L2 framing validated.
+
+Embedded -> embedded evidence remains optional because no second comparable
+hardware endpoint is required to answer the current architecture question.
+Likewise IRQ-to-worker timing remains not applicable until an interrupt-driven
+DAS Ethernet path exists.
+
+The AF_PACKET/veth result remains useful hosted evidence; this STM32H755
+campaign is the corresponding physical embedded-driver evidence.
