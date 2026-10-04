@@ -31,7 +31,7 @@ target_include_directories(spwkit_das_stm32h755_raw_eth PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_features(spwkit_das_stm32h755_raw_eth PRIVATE c_std_11)
 target_compile_options(spwkit_das_stm32h755_raw_eth PRIVATE
-    -Wall -Wextra -Werror -ffreestanding -fno-builtin)
+    -Wall -Wextra -Werror -ffreestanding -fno-builtin -g3)
 target_link_options(spwkit_das_stm32h755_raw_eth PRIVATE
     -nostartfiles
     --specs=nosys.specs
