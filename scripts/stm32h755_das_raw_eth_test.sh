@@ -368,7 +368,7 @@ GDB_RC=$?
 set -e
 
 if [[ -f "$GDB_LOG" ]]; then
-  grep -E '^(halt_pc|halt_lr|halt_msp|is_exception|fault_sp|stacked_r0|stacked_r1|stacked_r2|stacked_r3|stacked_r12|stacked_lr|stacked_pc|stacked_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|das_tx_count|das_rx_poll_count|das_rx_success_count|das_rx_empty_polls)=' "$GDB_LOG" || true
+  grep -E '^(halt_pc|halt_lr|halt_msp|is_exception|fault_sp|stacked_r0|stacked_r1|stacked_r2|stacked_r3|stacked_r12|stacked_lr|stacked_pc|stacked_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|das_tx_count|das_rx_poll_count|das_rx_success_count|das_tx_successes|das_tx_failures|das_rx_errors|das_rx_empty_polls|das_last_tx_size|das_last_rx_size|das_last_tx_header|das_last_rx_header)=' "$GDB_LOG" || true
   grep -E '^RESULT:' "$GDB_LOG" || true
 
   BOARD_PHASE="$(sed -n 's/^phase=//p' "$GDB_LOG" | tail -n 1)"
