@@ -59,6 +59,10 @@ jobs:
           bash -n scripts/stm32h755_das_raw_eth_test.sh
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth.py
           test "$(git -C external/das rev-parse HEAD)" = "$DAS_COMMIT"
+          source scripts/lib/thirdparty.sh
+          auto_das="${RUNNER_TEMP}/spwkit-auto-das"
+          spwkit_prepare_das "$auto_das" "$DAS_COMMIT"
+          test "$(git -C "$auto_das" rev-parse HEAD)" = "$DAS_COMMIT"
 
       - name: Install build toolchains
         run: |
