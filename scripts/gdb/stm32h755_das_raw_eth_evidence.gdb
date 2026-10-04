@@ -104,6 +104,11 @@ set $das_rx_success_min=(unsigned int)g_spwkit_das_raw_evidence.das_rx_success_c
 set $das_rx_success_max=(unsigned int)g_spwkit_das_raw_evidence.das_rx_success_cycles.max_cycles
 set $das_rx_success_total=(unsigned long long)g_spwkit_das_raw_evidence.das_rx_success_cycles.total_cycles
 set $das_rx_empty_polls=(unsigned int)g_spwkit_das_raw_evidence.das_rx_empty_polls
+set $das_tx_successes=(unsigned int)g_spwkit_das_raw_evidence.das_tx_successes
+set $das_tx_failures=(unsigned int)g_spwkit_das_raw_evidence.das_tx_failures
+set $das_rx_errors=(unsigned int)g_spwkit_das_raw_evidence.das_rx_errors
+set $das_last_tx_size=(unsigned int)g_spwkit_das_raw_evidence.das_last_tx_size
+set $das_last_rx_size=(unsigned int)g_spwkit_das_raw_evidence.das_last_rx_size
 
 printf "magic=0x%08x\n", $magic
 printf "phase=0x%08x\n", $phase
@@ -140,6 +145,13 @@ printf "das_rx_success_min_cycles=%u\n", $das_rx_success_min
 printf "das_rx_success_max_cycles=%u\n", $das_rx_success_max
 printf "das_rx_success_total_cycles=%llu\n", $das_rx_success_total
 printf "das_rx_empty_polls=%u\n", $das_rx_empty_polls
+printf "das_tx_successes=%u\n", $das_tx_successes
+printf "das_tx_failures=%u\n", $das_tx_failures
+printf "das_rx_errors=%u\n", $das_rx_errors
+printf "das_last_tx_size=%u\n", $das_last_tx_size
+printf "das_last_rx_size=%u\n", $das_last_rx_size
+printf "das_last_tx_header=%02x:%02x:%02x:%02x:%02x:%02x %02x:%02x:%02x:%02x:%02x:%02x ethertype=%02x%02x\n", g_spwkit_das_raw_evidence.das_last_tx_header[0], g_spwkit_das_raw_evidence.das_last_tx_header[1], g_spwkit_das_raw_evidence.das_last_tx_header[2], g_spwkit_das_raw_evidence.das_last_tx_header[3], g_spwkit_das_raw_evidence.das_last_tx_header[4], g_spwkit_das_raw_evidence.das_last_tx_header[5], g_spwkit_das_raw_evidence.das_last_tx_header[6], g_spwkit_das_raw_evidence.das_last_tx_header[7], g_spwkit_das_raw_evidence.das_last_tx_header[8], g_spwkit_das_raw_evidence.das_last_tx_header[9], g_spwkit_das_raw_evidence.das_last_tx_header[10], g_spwkit_das_raw_evidence.das_last_tx_header[11], g_spwkit_das_raw_evidence.das_last_tx_header[12], g_spwkit_das_raw_evidence.das_last_tx_header[13]
+printf "das_last_rx_header=%02x:%02x:%02x:%02x:%02x:%02x %02x:%02x:%02x:%02x:%02x:%02x ethertype=%02x%02x\n", g_spwkit_das_raw_evidence.das_last_rx_header[0], g_spwkit_das_raw_evidence.das_last_rx_header[1], g_spwkit_das_raw_evidence.das_last_rx_header[2], g_spwkit_das_raw_evidence.das_last_rx_header[3], g_spwkit_das_raw_evidence.das_last_rx_header[4], g_spwkit_das_raw_evidence.das_last_rx_header[5], g_spwkit_das_raw_evidence.das_last_rx_header[6], g_spwkit_das_raw_evidence.das_last_rx_header[7], g_spwkit_das_raw_evidence.das_last_rx_header[8], g_spwkit_das_raw_evidence.das_last_rx_header[9], g_spwkit_das_raw_evidence.das_last_rx_header[10], g_spwkit_das_raw_evidence.das_last_rx_header[11], g_spwkit_das_raw_evidence.das_last_rx_header[12], g_spwkit_das_raw_evidence.das_last_rx_header[13]
 
 if $magic == 0x53504441 && $phase == 0x0000700d && $result == 0 && $workspace > 0 && $workspace <= 32768 && $max_packet == 4096 && $speed > 0 && $echoed > 0 && $tx == $echoed && $rx == ($echoed + 1) && $core_hz == 400000000 && $app_tx_count == $echoed && $app_rx_count == ($echoed + 1) && $das_tx_count > 0 && $das_rx_success_count > 0
   printf "RESULT: PASS\n"
