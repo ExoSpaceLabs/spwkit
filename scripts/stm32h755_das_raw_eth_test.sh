@@ -68,7 +68,7 @@ need() {
 }
 
 for command in cmake git openocd arm-none-eabi-gcc arm-none-eabi-nm \
-               arm-none-eabi-size ip sudo timeout tee grep python3; do
+               arm-none-eabi-size arm-none-eabi-addr2line ip sudo timeout tee grep python3; do
   need "$command"
 done
 if command -v gdb-multiarch >/dev/null 2>&1; then
@@ -159,6 +159,28 @@ net_stat() {
   cat "/sys/class/net/$INTERFACE/statistics/$1"
 }
 
+board_phase_name() {
+  case "$1" in
+    0x00000000) echo "reset / not started" ;;
+    0x00000001) echo "board clocks/time initialization" ;;
+    0x00000002) echo "Ethernet initialized; SpWKit port setup" ;;
+    0x00000003) echo "physical link up; waiting for VSPW RUN" ;;
+    0x00000004) echo "VSPW RUN; payload echo loop" ;;
+    0x0000700d) echo "test complete" ;;
+    0xdead0101) echo "board LED/clock/time initialization failed" ;;
+    0xdead0102) echo "DAS Ethernet initialization failed" ;;
+    0xdead0201) echo "SpWKit workspace requirements failed" ;;
+    0xdead0202) echo "SpWKit port open/capabilities failed" ;;
+    0xdead0203) echo "SpWKit port start failed" ;;
+    0xdead0301) echo "VSPW failed to reach RUN" ;;
+    0xdead0302) echo "physical Ethernet link unavailable" ;;
+    0xdead0401) echo "SpWKit receive failed" ;;
+    0xdead0402) echo "SpWKit statistics read failed" ;;
+    0xdead0403) echo "SpWKit echo send failed" ;;
+    *) echo "unknown phase" ;;
+  esac
+}
+
 cleanup() {
   if [[ -n "${OPENOCD_PID:-}" ]] && kill -0 "$OPENOCD_PID" 2>/dev/null; then
     kill "$OPENOCD_PID" 2>/dev/null || true
@@ -177,7 +199,7 @@ status "STM32CubeH7 revision=$CUBE_SHA"
 status "full build/debug logs: $RUN_LOG_DIR"
 
 status "[1/8] Build compact Cortex-M7 SpWKit"
-if ! {
+if ! ( set -e
 cmake -S "$ROOT_DIR" -B "$BOARD_SPWKIT_BUILD" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DDAS_CORE=cm7 \
@@ -201,13 +223,13 @@ cmake -S "$ROOT_DIR" -B "$BOARD_SPWKIT_BUILD" \
 cmake --build "$BOARD_SPWKIT_BUILD" --parallel
 cmake --install "$BOARD_SPWKIT_BUILD"
 
-} >"$BUILD_BOARD_LOG" 2>&1; then
+) >"$BUILD_BOARD_LOG" 2>&1; then
   fail_with_log "Cortex-M7 SpWKit build failed" "$BUILD_BOARD_LOG"
 fi
 pass "[1/8] Cortex-M7 SpWKit built"
 
 status "[2/8] Build pinned DAS"
-if ! {
+if ! ( set -e
 cmake -S "$DAS_ROOT" -B "$DAS_BUILD" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DDAS_CORE=cm7 \
@@ -219,13 +241,13 @@ cmake -S "$DAS_ROOT" -B "$DAS_BUILD" \
 cmake --build "$DAS_BUILD" --parallel
 cmake --install "$DAS_BUILD" --prefix "$DAS_INSTALL"
 
-} >"$BUILD_DAS_LOG" 2>&1; then
+) >"$BUILD_DAS_LOG" 2>&1; then
   fail_with_log "pinned DAS build failed" "$BUILD_DAS_LOG"
 fi
 pass "[2/8] DAS built"
 
 status "[3/8] Build STM32H755 SpWKit/DAS raw-Ethernet firmware"
-if ! {
+if ! ( set -e
 cmake -S "$ROOT_DIR/integrations/das_stm32h755_raw_eth" -B "$FIRMWARE_BUILD" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DDAS_CORE=cm7 \
@@ -236,13 +258,13 @@ cmake --build "$FIRMWARE_BUILD" --parallel
 [[ -s "$ELF" ]] || { echo "Firmware not found: $ELF" >&2; exit 1; }
 arm-none-eabi-nm -g "$ELF" | grep -q 'g_spwkit_das_raw_evidence'
 
-} >"$BUILD_FIRMWARE_LOG" 2>&1; then
+) >"$BUILD_FIRMWARE_LOG" 2>&1; then
   fail_with_log "STM32H755 HIL firmware build failed" "$BUILD_FIRMWARE_LOG"
 fi
 pass "[3/8] firmware built: $(arm-none-eabi-size "$ELF" | tail -n 1)"
 
 status "[4/8] Build native compact SpWKit and AF_PACKET peer"
-if ! {
+if ! ( set -e
 cmake -S "$ROOT_DIR" -B "$HOST_SPWKIT_BUILD" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$HOST_SPWKIT_INSTALL" \
@@ -270,7 +292,7 @@ cmake -S "$ROOT_DIR/integrations/das_stm32h755_raw_eth/host" \
 cmake --build "$HOST_PEER_BUILD" --parallel
 [[ -x "$HOST_PEER" ]] || { echo "Host peer not found: $HOST_PEER" >&2; exit 1; }
 
-} >"$BUILD_HOST_LOG" 2>&1; then
+) >"$BUILD_HOST_LOG" 2>&1; then
   fail_with_log "Linux AF_PACKET peer build failed" "$BUILD_HOST_LOG"
 fi
 pass "[4/8] host AF_PACKET peer built"
@@ -346,7 +368,18 @@ GDB_RC=$?
 set -e
 
 if [[ -f "$GDB_LOG" ]]; then
-  grep -E '^(halt_pc|halt_lr|halt_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|das_tx_count|das_rx_poll_count|das_rx_success_count|das_rx_empty_polls|RESULT):' "$GDB_LOG" || true
+  grep -E '^(halt_pc|halt_lr|halt_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|das_tx_count|das_rx_poll_count|das_rx_success_count|das_rx_empty_polls)=' "$GDB_LOG" || true
+  grep -E '^RESULT:' "$GDB_LOG" || true
+
+  BOARD_PHASE="$(sed -n 's/^phase=//p' "$GDB_LOG" | tail -n 1)"
+  HALT_PC="$(sed -n 's/^halt_pc=//p' "$GDB_LOG" | tail -n 1)"
+  if [[ -n "$BOARD_PHASE" ]]; then
+    status "board phase: $BOARD_PHASE ($(board_phase_name "$BOARD_PHASE"))"
+  fi
+  if [[ -n "$HALT_PC" ]]; then
+    HALT_LOCATION="$(arm-none-eabi-addr2line -f -C -e "$ELF" "$HALT_PC" | paste -sd ' ' -)"
+    status "MCU halt location: $HALT_LOCATION"
+  fi
 fi
 
 if (( HOST_RC != 0 )); then
