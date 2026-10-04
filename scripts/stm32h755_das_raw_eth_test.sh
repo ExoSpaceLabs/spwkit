@@ -273,7 +273,7 @@ if (( HOST_RC != 0 )); then
   echo "OpenOCD log:        $OPENOCD_LOG" >&2
   exit "$HOST_RC"
 fi
-if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS "$GDB_LOG"; then
+if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS$' "$GDB_LOG"; then
   echo "Board evidence did not satisfy the HIL contract" >&2
   echo "Host evidence:      $HOST_LOG" >&2
   echo "Board evidence:     $GDB_LOG" >&2
