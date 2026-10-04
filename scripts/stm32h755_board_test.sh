@@ -49,12 +49,7 @@ while [[ $# -gt 0 ]]; do
     --reuse-build) CLEAN=0; shift ;;
     --no-build) SKIP_BUILD=1; CLEAN=0; shift ;;
     -h|--help) usage; exit 0 ;;
-    --*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
-    *)
-      [[ -z "$STM32_CUBE_H7_DIR" ]] || { echo "Unexpected argument: $1" >&2; exit 2; }
-      STM32_CUBE_H7_DIR="$1"
-      shift
-      ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
