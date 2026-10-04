@@ -12,6 +12,9 @@ spwkit_prepare_git_checkout() {
   shift 4
 
   local parent
+  local fresh=0
+  local current
+
   parent="$(dirname "$destination")"
   mkdir -p "$parent"
 
@@ -22,6 +25,7 @@ spwkit_prepare_git_checkout() {
     fi
     echo "[deps] cloning $name into $destination"
     git clone --filter=blob:none --no-checkout "$url" "$destination"
+    fresh=1
   fi
 
   if [[ $# -gt 0 ]]; then
@@ -29,10 +33,10 @@ spwkit_prepare_git_checkout() {
     git -C "$destination" sparse-checkout set "$@"
   fi
 
-  local current
   current="$(git -C "$destination" rev-parse HEAD 2>/dev/null || true)"
   if [[ "$current" != "$revision" ]]; then
-    if [[ -n "$(git -C "$destination" status --porcelain --untracked-files=normal)" ]]; then
+    if (( fresh == 0 )) &&
+       [[ -n "$(git -C "$destination" status --porcelain --untracked-files=normal)" ]]; then
       echo "$name checkout has local changes and is not at the pinned revision." >&2
       echo "  path:    $destination" >&2
       echo "  current: ${current:-unknown}" >&2
@@ -46,7 +50,6 @@ spwkit_prepare_git_checkout() {
   fi
 
   git -C "$destination" reset --hard "$revision" >/dev/null
-  printf '%s\n' "$destination"
 }
 
 spwkit_prepare_stm32cubeh7() {
@@ -54,18 +57,22 @@ spwkit_prepare_stm32cubeh7() {
   local revision="$2"
   local url="${3:-https://github.com/STMicroelectronics/STM32CubeH7.git}"
 
-  spwkit_prepare_git_checkout     "STM32CubeH7" "$url" "$revision" "$destination"     Drivers/CMSIS/Include     Drivers/CMSIS/Device/ST/STM32H7xx >/dev/null
+  spwkit_prepare_git_checkout \
+    "STM32CubeH7" "$url" "$revision" "$destination" \
+    Drivers/CMSIS/Include \
+    Drivers/CMSIS/Device/ST/STM32H7xx
 
-  git -C "$destination" submodule update --init --depth 1     Drivers/CMSIS/Device/ST/STM32H7xx
+  git -C "$destination" submodule update --init --depth 1 \
+    Drivers/CMSIS/Device/ST/STM32H7xx
 
-  for file in     "$destination/Drivers/CMSIS/Include/core_cm7.h"     "$destination/Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h755xx.h"; do
+  for file in \
+    "$destination/Drivers/CMSIS/Include/core_cm7.h" \
+    "$destination/Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h755xx.h"; do
     [[ -f "$file" ]] || {
       echo "Incomplete STM32CubeH7 checkout: missing $file" >&2
       return 2
     }
   done
-
-  printf '%s\n' "$destination"
 }
 
 spwkit_prepare_das() {
@@ -73,12 +80,11 @@ spwkit_prepare_das() {
   local revision="$2"
   local url="${3:-https://github.com/Inczert/device-abstraction-stack.git}"
 
-  spwkit_prepare_git_checkout     "DAS" "$url" "$revision" "$destination" >/dev/null
+  spwkit_prepare_git_checkout \
+    "DAS" "$url" "$revision" "$destination"
 
   [[ -f "$destination/cmake/toolchains/arm-none-eabi.cmake" ]] || {
     echo "Incomplete DAS checkout: missing toolchain file in $destination" >&2
     return 2
   }
-
-  printf '%s\n' "$destination"
 }
