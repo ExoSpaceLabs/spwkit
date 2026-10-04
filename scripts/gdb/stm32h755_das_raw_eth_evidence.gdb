@@ -8,7 +8,6 @@ monitor halt
 
 set $pc_value=$pc
 set $lr_value=$lr
-set $xpsr_value=$xpsr
 set $msp_value=$msp
 set $psp_value=$psp
 set $cfsr=*(unsigned int*)0xE000ED28
@@ -34,7 +33,6 @@ set $stacked_xpsr=*(unsigned int*)($fault_sp + 28)
 
 printf "halt_pc=0x%08x\n", $pc_value
 printf "halt_lr=0x%08x\n", $lr_value
-printf "halt_xpsr=0x%08x\n", $xpsr_value
 printf "halt_msp=0x%08x\n", $msp_value
 printf "halt_psp=0x%08x\n", $psp_value
 printf "fault_sp=0x%08x\n", $fault_sp
