@@ -102,6 +102,31 @@ static void fail(uint32_t code) {
     }
 }
 
+static int wait_for_physical_link(das_eth_t eth,
+                                  das_eth_link_state_t* out_link,
+                                  uint32_t timeout_ms) {
+    const das_time_ms_t start = das_time_now_ms();
+
+    if (out_link == NULL) {
+        return 0;
+    }
+
+    for (;;) {
+        das_eth_link_state_t link = {0};
+        if (das_eth_link_state(eth, &link) != DAS_OK) {
+            return 0;
+        }
+        if (link.up) {
+            *out_link = link;
+            return 1;
+        }
+        if (das_time_elapsed_ms(start) >= timeout_ms) {
+            return 0;
+        }
+        (void)das_delay_ms(10u);
+    }
+}
+
 static int wait_for_run(spw_port_t* port) {
     uint32_t attempt;
     for (attempt = 0u; attempt < 20000u; ++attempt) {
@@ -198,17 +223,23 @@ int main(void) {
     g_spwkit_das_raw_evidence.max_packet_size =
         capabilities.max_packet_size;
 
-    if (spw_port_start(port) != SPW_OK) {
-        fail(0x203u);
-    }
-
     g_spwkit_das_raw_evidence.phase = 3u;
-    if (das_eth_link_state(eth, &physical_link) != DAS_OK ||
-        !physical_link.up) {
+    if (!wait_for_physical_link(eth, &physical_link, 10000u)) {
         fail(0x302u);
     }
     g_spwkit_das_raw_evidence.link_speed_mbps = physical_link.speed_mbps;
     g_spwkit_das_raw_evidence.link_duplex = (uint32_t)physical_link.duplex;
+
+    /*
+     * The VSPW engine sends its first keepalive from spw_port_start().
+     * The DAS raw-Ethernet binding rejects sends while the PHY reports link
+     * down, so starting VSPW before link negotiation completes creates a
+     * startup race and returns SPW_ERR_LINK_UNAVAILABLE.
+     */
+    if (spw_port_start(port) != SPW_OK) {
+        fail(0x203u);
+    }
+
     if (!wait_for_run(port)) {
         fail(0x301u);
     }
