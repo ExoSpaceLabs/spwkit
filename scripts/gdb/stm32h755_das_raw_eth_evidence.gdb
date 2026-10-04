@@ -15,33 +15,49 @@ set $mmfar=*(unsigned int*)0xE000ED34
 set $bfar=*(unsigned int*)0xE000ED38
 set $shcsr=*(unsigned int*)0xE000ED24
 
-# Cortex-M EXC_RETURN bit 2 selects PSP (1) vs MSP (0) for the stacked frame.
-set $fault_sp=$msp_value
-if ($lr_value & 4) != 0
-  set $fault_sp=$psp
-end
+# Only interpret an exception stack frame when LR is an EXC_RETURN value.
+set $is_exception=(($lr_value & 0xff000000) == 0xff000000)
+set $fault_sp=0
+set $stacked_r0=0
+set $stacked_r1=0
+set $stacked_r2=0
+set $stacked_r3=0
+set $stacked_r12=0
+set $stacked_lr=0
+set $stacked_pc=0
+set $stacked_xpsr=0
 
-set $stacked_r0=*(unsigned int*)($fault_sp + 0)
-set $stacked_r1=*(unsigned int*)($fault_sp + 4)
-set $stacked_r2=*(unsigned int*)($fault_sp + 8)
-set $stacked_r3=*(unsigned int*)($fault_sp + 12)
-set $stacked_r12=*(unsigned int*)($fault_sp + 16)
-set $stacked_lr=*(unsigned int*)($fault_sp + 20)
-set $stacked_pc=*(unsigned int*)($fault_sp + 24)
-set $stacked_xpsr=*(unsigned int*)($fault_sp + 28)
+if $is_exception
+  set $fault_sp=$msp_value
+  if ($lr_value & 4) != 0
+    set $fault_sp=$psp
+  end
+
+  set $stacked_r0=*(unsigned int*)($fault_sp + 0)
+  set $stacked_r1=*(unsigned int*)($fault_sp + 4)
+  set $stacked_r2=*(unsigned int*)($fault_sp + 8)
+  set $stacked_r3=*(unsigned int*)($fault_sp + 12)
+  set $stacked_r12=*(unsigned int*)($fault_sp + 16)
+  set $stacked_lr=*(unsigned int*)($fault_sp + 20)
+  set $stacked_pc=*(unsigned int*)($fault_sp + 24)
+  set $stacked_xpsr=*(unsigned int*)($fault_sp + 28)
+end
 
 printf "halt_pc=0x%08x\n", $pc_value
 printf "halt_lr=0x%08x\n", $lr_value
 printf "halt_msp=0x%08x\n", $msp_value
-printf "fault_sp=0x%08x\n", $fault_sp
-printf "stacked_r0=0x%08x\n", $stacked_r0
-printf "stacked_r1=0x%08x\n", $stacked_r1
-printf "stacked_r2=0x%08x\n", $stacked_r2
-printf "stacked_r3=0x%08x\n", $stacked_r3
-printf "stacked_r12=0x%08x\n", $stacked_r12
-printf "stacked_lr=0x%08x\n", $stacked_lr
-printf "stacked_pc=0x%08x\n", $stacked_pc
-printf "stacked_xpsr=0x%08x\n", $stacked_xpsr
+printf "is_exception=%u\n", $is_exception
+if $is_exception
+  printf "fault_sp=0x%08x\n", $fault_sp
+  printf "stacked_r0=0x%08x\n", $stacked_r0
+  printf "stacked_r1=0x%08x\n", $stacked_r1
+  printf "stacked_r2=0x%08x\n", $stacked_r2
+  printf "stacked_r3=0x%08x\n", $stacked_r3
+  printf "stacked_r12=0x%08x\n", $stacked_r12
+  printf "stacked_lr=0x%08x\n", $stacked_lr
+  printf "stacked_pc=0x%08x\n", $stacked_pc
+  printf "stacked_xpsr=0x%08x\n", $stacked_xpsr
+end
 printf "scb_cfsr=0x%08x\n", $cfsr
 printf "scb_hfsr=0x%08x\n", $hfsr
 printf "scb_mmfar=0x%08x\n", $mmfar
@@ -89,14 +105,6 @@ set $das_rx_success_max=(unsigned int)g_spwkit_das_raw_evidence.das_rx_success_c
 set $das_rx_success_total=(unsigned long long)g_spwkit_das_raw_evidence.das_rx_success_cycles.total_cycles
 set $das_rx_empty_polls=(unsigned int)g_spwkit_das_raw_evidence.das_rx_empty_polls
 
-printf "halt_pc=0x%08x\n", $pc_value
-printf "halt_lr=0x%08x\n", $lr_value
-printf "halt_xpsr=0x%08x\n", $xpsr_value
-printf "scb_cfsr=0x%08x\n", $cfsr
-printf "scb_hfsr=0x%08x\n", $hfsr
-printf "scb_mmfar=0x%08x\n", $mmfar
-printf "scb_bfar=0x%08x\n", $bfar
-printf "scb_shcsr=0x%08x\n", $shcsr
 printf "magic=0x%08x\n", $magic
 printf "phase=0x%08x\n", $phase
 printf "result=0x%08x\n", $result
