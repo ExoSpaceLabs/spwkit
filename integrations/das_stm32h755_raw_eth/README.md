@@ -78,6 +78,13 @@ RESULT: PASS
 STM32H755 DAS raw-Ethernet HIL: PASS
 ```
 
+The HIL runner keeps the terminal concise by default. Build/configuration
+output is written under `build/das-raw-eth/logs/`; the terminal shows phase
+transitions, dependency revisions, interface/carrier state, firmware size,
+VSPW state transitions, host NIC packet deltas, board phase/fault registers,
+and the final evidence paths. If a build or flash phase fails, the runner
+prints the tail of the relevant full log automatically.
+
 Evidence files are retained below
 `build/das-raw-eth/evidence/` by default:
 
