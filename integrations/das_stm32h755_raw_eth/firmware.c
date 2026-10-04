@@ -63,7 +63,19 @@ static const uint8_t DONE_PACKET[8] = {
     'S', 'P', 'W', 'D', 'O', 'N', 'E', '1'
 };
 
+static void snapshot_raw_stats(void) {
+    spw_das_raw_io_stats_t raw_stats;
+    spw_das_raw_io_get_stats(&g_raw_io, &raw_stats);
+    g_spwkit_das_raw_evidence.app_send_cycles = g_app_send_cycles;
+    g_spwkit_das_raw_evidence.app_receive_cycles = g_app_receive_cycles;
+    g_spwkit_das_raw_evidence.das_tx_cycles = raw_stats.tx_send;
+    g_spwkit_das_raw_evidence.das_rx_poll_cycles = raw_stats.rx_poll;
+    g_spwkit_das_raw_evidence.das_rx_success_cycles = raw_stats.rx_success;
+    g_spwkit_das_raw_evidence.das_rx_empty_polls = raw_stats.rx_empty_polls;
+}
+
 static void fail(uint32_t code) {
+    snapshot_raw_stats();
     g_spwkit_das_raw_evidence.result = code;
     g_spwkit_das_raw_evidence.phase = UINT32_C(0xdead0000) | code;
     (void)das_board_led_set(DAS_BOARD_LED_RED, true);
@@ -173,15 +185,15 @@ int main(void) {
     }
 
     g_spwkit_das_raw_evidence.phase = 3u;
-    if (!wait_for_run(port)) {
-        fail(0x301u);
-    }
     if (das_eth_link_state(eth, &physical_link) != DAS_OK ||
         !physical_link.up) {
         fail(0x302u);
     }
     g_spwkit_das_raw_evidence.link_speed_mbps = physical_link.speed_mbps;
     g_spwkit_das_raw_evidence.link_duplex = (uint32_t)physical_link.duplex;
+    if (!wait_for_run(port)) {
+        fail(0x301u);
+    }
     (void)das_board_led_set(DAS_BOARD_LED_GREEN, true);
 
     g_spwkit_das_raw_evidence.phase = 4u;
@@ -220,20 +232,9 @@ int main(void) {
                 (uint32_t)statistics.rx_packets;
             g_spwkit_das_raw_evidence.tx_bytes =
                 (uint32_t)statistics.tx_bytes;
-            spw_das_raw_io_stats_t raw_stats;
             g_spwkit_das_raw_evidence.rx_bytes =
                 (uint32_t)statistics.rx_bytes;
-            spw_das_raw_io_get_stats(&g_raw_io, &raw_stats);
-            g_spwkit_das_raw_evidence.app_send_cycles = g_app_send_cycles;
-            g_spwkit_das_raw_evidence.app_receive_cycles =
-                g_app_receive_cycles;
-            g_spwkit_das_raw_evidence.das_tx_cycles = raw_stats.tx_send;
-            g_spwkit_das_raw_evidence.das_rx_poll_cycles =
-                raw_stats.rx_poll;
-            g_spwkit_das_raw_evidence.das_rx_success_cycles =
-                raw_stats.rx_success;
-            g_spwkit_das_raw_evidence.das_rx_empty_polls =
-                raw_stats.rx_empty_polls;
+            snapshot_raw_stats();
             g_spwkit_das_raw_evidence.result = 0u;
             g_spwkit_das_raw_evidence.phase = SPWKIT_DAS_PASS_PHASE;
             (void)das_board_led_set(DAS_BOARD_LED_YELLOW, true);

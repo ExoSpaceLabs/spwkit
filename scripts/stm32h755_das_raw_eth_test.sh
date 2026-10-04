@@ -251,16 +251,35 @@ done
 }
 
 echo "[7/8] Run physical AF_PACKET/VSPW echo and RTT campaign"
+set +e
 sudo "$HOST_PEER" \
   --interface "$INTERFACE" \
   --iterations "$ITERATIONS" \
-  --warmup "$WARMUP" | tee "$HOST_LOG"
-grep -q '^HOST_RESULT: PASS$' "$HOST_LOG"
+  --warmup "$WARMUP" 2>&1 | tee "$HOST_LOG"
+HOST_RC=${PIPESTATUS[0]}
+set -e
 
 echo "[8/8] Read board evidence"
+set +e
 "$GDB_BIN" -q "$ELF" -batch \
   -x "$ROOT_DIR/scripts/gdb/stm32h755_das_raw_eth_evidence.gdb" 2>&1 | tee "$GDB_LOG"
-grep -q '^RESULT: PASS$' "$GDB_LOG"
+GDB_RC=${PIPESTATUS[0]}
+set -e
+
+if (( HOST_RC != 0 )); then
+  echo "Host VSPW campaign failed with exit code $HOST_RC" >&2
+  echo "Host evidence:      $HOST_LOG" >&2
+  echo "Board evidence:     $GDB_LOG" >&2
+  echo "OpenOCD log:        $OPENOCD_LOG" >&2
+  exit "$HOST_RC"
+fi
+if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS$' "$GDB_LOG"; then
+  echo "Board evidence did not satisfy the HIL contract" >&2
+  echo "Host evidence:      $HOST_LOG" >&2
+  echo "Board evidence:     $GDB_LOG" >&2
+  echo "OpenOCD log:        $OPENOCD_LOG" >&2
+  exit 1
+fi
 
 python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
   --host "$HOST_LOG" \
