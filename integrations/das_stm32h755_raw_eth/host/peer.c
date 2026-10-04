@@ -32,6 +32,10 @@ typedef struct packet_context {
     int ifindex;
     uint8_t mac[SPW_RAW_ETHERNET_MAC_SIZE];
     bool started;
+    uint64_t tx_frames;
+    uint64_t tx_bytes;
+    uint64_t rx_frames;
+    uint64_t rx_bytes;
 } packet_context_t;
 
 static const uint8_t BOARD_MAC[SPW_RAW_ETHERNET_MAC_SIZE] = {
@@ -155,7 +159,12 @@ static spw_result_t io_send(void* raw,
                       (const struct sockaddr*)&destination,
                       sizeof(destination));
     } while (sent < 0 && errno == EINTR);
-    return sent == (ssize_t)frame_size ? SPW_OK : SPW_ERR_BACKEND;
+    if (sent == (ssize_t)frame_size) {
+        ++context->tx_frames;
+        context->tx_bytes += frame_size;
+        return SPW_OK;
+    }
+    return SPW_ERR_BACKEND;
 }
 
 static spw_result_t io_receive(void* raw,
@@ -179,6 +188,8 @@ static spw_result_t io_receive(void* raw,
     } while (received < 0 && errno == EINTR);
     if (received < 0) return SPW_ERR_BACKEND;
     *out_frame_size = (size_t)received;
+    ++context->rx_frames;
+    context->rx_bytes += (uint64_t)received;
     return SPW_OK;
 }
 
@@ -452,7 +463,19 @@ int main(int argc, char** argv) {
 
     if (spw_port_open(&config, &port) != SPW_OK || port == NULL ||
         spw_port_start(port) != SPW_OK || !wait_run(port)) {
-        fprintf(stderr, "failed to establish VSPW raw-Ethernet RUN state\n");
+        spw_link_state_t state = SPW_LINK_ERROR_RESET;
+        if (port != NULL) {
+            (void)spw_port_get_link_state(port, &state);
+        }
+        fprintf(stderr,
+                "failed to establish VSPW raw-Ethernet RUN state "
+                "(state=%d tx_frames=%llu tx_bytes=%llu "
+                "rx_frames=%llu rx_bytes=%llu)\n",
+                (int)state,
+                (unsigned long long)io.tx_frames,
+                (unsigned long long)io.tx_bytes,
+                (unsigned long long)io.rx_frames,
+                (unsigned long long)io.rx_bytes);
         if (port != NULL) (void)spw_port_close(port);
         return 1;
     }
