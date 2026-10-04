@@ -20,7 +20,14 @@ typedef struct spw_das_raw_io_stats {
     spw_das_cycle_stats_t tx_send;
     spw_das_cycle_stats_t rx_poll;
     spw_das_cycle_stats_t rx_success;
+    uint32_t tx_successes;
+    uint32_t tx_failures;
+    uint32_t rx_errors;
     uint32_t rx_empty_polls;
+    uint32_t last_tx_size;
+    uint32_t last_rx_size;
+    uint8_t last_tx_header[14];
+    uint8_t last_rx_header[14];
 } spw_das_raw_io_stats_t;
 
 typedef struct spw_das_raw_io {
