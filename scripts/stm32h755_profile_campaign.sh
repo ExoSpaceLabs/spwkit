@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR:-}"
+STM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR:-$ROOT_DIR/thirdparty/STM32CubeH7}"
 OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-/usr/share/openocd/scripts}"
 BUILD_ROOT="${SPWKIT_STM32_PROFILE_BUILD_ROOT:-$ROOT_DIR/build/stm32-profile-campaign}"
 OUTPUT_ROOT="${SPWKIT_STM32_PROFILE_OUTPUT_ROOT:-$ROOT_DIR/build/profile-results}"
@@ -13,19 +13,21 @@ CASES="all"
 GDB_BIN=""
 OPENOCD_PID=""
 PINNED_CUBE_SHA="f5c0b7a2b1f6eb26fde150f72edb2d7deb647066"
+source "$ROOT_DIR/scripts/lib/thirdparty.sh"
 PROFILE_CASES=(copied_tx copied_rx zc_tx_acquire zc_tx_submit zc_tx_reclaim zc_tx_release zc_rx_acquire zc_rx_release)
 
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/stm32h755_profile_campaign.sh --stm32h7-root /path/to/STM32CubeH7 [options]
+  scripts/stm32h755_profile_campaign.sh [options]
 
 Runs the physical NUCLEO-H755ZI-Q profiling configurations strictly serially.
 Each selected probe pair gets a clean Release SpWKit build, clean profiling
 firmware build, flash/run cycle, DWT calibration, and debugger extraction.
 
 Options:
-  --stm32h7-root DIR     pinned STM32CubeH7 checkout root
+  --stm32h7-root DIR     Optional STM32CubeH7 checkout root.
+                         Default: <repo>/thirdparty/STM32CubeH7 (auto-managed).
   --cases "LIST"        all or space/comma-separated profile cases
   --warmup N            warmup iterations per payload (default: 16)
   --iterations N        measured iterations, 1..256 (default: 64)
@@ -75,24 +77,8 @@ else
   exit 2
 fi
 
-[[ -n "$STM32_CUBE_H7_DIR" ]] || { usage >&2; exit 2; }
-STM32_CUBE_H7_DIR="$(cd "$STM32_CUBE_H7_DIR" 2>/dev/null && pwd)" || {
-  echo "Invalid STM32CubeH7 root: $STM32_CUBE_H7_DIR" >&2
-  exit 2
-}
-for file in \
-  "$STM32_CUBE_H7_DIR/Drivers/CMSIS/Include/core_cm7.h" \
-  "$STM32_CUBE_H7_DIR/Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h755xx.h"; do
-  [[ -f "$file" ]] || { echo "Incomplete STM32CubeH7 checkout: missing $file" >&2; exit 2; }
-done
-
-CUBE_SHA="unknown"
-if git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD >/dev/null 2>&1; then
-  CUBE_SHA="$(git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD)"
-  if [[ "$CUBE_SHA" != "$PINNED_CUBE_SHA" ]]; then
-    echo "WARNING: STM32CubeH7 is $CUBE_SHA; reference evidence is pinned to $PINNED_CUBE_SHA" >&2
-  fi
-fi
+spwkit_prepare_stm32cubeh7 "$STM32_CUBE_H7_DIR" "$PINNED_CUBE_SHA"
+CUBE_SHA="$(git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD)"
 
 if [[ "$CASES" == "all" ]]; then
   selected_cases=("${PROFILE_CASES[@]}")
