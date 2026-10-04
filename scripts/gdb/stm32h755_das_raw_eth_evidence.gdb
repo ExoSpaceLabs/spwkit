@@ -8,9 +8,7 @@ monitor halt
 
 set $pc_value=$pc
 set $lr_value=$lr
-set $xpsr_value=$xpsr
 set $msp_value=$msp
-set $psp_value=$psp
 set $cfsr=*(unsigned int*)0xE000ED28
 set $hfsr=*(unsigned int*)0xE000ED2C
 set $mmfar=*(unsigned int*)0xE000ED34
@@ -20,7 +18,7 @@ set $shcsr=*(unsigned int*)0xE000ED24
 # Cortex-M EXC_RETURN bit 2 selects PSP (1) vs MSP (0) for the stacked frame.
 set $fault_sp=$msp_value
 if ($lr_value & 4) != 0
-  set $fault_sp=$psp_value
+  set $fault_sp=$psp
 end
 
 set $stacked_r0=*(unsigned int*)($fault_sp + 0)
@@ -34,9 +32,7 @@ set $stacked_xpsr=*(unsigned int*)($fault_sp + 28)
 
 printf "halt_pc=0x%08x\n", $pc_value
 printf "halt_lr=0x%08x\n", $lr_value
-printf "halt_xpsr=0x%08x\n", $xpsr_value
 printf "halt_msp=0x%08x\n", $msp_value
-printf "halt_psp=0x%08x\n", $psp_value
 printf "fault_sp=0x%08x\n", $fault_sp
 printf "stacked_r0=0x%08x\n", $stacked_r0
 printf "stacked_r1=0x%08x\n", $stacked_r1
