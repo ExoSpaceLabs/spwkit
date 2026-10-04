@@ -342,10 +342,25 @@ static void fill_payload(size_t size, uint32_t sequence) {
 
 static int wait_run(spw_port_t* port) {
     unsigned attempt;
+    spw_link_state_t previous = UINT8_MAX;
+    fprintf(stderr, "[host] waiting for VSPW raw-Ethernet RUN\n");
     for (attempt = 0u; attempt < 20000u; ++attempt) {
         spw_link_state_t state = SPW_LINK_ERROR_RESET;
         if (spw_port_get_link_state(port, &state) != SPW_OK) return 0;
-        if (state == SPW_LINK_RUN) return 1;
+        if (state != previous) {
+            fprintf(stderr, "[host] VSPW state -> %s/%u\n",
+                    link_state_name(state), (unsigned)state);
+            previous = state;
+        }
+        if (state == SPW_LINK_RUN) {
+            fprintf(stderr, "[host] VSPW RUN established after %u ms\n",
+                    attempt);
+            return 1;
+        }
+        if (attempt != 0u && (attempt % 5000u) == 0u) {
+            fprintf(stderr, "[host] still waiting for RUN (%u ms)\n",
+                    attempt);
+        }
         {
             struct timespec delay = {0, 1000000L};
             (void)nanosleep(&delay, NULL);
