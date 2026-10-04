@@ -30,3 +30,6 @@ coverage/
 *.gcda
 *.gcno
 *.gcov
+
+# Automatically managed public hardware dependencies
+/thirdparty/
