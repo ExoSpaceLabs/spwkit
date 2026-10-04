@@ -6,18 +6,46 @@ set mem inaccessible-by-default off
 target extended-remote :3333
 monitor halt
 
-set $pc_value=(unsigned int)$pc
-set $lr_value=(unsigned int)$lr
-set $xpsr_value=(unsigned int)$xpsr
+set $pc_value=$pc
+set $lr_value=$lr
+set $xpsr_value=$xpsr
+set $msp_value=$msp
+set $psp_value=$psp
 set $cfsr=*(unsigned int*)0xE000ED28
 set $hfsr=*(unsigned int*)0xE000ED2C
 set $mmfar=*(unsigned int*)0xE000ED34
 set $bfar=*(unsigned int*)0xE000ED38
 set $shcsr=*(unsigned int*)0xE000ED24
 
+# Cortex-M EXC_RETURN bit 2 selects PSP (1) vs MSP (0) for the stacked frame.
+set $fault_sp=$msp_value
+if ($lr_value & 4) != 0
+  set $fault_sp=$psp_value
+end
+
+set $stacked_r0=*(unsigned int*)($fault_sp + 0)
+set $stacked_r1=*(unsigned int*)($fault_sp + 4)
+set $stacked_r2=*(unsigned int*)($fault_sp + 8)
+set $stacked_r3=*(unsigned int*)($fault_sp + 12)
+set $stacked_r12=*(unsigned int*)($fault_sp + 16)
+set $stacked_lr=*(unsigned int*)($fault_sp + 20)
+set $stacked_pc=*(unsigned int*)($fault_sp + 24)
+set $stacked_xpsr=*(unsigned int*)($fault_sp + 28)
+
 printf "halt_pc=0x%08x\n", $pc_value
 printf "halt_lr=0x%08x\n", $lr_value
 printf "halt_xpsr=0x%08x\n", $xpsr_value
+printf "halt_msp=0x%08x\n", $msp_value
+printf "halt_psp=0x%08x\n", $psp_value
+printf "fault_sp=0x%08x\n", $fault_sp
+printf "stacked_r0=0x%08x\n", $stacked_r0
+printf "stacked_r1=0x%08x\n", $stacked_r1
+printf "stacked_r2=0x%08x\n", $stacked_r2
+printf "stacked_r3=0x%08x\n", $stacked_r3
+printf "stacked_r12=0x%08x\n", $stacked_r12
+printf "stacked_lr=0x%08x\n", $stacked_lr
+printf "stacked_pc=0x%08x\n", $stacked_pc
+printf "stacked_xpsr=0x%08x\n", $stacked_xpsr
 printf "scb_cfsr=0x%08x\n", $cfsr
 printf "scb_hfsr=0x%08x\n", $hfsr
 printf "scb_mmfar=0x%08x\n", $mmfar

@@ -368,17 +368,22 @@ GDB_RC=$?
 set -e
 
 if [[ -f "$GDB_LOG" ]]; then
-  grep -E '^(halt_pc|halt_lr|halt_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|das_tx_count|das_rx_poll_count|das_rx_success_count|das_rx_empty_polls)=' "$GDB_LOG" || true
+  grep -E '^(halt_pc|halt_lr|halt_xpsr|halt_msp|halt_psp|fault_sp|stacked_r0|stacked_r1|stacked_r2|stacked_r3|stacked_r12|stacked_lr|stacked_pc|stacked_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|das_tx_count|das_rx_poll_count|das_rx_success_count|das_rx_empty_polls)=' "$GDB_LOG" || true
   grep -E '^RESULT:' "$GDB_LOG" || true
 
   BOARD_PHASE="$(sed -n 's/^phase=//p' "$GDB_LOG" | tail -n 1)"
   HALT_PC="$(sed -n 's/^halt_pc=//p' "$GDB_LOG" | tail -n 1)"
+  STACKED_PC="$(sed -n 's/^stacked_pc=//p' "$GDB_LOG" | tail -n 1)"
   if [[ -n "$BOARD_PHASE" ]]; then
     status "board phase: $BOARD_PHASE ($(board_phase_name "$BOARD_PHASE"))"
   fi
   if [[ -n "$HALT_PC" ]]; then
     HALT_LOCATION="$(arm-none-eabi-addr2line -f -C -e "$ELF" "$HALT_PC" | paste -sd ' ' -)"
-    status "MCU halt location: $HALT_LOCATION"
+    status "MCU handler location: $HALT_LOCATION"
+  fi
+  if [[ -n "$STACKED_PC" ]]; then
+    STACKED_LOCATION="$(arm-none-eabi-addr2line -f -C -e "$ELF" "$STACKED_PC" | paste -sd ' ' -)"
+    status "MCU faulting instruction: $STACKED_LOCATION"
   fi
 fi
 
