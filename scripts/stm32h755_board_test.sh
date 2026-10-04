@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR:-}"
+STM32_CUBE_H7_DIR="${STM32_CUBE_H7_DIR:-$ROOT_DIR/thirdparty/STM32CubeH7}"
 OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-/usr/share/openocd/scripts}"
 BUILD_ROOT="${SPWKIT_STM32_BUILD_ROOT:-$ROOT_DIR/build}"
 DEBUG_TIMEOUT=60
@@ -13,19 +13,20 @@ SKIP_BUILD=0
 GDB_BIN=""
 OPENOCD_PID=""
 PINNED_CUBE_SHA="f5c0b7a2b1f6eb26fde150f72edb2d7deb647066"
+source "$ROOT_DIR/scripts/lib/thirdparty.sh"
 
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/stm32h755_board_test.sh /path/to/STM32CubeH7 [options]
-  scripts/stm32h755_board_test.sh --stm32h7-root /path/to/STM32CubeH7 [options]
+  scripts/stm32h755_board_test.sh [options]
 
 Builds SpWKit and the STM32H755 DMA/cache evidence firmware from a clean tree
 by default, flashes the NUCLEO-H755ZI-Q CM7 image through ST-LINK/OpenOCD,
 runs the firmware, and checks g_stm32h755_spwkit_evidence through GDB.
 
 Options:
-  --stm32h7-root DIR     STM32CubeH7 checkout root.
+  --stm32h7-root DIR     Optional STM32CubeH7 checkout root.
+                         Default: <repo>/thirdparty/STM32CubeH7 (auto-managed).
   --build-root DIR       Build root (default: <repo>/build).
   --openocd-scripts DIR  OpenOCD scripts directory (default: /usr/share/openocd/scripts).
   --debug-timeout SEC    GDB session timeout (default: 60).
@@ -87,27 +88,8 @@ else
   exit 2
 fi
 
-[[ -n "$STM32_CUBE_H7_DIR" ]] || { usage >&2; exit 2; }
-STM32_CUBE_H7_DIR="$(cd "$STM32_CUBE_H7_DIR" 2>/dev/null && pwd)" || {
-  echo "Invalid STM32CubeH7 root: $STM32_CUBE_H7_DIR" >&2
-  exit 2
-}
-
-CMSIS_CORE="$STM32_CUBE_H7_DIR/Drivers/CMSIS/Include/core_cm7.h"
-CMSIS_DEVICE="$STM32_CUBE_H7_DIR/Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h755xx.h"
-for file in "$CMSIS_CORE" "$CMSIS_DEVICE"; do
-  [[ -f "$file" ]] || {
-    echo "Incomplete STM32CubeH7 checkout: missing $file" >&2
-    exit 2
-  }
-done
-
-if git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD >/dev/null 2>&1; then
-  CUBE_SHA="$(git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD)"
-  if [[ "$CUBE_SHA" != "$PINNED_CUBE_SHA" ]]; then
-    echo "WARNING: STM32CubeH7 is $CUBE_SHA; SpWKit evidence is pinned to $PINNED_CUBE_SHA" >&2
-  fi
-fi
+spwkit_prepare_stm32cubeh7 "$STM32_CUBE_H7_DIR" "$PINNED_CUBE_SHA"
+CUBE_SHA="$(git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD)"
 
 SPWKIT_BUILD="$BUILD_ROOT/stm32-spwkit"
 INSTALL_DIR="$BUILD_ROOT/stm32-install"
