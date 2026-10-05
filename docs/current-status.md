@@ -44,13 +44,22 @@ v0.7.0 package/API promise yet:
   VSPW-frame length so Ethernet minimum-frame padding is ignored correctly;
 - deterministic in-memory and real Linux AF_PACKET/veth carrier evidence prove
   that the same VSPW engine runs without an IP/UDP dependency;
+- the NUCLEO-H755ZI-Q integration now binds that raw-Ethernet backend through
+  DAS to the real STM32H755 MAC/DMA path, with successful physical
+  PC↔STM32 VSPW echo evidence at 400 MHz and board-side DWT timing;
 - post-refactor performance evidence shows no recurring UDP regression,
   provider dispatch below hosted median measurement resolution, lower raw
   Ethernet TX cost than UDP on the measured host, and a current raw RX
-  copy/AF_PACKET cost that remains an optimization target.
+  copy/AF_PACKET cost that remains an optimization target;
+- the end-to-end transport campaign adds repeated multi-payload UDP and raw
+  Ethernet Docker/veth measurements plus manual PC↔Pi and PC↔STM32 result
+  slots; STM32 remains raw-Ethernet-only rather than growing an lwIP/UDP layer
+  merely to satisfy a benchmark matrix.
 
-Issue #229 is complete. #230 remains open only for embedded MAC/DMA/IRQ
-performance evidence when the target driver and hardware setup are available.
+Issues #229 and #230 are complete. #264 extends that evidence into sustained
+end-to-end throughput, payload-size sweeps and STM32 clock-scaling. The hosted
+CI portion is automatic; physical Pi/STM32 runs remain explicit manual
+qualification because the hardware is the variable being measured.
 
 ## Runtime and backend contract
 
