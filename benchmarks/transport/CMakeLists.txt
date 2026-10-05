@@ -1,0 +1,27 @@
+cmake_minimum_required(VERSION 3.20)
+project(spwkit_transport_benchmark LANGUAGES C)
+
+set(SPWKIT_ENABLE_PROFILING OFF CACHE BOOL "" FORCE)
+set(SPWKIT_ENABLE_HEAP ON CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_CPP_TESTS OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_CPP_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_SIMULATOR OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_UDP ON CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_DEVICE OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_VSPWD OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(SPWKIT_BUILD_CUSE OFF CACHE BOOL "" FORCE)
+set(SPWKIT_ENABLE_CPP OFF CACHE BOOL "" FORCE)
+
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../.." spwkit-runtime)
+
+add_executable(spwkit_udp_perf udp_perf.c)
+target_link_libraries(spwkit_udp_perf PRIVATE spwkit::spwkit)
+target_compile_features(spwkit_udp_perf PRIVATE c_std_11)
+target_compile_options(spwkit_udp_perf PRIVATE -Wall -Wextra -Werror)
