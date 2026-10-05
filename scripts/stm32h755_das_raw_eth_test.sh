@@ -9,6 +9,10 @@ BUILD_ROOT="${SPWKIT_DAS_RAW_BUILD_ROOT:-$ROOT_DIR/build/das-raw-eth}"
 OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-/usr/share/openocd/scripts}"
 ITERATIONS=128
 WARMUP=16
+CLOCK_HZ=400000000
+PAYLOADS="0,16,64,128,256,512,1024,1200,1400,4096"
+BULK_BYTES=0
+BULK_PAYLOAD=4096
 GDB_BIN=""
 OPENOCD_PID=""
 
@@ -36,6 +40,10 @@ Options:
   --build-root DIR        Clean build root.
   --iterations N          Measured RTT exchanges per payload size (default 128).
   --warmup N              Warm-up exchanges per payload size (default 16).
+  --clock-hz HZ           DAS CM7 profile: 64000000, 200000000, 300000000, or 400000000.
+  --payloads CSV          RTT payload sweep, each value 0..4096 bytes.
+  --bulk-bytes N          Verified echoed bytes after RTT sweep; 0 disables bulk.
+  --bulk-payload N        Bulk logical packet size 1..4096 (default 4096).
   --openocd-scripts DIR   OpenOCD scripts root.
   -h, --help              Show this help.
 
@@ -54,6 +62,10 @@ while [[ $# -gt 0 ]]; do
     --build-root) BUILD_ROOT="$2"; shift 2 ;;
     --iterations) ITERATIONS="$2"; shift 2 ;;
     --warmup) WARMUP="$2"; shift 2 ;;
+    --clock-hz) CLOCK_HZ="$2"; shift 2 ;;
+    --payloads) PAYLOADS="$2"; shift 2 ;;
+    --bulk-bytes) BULK_BYTES="$2"; shift 2 ;;
+    --bulk-payload) BULK_PAYLOAD="$2"; shift 2 ;;
     --openocd-scripts) OPENOCD_SCRIPTS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -88,6 +100,30 @@ fi
   echo "--warmup must be 0..4096" >&2
   exit 2
 }
+case "$CLOCK_HZ" in
+  64000000|200000000|300000000|400000000) ;;
+  *) echo "--clock-hz must be one of 64000000, 200000000, 300000000, 400000000" >&2; exit 2 ;;
+esac
+[[ "$BULK_BYTES" =~ ^[0-9]+$ ]] || {
+  echo "--bulk-bytes must be a non-negative integer" >&2
+  exit 2
+}
+[[ "$BULK_PAYLOAD" =~ ^[0-9]+$ ]] &&
+  (( BULK_PAYLOAD >= 1 && BULK_PAYLOAD <= 4096 )) || {
+  echo "--bulk-payload must be 1..4096" >&2
+  exit 2
+}
+[[ "$PAYLOADS" =~ ^[0-9]+(,[0-9]+)*$ ]] || {
+  echo "--payloads must be a comma-separated integer list" >&2
+  exit 2
+}
+IFS=',' read -r -a _payload_values <<< "$PAYLOADS"
+for _payload in "${_payload_values[@]}"; do
+  (( _payload >= 0 && _payload <= 4096 )) || {
+    echo "--payloads values must be 0..4096 for the STM32 compact profile" >&2
+    exit 2
+  }
+done
 [[ -n "$INTERFACE" ]] || {
   usage >&2
   exit 2
@@ -195,6 +231,7 @@ mkdir -p "$LOG_DIR" "$RUN_LOG_DIR"
 status "SpWKit STM32H755 raw-Ethernet HIL"
 status "interface=$INTERFACE host_mac=$HOST_MAC"
 status "DAS revision=$DAS_SHA"
+status "clock_hz=$CLOCK_HZ payloads=$PAYLOADS bulk_bytes=$BULK_BYTES bulk_payload=$BULK_PAYLOAD"
 status "STM32CubeH7 revision=$CUBE_SHA"
 status "full build/debug logs: $RUN_LOG_DIR"
 
@@ -253,7 +290,8 @@ cmake -S "$ROOT_DIR/integrations/das_stm32h755_raw_eth" -B "$FIRMWARE_BUILD" \
   -DDAS_CORE=cm7 \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$BOARD_SPWKIT_INSTALL;$DAS_INSTALL" \
-  -DSPWKIT_DAS_HOST_MAC="$HOST_MAC"
+  -DSPWKIT_DAS_HOST_MAC="$HOST_MAC" \
+  -DSPWKIT_DAS_CORE_HZ="$CLOCK_HZ"
 cmake --build "$FIRMWARE_BUILD" --parallel
 [[ -s "$ELF" ]] || { echo "Firmware not found: $ELF" >&2; exit 1; }
 arm-none-eabi-nm -g "$ELF" | grep -q 'g_spwkit_das_raw_evidence'
@@ -346,7 +384,10 @@ set +e
 sudo "$HOST_PEER" \
   --interface "$INTERFACE" \
   --iterations "$ITERATIONS" \
-  --warmup "$WARMUP" 2>&1 | tee "$HOST_LOG"
+  --warmup "$WARMUP" \
+  --payloads "$PAYLOADS" \
+  --bulk-bytes "$BULK_BYTES" \
+  --bulk-payload "$BULK_PAYLOAD" 2>&1 | tee "$HOST_LOG"
 HOST_RC=${PIPESTATUS[0]}
 set -e
 HOST_TX_PACKETS_AFTER="$(net_stat tx_packets)"
@@ -368,7 +409,7 @@ GDB_RC=$?
 set -e
 
 if [[ -f "$GDB_LOG" ]]; then
-  grep -E '^(halt_pc|halt_lr|halt_msp|is_exception|fault_sp|stacked_r0|stacked_r1|stacked_r2|stacked_r3|stacked_r12|stacked_lr|stacked_pc|stacked_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|das_tx_count|das_rx_poll_count|das_rx_success_count|das_tx_successes|das_tx_failures|das_rx_errors|das_rx_empty_polls|das_last_tx_size|das_last_rx_size|das_last_tx_header|das_last_rx_header)=' "$GDB_LOG" || true
+  grep -E '^(halt_pc|halt_lr|halt_msp|is_exception|fault_sp|stacked_r0|stacked_r1|stacked_r2|stacked_r3|stacked_r12|stacked_lr|stacked_pc|stacked_xpsr|scb_cfsr|scb_hfsr|scb_mmfar|scb_bfar|magic|phase|result|workspace_bytes|max_packet_size|link_speed_mbps|link_duplex|core_hz|das_tx_count|das_rx_poll_count|das_rx_success_count|das_tx_successes|das_tx_failures|das_rx_errors|das_rx_empty_polls|das_last_tx_size|das_last_rx_size|das_last_tx_header|das_last_rx_header)=' "$GDB_LOG" || true
   grep -E '^RESULT:' "$GDB_LOG" || true
 
   BOARD_PHASE="$(sed -n 's/^phase=//p' "$GDB_LOG" | tail -n 1)"
@@ -397,7 +438,34 @@ if (( HOST_RC != 0 )); then
   echo "[HIL] inspect: $OPENOCD_LOG" >&2
   exit "$HOST_RC"
 fi
-if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS$' "$GDB_LOG"; then
+OBSERVED_CORE_HZ="$(sed -n 's/^core_hz=//p' "$GDB_LOG" | tail -n 1)"
+if [[ "$OBSERVED_CORE_HZ" != "$CLOCK_HZ" ]]; then
+  echo "[HIL] FAIL: requested core clock $CLOCK_HZ Hz but board reported ${OBSERVED_CORE_HZ:-missing}" >&2
+  exit 1
+fi
+if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS  echo "[HIL] FAIL: board evidence did not satisfy the HIL contract" >&2
+  echo "[HIL] inspect: $HOST_LOG" >&2
+  echo "[HIL] inspect: $GDB_LOG" >&2
+  echo "[HIL] inspect: $OPENOCD_LOG" >&2
+  exit 1
+fi
+
+python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
+  --host "$HOST_LOG" \
+  --board "$GDB_LOG" \
+  --output "$SUMMARY_MD"
+
+pass "[8/8] board evidence validated"
+echo
+echo "========== HIL RESULT =========="
+echo "STM32H755 DAS raw-Ethernet HIL: PASS ($CLOCK_HZ Hz)"
+echo "Performance summary: $SUMMARY_MD"
+echo "Host RTT evidence:   $HOST_LOG"
+echo "Board evidence:      $GDB_LOG"
+echo "OpenOCD log:         $OPENOCD_LOG"
+echo "Build/debug logs:    $RUN_LOG_DIR"
+echo "================================"
+ "$GDB_LOG"; then
   echo "[HIL] FAIL: board evidence did not satisfy the HIL contract" >&2
   echo "[HIL] inspect: $HOST_LOG" >&2
   echo "[HIL] inspect: $GDB_LOG" >&2
