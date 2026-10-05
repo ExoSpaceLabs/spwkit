@@ -24,16 +24,19 @@ def parse_board(path: Path) -> dict[str, int]:
     return values
 
 
-def parse_host(path: Path) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
+def parse_host(path: Path) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    rtt: list[dict[str, object]] = []
+    bulk: list[dict[str, object]] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
         raw = raw.strip()
         if not raw.startswith("{"):
             continue
         record = json.loads(raw)
         if record.get("schema") == "spwkit.embedded.raw-ethernet-rtt.v1":
-            rows.append(record)
-    return rows
+            rtt.append(record)
+        elif record.get("schema") == "spwkit.embedded.raw-ethernet-bulk.v1":
+            bulk.append(record)
+    return rtt, bulk
 
 
 def mean_cycles(board: dict[str, int], prefix: str) -> float:
@@ -51,7 +54,7 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
-    host = parse_host(args.host)
+    host, bulk = parse_host(args.host)
     board = parse_board(args.board)
     required = [
         "core_hz",
@@ -97,6 +100,24 @@ def main() -> int:
             f"| {int(row['min_ns'])} ns "
             f"| {int(row['max_ns'])} ns |"
         )
+
+    if bulk:
+        lines += [
+            "",
+            "## Sustained verified echo throughput",
+            "",
+            "| Payload | Logical bytes | Packets | Elapsed | One-way payload | Aggregate request+echo |",
+            "|---:|---:|---:|---:|---:|---:|",
+        ]
+        for row in bulk:
+            lines.append(
+                f"| {int(row['payload_bytes'])} B "
+                f"| {int(row['transferred_bytes'])} "
+                f"| {int(row['packets'])} "
+                f"| {int(row['elapsed_ns']) / 1_000_000_000.0:.3f} s "
+                f"| {float(row['one_way_payload_mbps']):.3f} Mbit/s "
+                f"| {float(row['aggregate_echo_mbps']):.3f} Mbit/s |"
+            )
 
     lines += [
         "",
