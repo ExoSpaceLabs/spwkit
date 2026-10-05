@@ -1,0 +1,96 @@
+name: Transport throughput smoke
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'benchmarks/transport/**'
+      - 'src/backends/ethernet/**'
+      - 'include/spwkit/**'
+      - '.github/workflows/transport-throughput-smoke.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'benchmarks/transport/**'
+      - 'src/backends/ethernet/**'
+      - 'include/spwkit/**'
+      - '.github/workflows/transport-throughput-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  host-smoke:
+    name: Build transport peers and verify UDP stream
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build transport benchmark peers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S benchmarks/transport -B build/transport-smoke \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/transport-smoke --parallel \
+            --target spwkit_udp_perf spwkit_raw_ethernet_perf
+
+      - name: Run verified UDP stream smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin=build/transport-smoke/spwkit_udp_perf
+          bytes=$((4 * 1024 * 1024))
+          "$bin" --role sink \
+            --local-port 43001 --remote-port 43000 --link-id 264 \
+            --payload-size 4096 --total-bytes "$bytes" \
+            > sink.jsonl 2> sink.log &
+          sink_pid=$!
+          sleep 0.1
+          "$bin" --role source \
+            --local-port 43000 --remote-port 43001 --link-id 264 \
+            --payload-size 4096 --total-bytes "$bytes" \
+            > source.jsonl 2> source.log
+          wait "$sink_pid"
+
+      - name: Validate result schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = 4 * 1024 * 1024
+          for name, role in (("source.jsonl", "source"), ("sink.jsonl", "sink")):
+              rows = [
+                  json.loads(line)
+                  for line in Path(name).read_text().splitlines()
+                  if line.strip().startswith("{")
+              ]
+              assert len(rows) == 1, (name, rows)
+              row = rows[0]
+              assert row["schema"] == "spwkit.transport.udp-throughput.v1"
+              assert row["role"] == role
+              assert row["payload_bytes"] == 4096
+              assert row["total_bytes"] == expected
+              assert row["packets"] == expected // 4096
+              assert row["payload_mbps"] > 0
+              assert row["link_errors"] == 0
+          PY
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-throughput-smoke-${{ github.run_id }}
+          path: |
+            source.jsonl
+            sink.jsonl
+            source.log
+            sink.log
+          if-no-files-found: warn
+          retention-days: 14
