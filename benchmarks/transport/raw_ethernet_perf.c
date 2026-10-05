@@ -519,10 +519,6 @@ int main(int argc, char** argv) {
                     return EXIT_FAILURE;
                 }
             }
-                (void)spw_port_close(port);
-                free(payload);
-                return EXIT_FAILURE;
-            }
         }
         transferred += size;
         ++packets;
