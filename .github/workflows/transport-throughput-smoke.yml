@@ -56,6 +56,16 @@ jobs:
             > source.jsonl 2> source.log
           wait "$sink_pid"
 
+      - name: Run verified Docker RAW Ethernet stream smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash benchmarks/transport/run_raw_docker.sh \
+            --mode uni \
+            --payloads "4096" \
+            --total-bytes $((4 * 1024 * 1024)) \
+            --output-dir build/transport-raw-docker-smoke
+
       - name: Validate result schema
         shell: bash
         run: |
@@ -82,6 +92,27 @@ jobs:
               assert row["link_errors"] == 0
           PY
 
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          log = Path("build/transport-raw-docker-smoke/raw-uni-4096.log").read_text()
+          rows = [
+              json.loads(match.group(0))
+              for match in re.finditer(r'\{[^\n]+\}', log)
+              if '"schema":"spwkit.transport.raw-ethernet-throughput.v1"' in match.group(0)
+          ]
+          assert len(rows) >= 2, rows
+          roles = {row["role"] for row in rows}
+          assert {"source", "sink"} <= roles
+          for row in rows:
+              assert row["payload_bytes"] == 4096
+              assert row["total_bytes"] == 4 * 1024 * 1024
+              assert row["payload_mbps"] > 0
+              assert row["link_errors"] == 0
+          PY
+
       - name: Upload smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -92,5 +123,6 @@ jobs:
             sink.jsonl
             source.log
             sink.log
+            build/transport-raw-docker-smoke/
           if-no-files-found: warn
           retention-days: 14
