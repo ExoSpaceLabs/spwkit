@@ -253,3 +253,34 @@ Automated tests are engineering evidence supporting the explicitly scoped softwa
 A separate performance workflow exercises the callbacks over real Linux
 AF_PACKET/veth sockets. That is host-carrier evidence, not physical
 SpaceWire HIL.
+
+## End-to-end transport performance campaign
+
+The post-v0.7 end-to-end campaign separates automatic host evidence from
+manual physical-device qualification.
+
+Automatic CI runs repeated payload-size sweeps for VSPW/UDP and VSPW/raw
+Ethernet over Docker bridge/veth paths. Each workflow run records the actual
+per-case throughput and packet rate, aggregates repeats, and retains raw result
+artifacts. Those values are runner-relative regression evidence: GitHub-hosted
+machines are not controlled throughput reference platforms.
+
+Physical runs are deliberately manual because they require real external
+hardware and link configuration:
+
+- PC↔Raspberry Pi 5: UDP and raw Ethernet;
+- PC↔NUCLEO-H755ZI-Q: raw Ethernet only through DAS;
+- optional Docker↔device comparisons where container deployment overhead is
+  specifically being investigated.
+
+The STM32 campaign does not add UDP/lwIP solely for benchmarking. Run the
+complete supported CM7 clock sweep with:
+
+```bash
+bash scripts/stm32h755_das_raw_eth_campaign.sh --interface <NIC>
+```
+
+The runner exercises 64, 200, 300 and 400 MHz, performs a multi-payload RTT
+sweep plus verified sustained echo traffic, and writes aggregate CSV/Markdown
+evidence under `build/das-raw-eth-campaign/`. The DAS baseline is polling-only,
+so IRQ-to-task latency is not claimed by this campaign.
