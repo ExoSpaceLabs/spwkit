@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           git fetch origin --tags --force
 
-          version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
+          version="$(cat VERSION)"
           api_major="$(sed -nE 's/^#define SPWKIT_API_VERSION_MAJOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_minor="$(sed -nE 's/^#define SPWKIT_API_VERSION_MINOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_patch="$(sed -nE 's/^#define SPWKIT_API_VERSION_PATCH ([0-9]+)u$/\1/p' include/spwkit/api.h)"
@@ -126,7 +126,7 @@ jobs:
           git fetch origin main --tags --force
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 
-          version="$(sed -nE 's/^[[:space:]]*VERSION ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' CMakeLists.txt | head -n1)"
+          version="$(cat VERSION)"
           api_major="$(sed -nE 's/^#define SPWKIT_API_VERSION_MAJOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_minor="$(sed -nE 's/^#define SPWKIT_API_VERSION_MINOR ([0-9]+)u$/\1/p' include/spwkit/api.h)"
           api_patch="$(sed -nE 's/^#define SPWKIT_API_VERSION_PATCH ([0-9]+)u$/\1/p' include/spwkit/api.h)"
