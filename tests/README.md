@@ -42,4 +42,8 @@ See [docs/testing.md](../docs/testing.md) for execution policy, CI gates and evi
 
 Post-v0.7 `develop` also executes `SPW_BACKEND_RAW_ETHERNET` through both
 the pure-C framing/integration test and the reusable C++ backend contract
-(`backend_contract_raw_ethernet`).
+(`backend_contract_raw_ethernet`). The separate transport campaign adds
+repeated Docker/veth UDP/raw-Ethernet throughput evidence, while the DAS
+NUCLEO-H755ZI-Q runner provides explicit manual physical PC↔STM32 raw-Ethernet
+qualification. Those performance/HIL layers do not replace the deterministic
+contract tests.
