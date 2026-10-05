@@ -121,13 +121,18 @@ bash scripts/stm32h755_das_raw_eth_campaign.sh --interface <NIC>
 The campaign generates `results.csv` plus Markdown/Mermaid graphs under
 `build/das-raw-eth-campaign/`.
 
-## STM32 UDP boundary
+## STM32 transport scope
 
-The current DAS STM32H755 Ethernet integration is a Layer-2 raw MAC/DMA
-provider. It does not contain an IP/UDP stack. A genuine PC↔STM32 UDP benchmark
-therefore requires a separate UDP-capable embedded provider, for example an
-lwIP-backed transport. Until that exists, the repository must not present the
-RAW Ethernet measurements as UDP evidence.
+STM32H755 benchmarking is intentionally **RAW Ethernet only**.
+
+The current DAS integration exposes the Ethernet MAC/DMA at Layer 2, which is
+also the embedded transport path this campaign is intended to qualify. Adding
+an IP/UDP stack such as lwIP solely to create a comparison benchmark is outside
+the scope of #264.
+
+UDP performance evidence is limited to Linux-class endpoints such as PC,
+Raspberry Pi 5 and Docker containers. PC↔STM32 UDP is not a deferred benchmark
+requirement and should not be treated as a future TODO for this campaign.
 
 ## Result interpretation
 
