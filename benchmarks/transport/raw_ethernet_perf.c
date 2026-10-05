@@ -35,6 +35,7 @@ typedef struct packet_context {
     int fd;
     int ifindex;
     uint8_t mac[SPW_RAW_ETHERNET_MAC_SIZE];
+    uint16_t ether_type;
     bool started;
     uint64_t tx_frames;
     uint64_t tx_bytes;
@@ -46,6 +47,7 @@ typedef struct perf_options {
     perf_role_t role;
     char interface_name[IFNAMSIZ];
     uint8_t remote_mac[SPW_RAW_ETHERNET_MAC_SIZE];
+    uint16_t ether_type;
     uint32_t link_id;
     size_t payload_size;
     uint64_t total_bytes;
@@ -98,13 +100,11 @@ static spw_result_t io_start(void* raw) {
         context->started = true;
         return SPW_OK;
     }
-    context->fd = socket(AF_PACKET, SOCK_RAW,
-                         htons(SPW_RAW_ETHERNET_LOCAL_EXPERIMENTAL_ETHERTYPE));
+    context->fd = socket(AF_PACKET, SOCK_RAW, htons(context->ether_type));
     if (context->fd < 0) return SPW_ERR_BACKEND;
     memset(&address, 0, sizeof(address));
     address.sll_family = AF_PACKET;
-    address.sll_protocol =
-        htons(SPW_RAW_ETHERNET_LOCAL_EXPERIMENTAL_ETHERTYPE);
+    address.sll_protocol = htons(context->ether_type);
     address.sll_ifindex = context->ifindex;
     if (bind(context->fd, (const struct sockaddr*)&address,
              sizeof(address)) != 0) {
@@ -318,6 +318,7 @@ static void usage(const char* program) {
             "usage: sudo %s --role source|sink --interface IFACE "
             "--remote-mac MAC [options]\n"
             "  --link-id N          default 264\n"
+            "  --ether-type N       default 0x88B5; use a distinct value per concurrent raw link\n"
             "  --payload-size N     default 4096, max 1048576\n"
             "  --total-bytes N      default 1073741824 (1 GiB)\n"
             "  --seed N             default 264\n",
@@ -330,6 +331,7 @@ static int parse_options(int argc, char** argv, perf_options_t* options) {
     int i;
     memset(options, 0, sizeof(*options));
     options->link_id = 264u;
+    options->ether_type = SPW_RAW_ETHERNET_LOCAL_EXPERIMENTAL_ETHERTYPE;
     options->payload_size = 4096u;
     options->total_bytes = UINT64_C(1073741824);
     options->seed = 264u;
@@ -354,6 +356,11 @@ static int parse_options(int argc, char** argv, perf_options_t* options) {
             if (!parse_u64(argv[++i], &value) ||
                 value == 0u || value > UINT32_MAX) return 0;
             options->link_id = (uint32_t)value;
+        } else if (strcmp(argv[i], "--ether-type") == 0 && i + 1 < argc) {
+            uint64_t value = 0u;
+            if (!parse_u64(argv[++i], &value) ||
+                value < 0x0600u || value > UINT16_MAX) return 0;
+            options->ether_type = (uint16_t)value;
         } else if (strcmp(argv[i], "--payload-size") == 0 && i + 1 < argc) {
             uint64_t value = 0u;
             if (!parse_u64(argv[++i], &value) ||
@@ -436,6 +443,7 @@ int main(int argc, char** argv) {
 
     memset(&io, 0, sizeof(io));
     io.fd = -1;
+    io.ether_type = options.ether_type;
     (void)snprintf(io.interface_name, sizeof(io.interface_name),
                    "%s", options.interface_name);
     if (!query_interface(&io)) {
@@ -450,7 +458,7 @@ int main(int argc, char** argv) {
             &IO_OPS, &io, &RUNTIME_OPS, NULL, options.link_id);
     memcpy(raw.local_mac, io.mac, sizeof(raw.local_mac));
     memcpy(raw.remote_mac, options.remote_mac, sizeof(raw.remote_mac));
-    raw.ether_type = SPW_RAW_ETHERNET_LOCAL_EXPERIMENTAL_ETHERTYPE;
+    raw.ether_type = options.ether_type;
     raw.fragment_payload_size = 1400u;
     raw.ack_timeout_ms = 20u;
     raw.max_retries = 5u;
@@ -491,12 +499,26 @@ int main(int argc, char** argv) {
                 payload, 0u, options.payload_size, SPW_TERMINATOR_EEP
             };
             result = spw_port_receive(port, &packet, PERF_TIMEOUT_US);
-            if (result != SPW_OK || packet.length != size ||
-                packet.terminator != SPW_TERMINATOR_EOP ||
-                !verify_payload(payload, size, options.seed, sequence)) {
-                fprintf(stderr,
-                        "receive verification failed at sequence %llu\n",
-                        (unsigned long long)sequence);
+            {
+                const int payload_ok =
+                    result == SPW_OK && packet.length == size &&
+                    verify_payload(payload, size, options.seed, sequence);
+                if (result != SPW_OK || packet.length != size ||
+                    packet.terminator != SPW_TERMINATOR_EOP ||
+                    !payload_ok) {
+                    fprintf(stderr,
+                            "receive verification failed at sequence %llu: "
+                            "result=%d length=%zu expected=%zu terminator=%d "
+                            "payload_match=%s link_id=%u ether_type=0x%04x\n",
+                            (unsigned long long)sequence, (int)result,
+                            packet.length, size, (int)packet.terminator,
+                            payload_ok ? "yes" : "no",
+                            options.link_id, (unsigned)options.ether_type);
+                    (void)spw_port_close(port);
+                    free(payload);
+                    return EXIT_FAILURE;
+                }
+            }
                 (void)spw_port_close(port);
                 free(payload);
                 return EXIT_FAILURE;
@@ -523,6 +545,8 @@ int main(int argc, char** argv) {
         }
         printf("{\"schema\":\"spwkit.transport.raw-ethernet-throughput.v1\""
                ",\"role\":\"%s\""
+               ",\"link_id\":%u"
+               ",\"ether_type\":%u"
                ",\"payload_bytes\":%zu"
                ",\"total_bytes\":%llu"
                ",\"packets\":%llu"
@@ -534,6 +558,8 @@ int main(int argc, char** argv) {
                ",\"carrier_rx_bytes\":%llu"
                ",\"link_errors\":%llu}\n",
                options.role == PERF_ROLE_SOURCE ? "source" : "sink",
+               options.link_id,
+               (unsigned)options.ether_type,
                options.payload_size,
                (unsigned long long)transferred,
                (unsigned long long)packets,
