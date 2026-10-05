@@ -117,9 +117,24 @@ backed by veth pairs, so this exercises AF_PACKET, RAW Ethernet framing,
 fragmentation/reassembly and concurrent opposite-direction traffic through a
 real Linux Layer-2 virtual path.
 
-CI runs a short verified RAW Ethernet transfer over this topology. Treat CI
-timings as correctness and gross-regression evidence, not as authoritative
-absolute throughput because GitHub-hosted runner hardware is variable.
+CI runs a repeated UDP and RAW Ethernet campaign over this topology rather than
+a single fixed-size smoke. The current CI sweep covers multiple logical SpWKit
+payload sizes in both unidirectional and duplex modes and repeats each case
+within one workflow run.
+
+The workflow generates per-run JSON, aggregate JSON/CSV, a Markdown statistics
+report and a Mermaid payload-size trend. Median throughput is the primary
+comparison value; mean, standard deviation, range, packet rate and RAW
+carrier-frames-per-logical-packet are retained to make host noise and
+fragmentation behavior visible.
+
+Treat CI timings as runner-relative correctness/regression evidence, not as
+authoritative hardware throughput. GitHub-hosted machines are not controlled
+benchmark platforms. Comparisons within one workflow run are useful; absolute
+values across unrelated runners may move for reasons outside SpWKit.
+
+The long-lived result registry, including placeholders for physical Pi and
+STM32 evidence, is in `benchmarks/transport/results/README.md`.
 
 ## Physical-device qualification
 
