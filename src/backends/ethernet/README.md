@@ -36,3 +36,10 @@ Post-v0.7 `develop` completes that separation: a carrier-independent VSPW engine
 delegates actual frame I/O plus timing to versioned callbacks. The development
 outer framing is version 2.0 and includes an explicit VSPW-frame length to
 ignore Ethernet minimum-frame padding safely.
+
+The EtherType is caller-configurable and is part of carrier demultiplexing, not
+the VSPW link identity. The end-to-end AF_PACKET duplex benchmark uses distinct
+local-experimental EtherTypes for its two concurrent links so both links still
+share one NIC/carrier without forcing each process to drain the other link's
+high-rate frames in userspace; VSPW `link_id` remains independently validated
+inside the protocol engine.
