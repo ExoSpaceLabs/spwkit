@@ -65,10 +65,15 @@ checkout locations; local modifications are never discarded automatically.
 
 The script performs a clean build of compact Cortex-M7 SpWKit, pinned DAS,
 board firmware, native compact SpWKit and the Linux AF_PACKET peer. It flashes
-the CM7 image, establishes VSPW RUN over physical Ethernet, exercises 64, 256,
-1024 and 4096 byte echo traffic, records host RTT distributions, captures
-STM32 DWT cycle evidence, validates the board evidence structure through GDB,
-and emits a Markdown performance summary.
+the CM7 image, establishes VSPW RUN over physical Ethernet, exercises a
+configurable logical-payload RTT sweep, optionally performs a sustained
+verified bulk echo, records host distributions/throughput, captures STM32 DWT
+cycle evidence, validates the board evidence structure through GDB, and emits
+a Markdown performance summary.
+
+The board clock is selectable through DAS using only the stock-board profiles
+advertised by the NUCLEO-H755ZI-Q backend: 64, 200, 300 and 400 MHz. The runner
+checks the live clock readback against the requested profile.
 
 Expected final markers:
 
@@ -119,3 +124,43 @@ handling plus cache invalidation/copy.
 It must not claim IRQ-to-worker latency: there is no IRQ-driven DAS Ethernet
 path yet. That metric is not applicable to this baseline and remains a future
 comparison point if DAS gains an interrupt-driven Ethernet path.
+
+## Clock-scaling throughput campaign
+
+Run the full physical scaling campaign with:
+
+```sh
+bash scripts/stm32h755_das_raw_eth_campaign.sh \
+  --interface enp0s31f6
+```
+
+The default campaign executes all four DAS-supported frequencies:
+
+```text
+64 MHz
+200 MHz
+300 MHz
+400 MHz
+```
+
+For each frequency it runs the RTT payload sweep
+`0,16,64,128,256,512,1024,1200,1400,4096` and then transfers 1 GiB of
+deterministically generated 4096-byte logical packets. Every packet is echoed
+by the STM32 and validated by the host before being discarded.
+
+The aggregate output is written below
+`build/das-raw-eth-campaign/`:
+
+- `results.csv`: canonical machine-readable cross-clock results;
+- `README.md`: generated tables and Mermaid `xychart-beta` plots;
+- one `clock-<N>mhz/` directory containing the complete raw evidence for
+  each clock profile.
+
+The STM32 compact profile deliberately limits logical packets to 4096 bytes.
+Larger logical payloads belong to the host/Pi transport campaign; the 1 GiB
+STM32 test is a sustained transfer composed of many verified packets rather
+than an attempt to allocate a 1 MiB MCU packet buffer.
+
+The stock board backend intentionally rejects 480 MHz. DAS uses the
+NUCLEO-H755ZI-Q direct-SMPS policy and caps that configuration at 400 MHz;
+480 MHz would require a different LDO power-path/hardware configuration.
