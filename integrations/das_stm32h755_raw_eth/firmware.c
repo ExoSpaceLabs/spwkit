@@ -171,17 +171,18 @@ int main(void) {
     spw_capabilities_t capabilities = {0};
     spw_port_t* port = NULL;
     uint32_t echoed = 0u;
+    uint32_t core_hz = 0u;
 
     g_spwkit_das_raw_evidence.phase = 1u;
     if (das_board_led_init_all(false) != DAS_OK ||
         !das_clock_frequency_supported(SPWKIT_DAS_CORE_HZ) ||
         das_clock_set_frequency(SPWKIT_DAS_CORE_HZ) != DAS_OK ||
-        das_clock_get_core_frequency(
-            (uint32_t*)&g_spwkit_das_raw_evidence.core_hz) != DAS_OK ||
-        g_spwkit_das_raw_evidence.core_hz != SPWKIT_DAS_CORE_HZ ||
+        das_clock_get_core_frequency(&core_hz) != DAS_OK ||
+        core_hz != SPWKIT_DAS_CORE_HZ ||
         das_time_init() != DAS_OK) {
         fail(0x101u);
     }
+    g_spwkit_das_raw_evidence.core_hz = core_hz;
 
     memcpy(eth_config.mac, BOARD_MAC, sizeof(BOARD_MAC));
     if (das_board_eth_init(DAS_BOARD_ETH_RJ45, &eth_config, &eth) != DAS_OK ||
