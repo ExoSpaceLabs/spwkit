@@ -99,8 +99,10 @@ Evidence files are retained below
   evidence;
 - `openocd.log`: debugger/server log.
 
-The board timing evidence uses the Cortex-M7 DWT cycle counter at the configured
-400 MHz core clock. It records:
+The board timing evidence uses the Cortex-M7 DWT cycle counter at the selected
+DAS core clock and records the live `core_hz` beside the measurements. A
+single run defaults to 400 MHz; the scaling campaign exercises all four
+supported profiles. It records:
 
 - successful logical `spw_port_send()` echo cost;
 - successful `spw_port_receive()` call cost, explicitly polling-inclusive;
