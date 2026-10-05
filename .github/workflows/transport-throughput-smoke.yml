@@ -168,7 +168,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: transport-performance-\${{ github.run_id }}
+          name: transport-performance-${{ github.run_id }}
           path: |
             build/host-udp-source.jsonl
             build/host-udp-sink.jsonl
