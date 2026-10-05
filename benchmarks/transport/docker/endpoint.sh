@@ -43,11 +43,13 @@ case "$ROLE" in
   raw-duplex-a)
     spwkit_raw_ethernet_perf --role sink \
       --interface eth0 --remote-mac 02:42:ac:1e:00:11 \
-      --link-id 365 --payload-size "$PAYLOAD_SIZE" --total-bytes "$TOTAL_BYTES" &
+      --link-id 365 --ether-type 0x88B6 --seed 365 \
+      --payload-size "$PAYLOAD_SIZE" --total-bytes "$TOTAL_BYTES" &
     sink_pid=$!
     spwkit_raw_ethernet_perf --role source \
       --interface eth0 --remote-mac 02:42:ac:1e:00:11 \
-      --link-id 364 --payload-size "$PAYLOAD_SIZE" --total-bytes "$TOTAL_BYTES"
+      --link-id 364 --ether-type 0x88B5 --seed 364 \
+      --payload-size "$PAYLOAD_SIZE" --total-bytes "$TOTAL_BYTES"
     source_rc=$?
     wait "$sink_pid"
     sink_rc=$?
@@ -56,11 +58,13 @@ case "$ROLE" in
   raw-duplex-b)
     spwkit_raw_ethernet_perf --role sink \
       --interface eth0 --remote-mac 02:42:ac:1e:00:10 \
-      --link-id 364 --payload-size "$PAYLOAD_SIZE" --total-bytes "$TOTAL_BYTES" &
+      --link-id 364 --ether-type 0x88B5 --seed 364 \
+      --payload-size "$PAYLOAD_SIZE" --total-bytes "$TOTAL_BYTES" &
     sink_pid=$!
     spwkit_raw_ethernet_perf --role source \
       --interface eth0 --remote-mac 02:42:ac:1e:00:10 \
-      --link-id 365 --payload-size "$PAYLOAD_SIZE" --total-bytes "$TOTAL_BYTES"
+      --link-id 365 --ether-type 0x88B6 --seed 365 \
+      --payload-size "$PAYLOAD_SIZE" --total-bytes "$TOTAL_BYTES"
     source_rc=$?
     wait "$sink_pid"
     sink_rc=$?
