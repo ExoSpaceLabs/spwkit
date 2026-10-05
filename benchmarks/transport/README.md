@@ -100,6 +100,43 @@ The duplex profile starts two independent VSPW/UDP links between the same two
 containers, one in each direction. This measures shared container/bridge/CPU
 contention without making concurrent calls on one SpWKit port.
 
+## Docker container-to-container RAW Ethernet
+
+Run verified RAW Ethernet across Docker's bridge/veth Layer-2 path:
+
+```sh
+bash benchmarks/transport/run_raw_docker.sh \
+  --mode both \
+  --payloads "64 256 1024 1400 4096 16384 65536 262144 1048576" \
+  --total-bytes 1073741824
+```
+
+The RAW containers use fixed locally administered MAC addresses and only
+`CAP_NET_RAW`; privileged containers are not required. The Docker bridge is
+backed by veth pairs, so this exercises AF_PACKET, RAW Ethernet framing,
+fragmentation/reassembly and concurrent opposite-direction traffic through a
+real Linux Layer-2 virtual path.
+
+CI runs a short verified RAW Ethernet transfer over this topology. Treat CI
+timings as correctness and gross-regression evidence, not as authoritative
+absolute throughput because GitHub-hosted runner hardware is variable.
+
+## Physical-device qualification
+
+Manual testing is reserved for cases where the external device changes the
+answer:
+
+- native PC <-> Raspberry Pi 5: UDP and RAW Ethernet;
+- native PC <-> STM32H755: RAW Ethernet only;
+- optional Docker <-> Raspberry Pi 5: UDP and RAW Ethernet deployment overhead;
+- optional Docker <-> STM32H755: RAW Ethernet deployment overhead, initially at
+  400 MHz only.
+
+Physical PC <-> PC Ethernet is intentionally not part of the campaign. The
+Docker/veth CI topology covers virtual Linux transport behavior more
+reproducibly, while the Raspberry Pi provides the useful physical Linux
+endpoint.
+
 ## STM32H755 + DAS RAW Ethernet
 
 The embedded campaign is documented in
