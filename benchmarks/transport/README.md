@@ -82,8 +82,11 @@ sudo build/transport/spwkit_raw_ethernet_perf \
 ```
 
 Swap source/sink for the reverse direction. For simultaneous bidirectional
-traffic, run a second independent link with a different `--link-id` in the
-opposite direction.
+traffic, run a second independent link in the opposite direction with both a
+different `--link-id` and a different experimental `--ether-type`. The links
+still share the same NIC and physical carrier, but AF_PACKET can demultiplex
+them before one benchmark process is forced to drain the other link's traffic.
+The Docker duplex campaign uses `0x88B5` and `0x88B6` for this reason.
 
 ## Docker container-to-container UDP
 
