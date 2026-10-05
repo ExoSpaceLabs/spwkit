@@ -55,7 +55,7 @@ rm -rf -- "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
 echo "[docker] building benchmark image once"
-docker compose -f "$COMPOSE" build
+docker compose -f "$COMPOSE" --profile raw-uni --profile raw-duplex build
 
 cleanup() {
   docker compose -f "$COMPOSE" --profile raw-uni --profile raw-duplex     down -v --remove-orphans >/dev/null 2>&1 || true
