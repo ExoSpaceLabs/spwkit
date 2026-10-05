@@ -33,7 +33,7 @@ rm -rf -- "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
 echo "[docker] building benchmark image once"
-docker compose -f "$COMPOSE" build
+docker compose -f "$COMPOSE" --profile uni --profile duplex build
 
 run_profile() {
   local profile="$1"
