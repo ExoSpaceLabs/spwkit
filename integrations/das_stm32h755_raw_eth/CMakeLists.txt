@@ -6,6 +6,14 @@ find_package(DAS 0.1 CONFIG REQUIRED)
 
 set(SPWKIT_DAS_HOST_MAC "" CACHE STRING
     "Host Ethernet MAC address in aa:bb:cc:dd:ee:ff form")
+set(SPWKIT_DAS_CORE_HZ "400000000" CACHE STRING
+    "NUCLEO-H755ZI-Q CM7 frequency selected through DAS")
+set(_spwkit_das_supported_core_hz
+    64000000 200000000 300000000 400000000)
+if(NOT SPWKIT_DAS_CORE_HZ IN_LIST _spwkit_das_supported_core_hz)
+    message(FATAL_ERROR
+        "SPWKIT_DAS_CORE_HZ must be one of 64000000, 200000000, 300000000, 400000000")
+endif()
 if(NOT SPWKIT_DAS_HOST_MAC MATCHES
    "^[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]$")
     message(FATAL_ERROR
@@ -30,6 +38,8 @@ target_link_libraries(spwkit_das_stm32h755_raw_eth PRIVATE
 target_include_directories(spwkit_das_stm32h755_raw_eth PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_features(spwkit_das_stm32h755_raw_eth PRIVATE c_std_11)
+target_compile_definitions(spwkit_das_stm32h755_raw_eth PRIVATE
+    SPWKIT_DAS_CORE_HZ=${SPWKIT_DAS_CORE_HZ}u)
 target_compile_options(spwkit_das_stm32h755_raw_eth PRIVATE
     -Wall -Wextra -Werror -ffreestanding -fno-builtin -g3)
 target_link_options(spwkit_das_stm32h755_raw_eth PRIVATE
