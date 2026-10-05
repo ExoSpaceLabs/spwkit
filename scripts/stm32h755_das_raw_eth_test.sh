@@ -443,7 +443,47 @@ if [[ "$OBSERVED_CORE_HZ" != "$CLOCK_HZ" ]]; then
   echo "[HIL] FAIL: requested core clock $CLOCK_HZ Hz but board reported ${OBSERVED_CORE_HZ:-missing}" >&2
   exit 1
 fi
-if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS  echo "[HIL] FAIL: board evidence did not satisfy the HIL contract" >&2
+if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS
+python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
+  --host "$HOST_LOG" \
+  --board "$GDB_LOG" \
+  --output "$SUMMARY_MD"
+
+pass "[8/8] board evidence validated"
+echo
+echo "========== HIL RESULT =========="
+echo "STM32H755 DAS raw-Ethernet HIL: PASS ($CLOCK_HZ Hz)"
+echo "Performance summary: $SUMMARY_MD"
+echo "Host RTT evidence:   $HOST_LOG"
+echo "Board evidence:      $GDB_LOG"
+echo "OpenOCD log:         $OPENOCD_LOG"
+echo "Build/debug logs:    $RUN_LOG_DIR"
+echo "================================"
+ "$GDB_LOG"; then
+  echo "[HIL] FAIL: board evidence did not satisfy the HIL contract" >&2
+  echo "[HIL] inspect: $HOST_LOG" >&2
+  echo "[HIL] inspect: $GDB_LOG" >&2
+  echo "[HIL] inspect: $OPENOCD_LOG" >&2
+  exit 1
+fi
+
+python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
+  --host "$HOST_LOG" \
+  --board "$GDB_LOG" \
+  --output "$SUMMARY_MD"
+
+pass "[8/8] board evidence validated"
+echo
+echo "========== HIL RESULT =========="
+echo "STM32H755 DAS raw-Ethernet HIL: PASS"
+echo "Performance summary: $SUMMARY_MD"
+echo "Host RTT evidence:   $HOST_LOG"
+echo "Board evidence:      $GDB_LOG"
+echo "OpenOCD log:         $OPENOCD_LOG"
+echo "Build/debug logs:    $RUN_LOG_DIR"
+echo "================================"
+ "$GDB_LOG"; then
+  echo "[HIL] FAIL: board evidence did not satisfy the HIL contract" >&2
   echo "[HIL] inspect: $HOST_LOG" >&2
   echo "[HIL] inspect: $GDB_LOG" >&2
   echo "[HIL] inspect: $OPENOCD_LOG" >&2
