@@ -22,7 +22,7 @@ def make_row(role: str, link: int, payload: int = 4096,
         "schema": summary.SCHEMAS[transport],
         "role": role, "link_id": link, "payload_bytes": payload,
         "total_bytes": 8192, "packets": 2, "elapsed_ns": 10_000_000,
-        "payload_mbps": 6.5536, "link_errors": 0,
+        "payload_mbps": 6.5536, "link_errors": 0, "dropped_packets": 0,
     }
     if transport == "raw":
         out.update(ether_type=0x88B5, carrier_tx_frames=8,
@@ -78,6 +78,12 @@ class CampaignEvidenceTests(unittest.TestCase):
             self.sample("udp", "uni", [
                 make_row("source", 264), make_row("sink", 265)
             ])
+
+    def test_dropped_packet_rejected(self) -> None:
+        sink = make_row("sink", 264)
+        sink["dropped_packets"] = 1
+        with self.assertRaisesRegex(ValueError, "dropped_packets"):
+            self.sample("udp", "uni", [make_row("source", 264), sink])
 
     def test_raw_ether_type_mismatch_rejected(self) -> None:
         sink = make_row("sink", 364, transport="raw")
