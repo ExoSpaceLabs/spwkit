@@ -552,7 +552,8 @@ int main(int argc, char** argv) {
                ",\"carrier_tx_bytes\":%llu"
                ",\"carrier_rx_frames\":%llu"
                ",\"carrier_rx_bytes\":%llu"
-               ",\"link_errors\":%llu}\n",
+               ",\"link_errors\":%llu"
+           ",\"dropped_packets\":%llu}\n",
                options.role == PERF_ROLE_SOURCE ? "source" : "sink",
                options.link_id,
                (unsigned)options.ether_type,
@@ -565,7 +566,8 @@ int main(int argc, char** argv) {
                (unsigned long long)io.tx_bytes,
                (unsigned long long)io.rx_frames,
                (unsigned long long)io.rx_bytes,
-               (unsigned long long)stats.link_errors);
+               (unsigned long long)stats.link_errors,
+               (unsigned long long)stats.dropped_packets);
     }
 
     (void)spw_port_close(port);
