@@ -210,7 +210,8 @@ static void emit_result(const perf_options_t* options,
            ",\"rx_packets\":%llu"
            ",\"tx_bytes\":%llu"
            ",\"rx_bytes\":%llu"
-           ",\"link_errors\":%llu}\n",
+           ",\"link_errors\":%llu"
+           ",\"dropped_packets\":%llu}\n",
            options->role == PERF_ROLE_SOURCE ? "source" : "sink",
            options->link_id,
            options->payload_size,
@@ -222,7 +223,8 @@ static void emit_result(const perf_options_t* options,
            (unsigned long long)stats->rx_packets,
            (unsigned long long)stats->tx_bytes,
            (unsigned long long)stats->rx_bytes,
-           (unsigned long long)stats->link_errors);
+           (unsigned long long)stats->link_errors,
+           (unsigned long long)stats->dropped_packets);
     fflush(stdout);
 }
 
