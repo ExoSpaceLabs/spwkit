@@ -64,8 +64,9 @@ def sample_from_log(path: Path, transport: str) -> dict[str, object]:
     for row in rows:
         if int(row.get("payload_bytes", -1)) != payload:
             raise ValueError(f"{path}: payload mismatch in result")
-        if int(row.get("link_errors", -1)) != 0:
-            raise ValueError(f"{path}: non-zero link_errors")
+        for field in ("link_errors", "dropped_packets"):
+            if int(row.get(field, -1)) != 0:
+                raise ValueError(f"{path}: missing or non-zero {field}")
 
     # A successful process exit alone does not prove both endpoints reported
     # matching, complete byte-for-byte verified traffic.
@@ -129,6 +130,7 @@ def sample_from_log(path: Path, transport: str) -> dict[str, object]:
         "payload_mbps": throughput,
         "packets_per_second": pps,
         "link_errors": 0,
+        "dropped_packets": 0,
         "log": str(path),
     }
 
