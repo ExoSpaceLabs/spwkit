@@ -279,7 +279,10 @@ Key entry points include:
 - `benchmarks/run_controlled_profile_campaign.sh` - controlled hosted reference wrapper;
 - `benchmarks/summarize_profile_campaign.py` - hosted campaign summary;
 - `benchmarks/run_lifecycle_profile.sh` - lifecycle reference and archive generation;
-- `benchmarks/summarize_lifecycle_profile.py` - lifecycle summary.
+- `benchmarks/summarize_lifecycle_profile.py` - lifecycle summary;
+- `benchmarks/transport/run_udp_docker.sh` - repeated end-to-end UDP payload campaign;
+- `benchmarks/transport/run_raw_docker.sh` - repeated end-to-end raw-Ethernet payload campaign;
+- `benchmarks/transport/summarize_ci_campaign.py` - aggregate throughput/statistics report.
 
 STM32H755 physical profiling uses:
 
@@ -289,7 +292,13 @@ STM32H755 physical profiling uses:
 - `scripts/extract_stm32h755_profile.py`;
 - `integrations/stm32h755_dma/`.
 
-The CI workflows validate mechanics and schemas. Controlled-host and physical-board runs provide the accepted performance evidence.
+Physical STM32 raw-Ethernet throughput/RTT scaling additionally uses
+`scripts/stm32h755_das_raw_eth_campaign.sh` and
+`integrations/das_stm32h755_raw_eth/`.
+
+The CI workflows validate mechanics and schemas. Hosted end-to-end transport
+numbers are runner-relative regression evidence; controlled-host and
+physical-board runs provide the accepted platform performance evidence.
 
 ## Publishing new snapshots
 

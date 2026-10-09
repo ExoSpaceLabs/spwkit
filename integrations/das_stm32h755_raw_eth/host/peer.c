@@ -24,6 +24,7 @@
 #define PEER_FRAME_CAPACITY 1518u
 #define PEER_MAX_PACKET 4096u
 #define PEER_MAX_ITERATIONS 4096u
+#define PEER_MAX_PAYLOAD_CASES 32u
 #define PEER_LINK_ID UINT32_C(0x44534153)
 
 typedef struct packet_context {
@@ -318,6 +319,46 @@ static uint64_t monotonic_ns(void) {
            (uint64_t)now.tv_nsec;
 }
 
+static int parse_u64(const char* text, uint64_t* out_value) {
+    char* end = NULL;
+    unsigned long long value;
+    if (text == NULL || text[0] == '\0' || out_value == NULL) return 0;
+    errno = 0;
+    value = strtoull(text, &end, 0);
+    if (errno != 0 || end == text || *end != '\0') return 0;
+    *out_value = (uint64_t)value;
+    return 1;
+}
+
+static int parse_payloads(const char* text,
+                          size_t* values,
+                          size_t capacity,
+                          size_t* out_count) {
+    char buffer[512];
+    char* save = NULL;
+    char* token;
+    size_t count = 0u;
+
+    if (text == NULL || values == NULL || out_count == NULL ||
+        strlen(text) >= sizeof(buffer)) {
+        return 0;
+    }
+    (void)snprintf(buffer, sizeof(buffer), "%s", text);
+    token = strtok_r(buffer, ",", &save);
+    while (token != NULL) {
+        uint64_t value = 0u;
+        if (count >= capacity || !parse_u64(token, &value) ||
+            value > PEER_MAX_PACKET) {
+            return 0;
+        }
+        values[count++] = (size_t)value;
+        token = strtok_r(NULL, ",", &save);
+    }
+    if (count == 0u) return 0;
+    *out_count = count;
+    return 1;
+}
+
 static int compare_u64(const void* lhs, const void* rhs) {
     const uint64_t a = *(const uint64_t*)lhs;
     const uint64_t b = *(const uint64_t*)rhs;
@@ -426,9 +467,74 @@ static int run_size(spw_port_t* port,
     return 1;
 }
 
+static int run_bulk(spw_port_t* port,
+                    size_t payload_size,
+                    uint64_t total_bytes,
+                    uint32_t* sequence,
+                    packet_context_t* io) {
+    uint64_t transferred = 0u;
+    uint64_t packets = 0u;
+    const uint64_t tx_frames_before = io->tx_frames;
+    const uint64_t tx_bytes_before = io->tx_bytes;
+    const uint64_t rx_frames_before = io->rx_frames;
+    const uint64_t rx_bytes_before = io->rx_bytes;
+    const uint64_t start = monotonic_ns();
+
+    if (payload_size == 0u || payload_size > PEER_MAX_PACKET) return 0;
+    while (transferred < total_bytes) {
+        const uint64_t remaining = total_bytes - transferred;
+        const size_t size = remaining < (uint64_t)payload_size
+                                ? (size_t)remaining
+                                : payload_size;
+        if (!exchange(port, size, (*sequence)++)) return 0;
+        transferred += (uint64_t)size;
+        ++packets;
+    }
+
+    {
+        const uint64_t elapsed = monotonic_ns() - start;
+        const long double seconds = (long double)elapsed / 1000000000.0L;
+        const long double one_way_mbps =
+            seconds > 0.0L
+                ? ((long double)transferred * 8.0L / 1000000.0L) / seconds
+                : 0.0L;
+        const long double aggregate_mbps = one_way_mbps * 2.0L;
+        printf("{\"schema\":\"spwkit.embedded.raw-ethernet-bulk.v1\""
+               ",\"payload_bytes\":%zu"
+               ",\"requested_bytes\":%llu"
+               ",\"transferred_bytes\":%llu"
+               ",\"packets\":%llu"
+               ",\"elapsed_ns\":%llu"
+               ",\"one_way_payload_mbps\":%.6Lf"
+               ",\"aggregate_echo_mbps\":%.6Lf"
+               ",\"tx_frames\":%llu"
+               ",\"tx_frame_bytes\":%llu"
+               ",\"rx_frames\":%llu"
+               ",\"rx_frame_bytes\":%llu}\n",
+               payload_size,
+               (unsigned long long)total_bytes,
+               (unsigned long long)transferred,
+               (unsigned long long)packets,
+               (unsigned long long)elapsed,
+               one_way_mbps,
+               aggregate_mbps,
+               (unsigned long long)(io->tx_frames - tx_frames_before),
+               (unsigned long long)(io->tx_bytes - tx_bytes_before),
+               (unsigned long long)(io->rx_frames - rx_frames_before),
+               (unsigned long long)(io->rx_bytes - rx_bytes_before));
+        fflush(stdout);
+    }
+    return 1;
+}
+
 static void usage(const char* program) {
     fprintf(stderr,
-            "usage: %s --interface IFACE [--iterations N] [--warmup N]\n",
+            "usage: %s --interface IFACE [options]\n"
+            "  --iterations N       RTT samples per payload (default 128)\n"
+            "  --warmup N           RTT warmup exchanges (default 16)\n"
+            "  --payloads CSV       RTT payloads <= 4096 bytes\n"
+            "  --bulk-bytes N       verified echoed bytes; 0 disables bulk\n"
+            "  --bulk-payload N     bulk logical packet size (default 4096)\n",
             program);
 }
 
@@ -442,7 +548,12 @@ int main(int argc, char** argv) {
         SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_RAW_ETHERNET);
     spw_port_t* port = NULL;
     uint32_t sequence = 1u;
-    static const size_t sizes[] = {64u, 256u, 1024u, 4096u};
+    size_t sizes[PEER_MAX_PAYLOAD_CASES] = {
+        0u, 16u, 64u, 128u, 256u, 512u, 1024u, 1200u, 1400u, 4096u
+    };
+    size_t size_count = 10u;
+    uint64_t bulk_bytes = 0u;
+    size_t bulk_payload = 4096u;
     size_t index;
     int i;
 
@@ -453,6 +564,25 @@ int main(int argc, char** argv) {
             iterations = (size_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--warmup") == 0 && i + 1 < argc) {
             warmup = (size_t)strtoul(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--payloads") == 0 && i + 1 < argc) {
+            if (!parse_payloads(argv[++i], sizes,
+                                PEER_MAX_PAYLOAD_CASES, &size_count)) {
+                usage(argv[0]);
+                return 2;
+            }
+        } else if (strcmp(argv[i], "--bulk-bytes") == 0 && i + 1 < argc) {
+            if (!parse_u64(argv[++i], &bulk_bytes)) {
+                usage(argv[0]);
+                return 2;
+            }
+        } else if (strcmp(argv[i], "--bulk-payload") == 0 && i + 1 < argc) {
+            uint64_t parsed = 0u;
+            if (!parse_u64(argv[++i], &parsed) ||
+                parsed == 0u || parsed > PEER_MAX_PACKET) {
+                usage(argv[0]);
+                return 2;
+            }
+            bulk_payload = (size_t)parsed;
         } else {
             usage(argv[0]);
             return 2;
@@ -507,12 +637,21 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    for (index = 0u; index < sizeof(sizes) / sizeof(sizes[0]); ++index) {
+    for (index = 0u; index < size_count; ++index) {
         if (!run_size(port, sizes[index], warmup, iterations, &sequence)) {
             fprintf(stderr, "exchange failed at payload %zu\n", sizes[index]);
             (void)spw_port_close(port);
             return 1;
         }
+    }
+
+    if (bulk_bytes != 0u &&
+        !run_bulk(port, bulk_payload, bulk_bytes, &sequence, &io)) {
+        fprintf(stderr,
+                "bulk exchange failed at payload %zu after request %llu bytes\n",
+                bulk_payload, (unsigned long long)bulk_bytes);
+        (void)spw_port_close(port);
+        return 1;
     }
 
     {

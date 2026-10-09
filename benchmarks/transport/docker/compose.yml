@@ -1,0 +1,118 @@
+services:
+  uni-source:
+    build:
+      context: ../../..
+      dockerfile: benchmarks/transport/docker/Dockerfile
+    environment:
+      ROLE: uni-source
+      PAYLOAD_SIZE: ${PAYLOAD_SIZE:-4096}
+      TOTAL_BYTES: ${TOTAL_BYTES:-1073741824}
+    networks:
+      perf:
+        ipv4_address: 172.30.0.10
+    profiles: ["uni"]
+
+  uni-sink:
+    build:
+      context: ../../..
+      dockerfile: benchmarks/transport/docker/Dockerfile
+    environment:
+      ROLE: uni-sink
+      PAYLOAD_SIZE: ${PAYLOAD_SIZE:-4096}
+      TOTAL_BYTES: ${TOTAL_BYTES:-1073741824}
+    networks:
+      perf:
+        ipv4_address: 172.30.0.11
+    profiles: ["uni"]
+
+  duplex-a:
+    build:
+      context: ../../..
+      dockerfile: benchmarks/transport/docker/Dockerfile
+    environment:
+      ROLE: duplex-a
+      PAYLOAD_SIZE: ${PAYLOAD_SIZE:-4096}
+      TOTAL_BYTES: ${TOTAL_BYTES:-1073741824}
+    networks:
+      perf:
+        ipv4_address: 172.30.0.10
+    profiles: ["duplex"]
+
+  duplex-b:
+    build:
+      context: ../../..
+      dockerfile: benchmarks/transport/docker/Dockerfile
+    environment:
+      ROLE: duplex-b
+      PAYLOAD_SIZE: ${PAYLOAD_SIZE:-4096}
+      TOTAL_BYTES: ${TOTAL_BYTES:-1073741824}
+    networks:
+      perf:
+        ipv4_address: 172.30.0.11
+    profiles: ["duplex"]
+
+  raw-uni-source:
+    build:
+      context: ../../..
+      dockerfile: benchmarks/transport/docker/Dockerfile
+    cap_add: [NET_RAW]
+    environment:
+      ROLE: raw-uni-source
+      PAYLOAD_SIZE: ${PAYLOAD_SIZE:-4096}
+      TOTAL_BYTES: ${TOTAL_BYTES:-1073741824}
+    networks:
+      perf:
+        ipv4_address: 172.30.0.10
+        mac_address: "02:42:ac:1e:00:10"
+    profiles: ["raw-uni"]
+
+  raw-uni-sink:
+    build:
+      context: ../../..
+      dockerfile: benchmarks/transport/docker/Dockerfile
+    cap_add: [NET_RAW]
+    environment:
+      ROLE: raw-uni-sink
+      PAYLOAD_SIZE: ${PAYLOAD_SIZE:-4096}
+      TOTAL_BYTES: ${TOTAL_BYTES:-1073741824}
+    networks:
+      perf:
+        ipv4_address: 172.30.0.11
+        mac_address: "02:42:ac:1e:00:11"
+    profiles: ["raw-uni"]
+
+  raw-duplex-a:
+    build:
+      context: ../../..
+      dockerfile: benchmarks/transport/docker/Dockerfile
+    cap_add: [NET_RAW]
+    environment:
+      ROLE: raw-duplex-a
+      PAYLOAD_SIZE: ${PAYLOAD_SIZE:-4096}
+      TOTAL_BYTES: ${TOTAL_BYTES:-1073741824}
+    networks:
+      perf:
+        ipv4_address: 172.30.0.10
+        mac_address: "02:42:ac:1e:00:10"
+    profiles: ["raw-duplex"]
+
+  raw-duplex-b:
+    build:
+      context: ../../..
+      dockerfile: benchmarks/transport/docker/Dockerfile
+    cap_add: [NET_RAW]
+    environment:
+      ROLE: raw-duplex-b
+      PAYLOAD_SIZE: ${PAYLOAD_SIZE:-4096}
+      TOTAL_BYTES: ${TOTAL_BYTES:-1073741824}
+    networks:
+      perf:
+        ipv4_address: 172.30.0.11
+        mac_address: "02:42:ac:1e:00:11"
+    profiles: ["raw-duplex"]
+
+networks:
+  perf:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

@@ -1,0 +1,185 @@
+name: Transport performance campaign
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'benchmarks/transport/**'
+      - 'src/backends/ethernet/**'
+      - 'include/spwkit/**'
+      - '.github/workflows/transport-throughput-smoke.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'benchmarks/transport/**'
+      - 'src/backends/ethernet/**'
+      - 'include/spwkit/**'
+      - '.github/workflows/transport-throughput-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  transport-campaign:
+    name: Repeated UDP and RAW Ethernet payload sweep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    env:
+      PAYLOADS: "64 256 1024 1400 4096 16384 65536"
+      REPEATS: "3"
+      TOTAL_BYTES: "8388608"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate campaign tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n benchmarks/transport/run_udp_docker.sh
+          bash -n benchmarks/transport/run_raw_docker.sh
+          python3 -m py_compile benchmarks/transport/summarize_ci_campaign.py
+          python3 -m unittest discover -s benchmarks/transport -p "test_summarize_ci_campaign.py" -v
+
+      - name: Build transport benchmark peers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S benchmarks/transport -B build/transport-smoke \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/transport-smoke --parallel \
+            --target spwkit_udp_perf spwkit_raw_ethernet_perf
+
+      - name: Run host UDP correctness smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin=build/transport-smoke/spwkit_udp_perf
+          bytes=$((4 * 1024 * 1024))
+          "$bin" --role sink \
+            --local-port 43001 --remote-port 43000 --link-id 264 \
+            --payload-size 4096 --total-bytes "$bytes" \
+            > build/host-udp-sink.jsonl 2> build/host-udp-sink.log &
+          sink_pid=$!
+          sleep 0.1
+          "$bin" --role source \
+            --local-port 43000 --remote-port 43001 --link-id 264 \
+            --payload-size 4096 --total-bytes "$bytes" \
+            > build/host-udp-source.jsonl 2> build/host-udp-source.log
+          wait "$sink_pid"
+
+      - name: Run repeated Docker UDP campaign
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash benchmarks/transport/run_udp_docker.sh \
+            --mode both \
+            --payloads "$PAYLOADS" \
+            --repeats "$REPEATS" \
+            --total-bytes "$TOTAL_BYTES" \
+            --output-dir build/transport-ci-udp
+
+      - name: Run repeated Docker RAW Ethernet campaign
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash benchmarks/transport/run_raw_docker.sh \
+            --mode both \
+            --payloads "$PAYLOADS" \
+            --repeats "$REPEATS" \
+            --total-bytes "$TOTAL_BYTES" \
+            --output-dir build/transport-ci-raw
+
+      - name: Aggregate statistics and generate report
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 benchmarks/transport/summarize_ci_campaign.py \
+            --udp-dir build/transport-ci-udp \
+            --raw-dir build/transport-ci-raw \
+            --output-dir build/transport-ci-report \
+            --commit "$SOURCE_COMMIT" \
+            --runner "GitHub-hosted ubuntu-24.04"
+
+          echo "## Transport campaign report" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          cat build/transport-ci-report/README.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate campaign evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("build/transport-ci-report/summary.json").read_text())
+          payloads = {64, 256, 1024, 1400, 4096, 16384, 65536}
+          for transport in ("udp", "raw"):
+              for profile in ("uni", "duplex"):
+                  rows = [
+                      row for row in summary
+                      if row["transport"] == transport and row["profile"] == profile
+                  ]
+                  assert {row["payload_bytes"] for row in rows} == payloads
+                  for row in rows:
+                      assert row["repeats"] == 3
+                      assert row["throughput_mbps_median"] > 0
+                      assert row["packets_per_second_median"] > 0
+                      assert row["throughput_mbps_min"] > 0
+                      assert row["throughput_mbps_max"] >= row["throughput_mbps_min"]
+                      if transport == "raw":
+                          assert row["carrier_frames_per_logical_packet_median"] > 0
+
+          samples = json.loads(Path("build/transport-ci-report/samples.json").read_text())
+          assert samples
+          assert all(row["link_errors"] == 0 for row in samples)
+          assert all(row["dropped_packets"] == 0 for row in samples)
+          PY
+
+      - name: Print concise statistics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          rows = json.loads(Path("build/transport-ci-report/summary.json").read_text())
+          print("transport mode payload repeats median_Mbps mean_Mbps stddev min max median_pkt_s frames_per_packet")
+          for row in rows:
+              ratio = row["carrier_frames_per_logical_packet_median"]
+              print(
+                  row["transport"],
+                  row["profile"],
+                  row["payload_bytes"],
+                  row["repeats"],
+                  f'{row["throughput_mbps_median"]:.2f}',
+                  f'{row["throughput_mbps_mean"]:.2f}',
+                  f'{row["throughput_mbps_stdev"]:.2f}',
+                  f'{row["throughput_mbps_min"]:.2f}',
+                  f'{row["throughput_mbps_max"]:.2f}',
+                  f'{row["packets_per_second_median"]:.0f}',
+                  "-" if ratio is None else f'{ratio:.2f}',
+              )
+          PY
+
+      - name: Upload campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-performance-${{ github.run_id }}
+          path: |
+            build/host-udp-source.jsonl
+            build/host-udp-sink.jsonl
+            build/host-udp-source.log
+            build/host-udp-sink.log
+            build/transport-ci-udp/
+            build/transport-ci-raw/
+            build/transport-ci-report/
+          if-no-files-found: warn
+          retention-days: 30

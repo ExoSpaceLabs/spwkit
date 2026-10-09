@@ -283,3 +283,10 @@ lower raw-Ethernet TX medians than UDP for the tested payloads, and a
 slower/noisier copied AF_PACKET raw-Ethernet RX path consistent with the
 documented additional decapsulation copy. These values are host-carrier
 evidence, not physical Ethernet or SpaceWire timing.
+
+The follow-on #264 end-to-end campaign now automates repeated multi-payload
+UDP/raw-Ethernet Docker/veth measurements and provides explicit result slots
+for PC↔Raspberry Pi 5 and PC↔STM32H755/DAS runs. Its GitHub-hosted throughput
+values are intentionally not promoted to controlled reference snapshots.
+Physical-device results become reference evidence only when their hardware,
+clock, topology and raw result files are recorded with the campaign metadata.

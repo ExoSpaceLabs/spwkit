@@ -7,11 +7,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
-version_text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-version_match = re.search(r"\bVERSION\s+(\d+\.\d+\.\d+)\b", version_text)
-if not version_match:
-    raise SystemExit("cannot determine SpWKit VERSION from CMakeLists.txt")
-VERSION = version_match.group(1)
+version_path = ROOT / "VERSION"
+if not version_path.is_file():
+    raise SystemExit("missing root VERSION file")
+VERSION = version_path.read_text(encoding="utf-8").strip()
+if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", VERSION):
+    raise SystemExit(f"invalid semantic version in VERSION: {VERSION!r}")
 MINOR = VERSION.rsplit(".", 1)[0]
 
 roots = ["docs", "examples", "integrations", "simulator", "src/backends", "tests", "tools"]
@@ -24,6 +25,10 @@ historical = {
     "docs/v0.6-scope.md",
 }
 errors: list[str] = []
+
+cmake_text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+if 'CMAKE_CURRENT_LIST_DIR}/VERSION' not in cmake_text:
+    errors.append("CMakeLists.txt: project version is not sourced from root VERSION")
 
 stale_phrases = [
     "Stable v0.5",

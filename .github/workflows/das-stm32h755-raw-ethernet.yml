@@ -10,8 +10,10 @@ on:
       - 'CMakeLists.txt'
       - 'integrations/das_stm32h755_raw_eth/**'
       - 'scripts/stm32h755_das_raw_eth_test.sh'
+      - 'scripts/stm32h755_das_raw_eth_campaign.sh'
       - 'scripts/lib/thirdparty.sh'
       - 'scripts/summarize_stm32h755_das_raw_eth.py'
+      - 'scripts/summarize_stm32h755_das_raw_eth_campaign.py'
       - 'scripts/gdb/stm32h755_das_raw_eth_*.gdb'
       - '.github/workflows/das-stm32h755-raw-ethernet.yml'
   pull_request:
@@ -57,7 +59,9 @@ jobs:
           set -euo pipefail
           bash -n scripts/lib/thirdparty.sh
           bash -n scripts/stm32h755_das_raw_eth_test.sh
+          bash -n scripts/stm32h755_das_raw_eth_campaign.sh
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth.py
+          python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth_campaign.py
           test "$(git -C external/das rev-parse HEAD)" = "$DAS_COMMIT"
           source scripts/lib/thirdparty.sh
           auto_das="${RUNNER_TEMP}/spwkit-auto-das"

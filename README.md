@@ -65,9 +65,12 @@ The public software claim deliberately stops before proprietary FPGA/HDL impleme
 `develop` now contains the completed transport-independence work: a
 carrier-independent VSPW engine, UDP provider binding, public
 `SPW_BACKEND_RAW_ETHERNET` callback binding, raw framing v2.0 with explicit
-VSPW length, deterministic in-memory coverage, and controlled Linux AF_PACKET
-carrier evidence. These changes are unreleased and do not retroactively alter
-the immutable v0.7.0 package contract.
+VSPW length, deterministic in-memory coverage, controlled Linux AF_PACKET
+carrier evidence, and the physical NUCLEO-H755ZI-Q DAS raw-Ethernet path.
+The end-to-end transport campaign adds repeated multi-payload UDP/raw-Ethernet
+CI measurements and explicit manual PC↔Pi / PC↔STM32 qualification paths.
+These changes are unreleased and do not retroactively alter the immutable
+v0.7.0 package contract.
 
 ## Supported backends
 
@@ -327,13 +330,16 @@ flowchart LR
     DEV --> CI["Consolidated CI"]
     CI --> PRM["Release PR to main"]
     PRM --> MAIN["main"]
-    MAIN --> TAG["immutable vX.Y.Z tag"]
-    TAG --> REL["Release workflow"]
+    MAIN --> VER["read VERSION"]
+    VER --> TAG["immutable vX.Y.Z tag"]
+    TAG --> REL["Release / packaging workflow"]
 ```
 
 `main` is the stable line. `develop` carries subsequent integration work. Temporary feature/release branches are deleted after integration; tags and releases preserve release history.
 
-The tag-triggered Release workflow requires the tagged commit to be the exact `main` head before publishing artifacts.
+The root `VERSION` file is the release-version authority. It may be prepared on `develop` without creating a tag. After a validated `develop -> main` promotion, the release-policy workflow creates the immutable tag only when `VERSION` is the next allowed SemVer step; an unchanged released version is a no-op. The exact-tag Release workflow then validates and publishes the Debian/GHCR/GitHub Release artifacts.
+
+Hardware campaigns remain manual by design. Hosted CI and packaging are automatic; tests that require a Pi, STM32 board, cabling, or a controlled physical link are run explicitly and their evidence is retained separately.
 
 ## Standards scope
 

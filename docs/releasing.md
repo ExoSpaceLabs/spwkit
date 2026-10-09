@@ -18,7 +18,7 @@ The workflow also defends the release path after a push: a higher version on `ma
 
 ## Version authority
 
-The package version is declared in `CMakeLists.txt` and must exactly match the public API version in `include/spwkit/api.h`.
+The package version source of truth is the root `VERSION` file. Top-level CMake reads that file for `project(VERSION ...)`, and the value must exactly match the public API version in `include/spwkit/api.h`. Release workflows read the same file; they do not scrape a second version literal from build metadata.
 
 A release candidate must also have:
 
@@ -27,7 +27,7 @@ A release candidate must also have:
 - matching stable-version documentation in `README.md` and `docs/current-status.md`;
 - installed consumers requesting the current `X.Y` package minor.
 
-Changing these values on `develop` does **not** create a release. Release automation runs only at the `main` promotion boundary.
+Changing `VERSION` or related release metadata on `develop` does **not** create a tag or publish anything. Release automation runs only after a validated `develop -> main` promotion. If `main` still declares the latest released version, the workflow is deliberately a no-op.
 
 ## Allowed version transition
 
@@ -122,7 +122,7 @@ If the Release workflow itself fails after the tag exists, fix only release infr
 
 1. Complete implementation and evidence on `develop`.
 2. Choose the next allowed SemVer version.
-3. Align `CMakeLists.txt`, `SPWKIT_API_VERSION_*`, changelog, release notes, stable-version docs, and installed consumers.
+3. Set the intended version in `VERSION` and align `SPWKIT_API_VERSION_*`, changelog, release notes, stable-version docs, and installed consumers.
 4. Ensure consolidated CI and any release-specific hardware/evidence gates are green on `develop`.
 5. Open `develop -> main` PR.
 6. Require the Release policy PR gate and normal CI to pass.

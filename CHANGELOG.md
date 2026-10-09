@@ -26,7 +26,16 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
   immutable v0.7.0 (#230);
 - Wireshark/tshark decoding and deterministic CI validation for raw-Ethernet
   framing v2.0, including declared-length/padding handling and Decode As support
-  for caller-selected EtherTypes (#240).
+  for caller-selected EtherTypes (#240);
+- physical NUCLEO-H755ZI-Q raw-Ethernet integration through DAS with automated
+  dependency pinning, physical PC↔STM32 VSPW echo validation and Cortex-M7/DAS
+  timing evidence, completing #230;
+- reproducible end-to-end transport campaign for repeated multi-payload
+  UDP/raw-Ethernet CI measurements plus manual PC↔Pi and PC↔STM32 qualification
+  and STM32 64/200/300/400 MHz scaling (#264);
+- root `VERSION` release authority consumed by CMake and release automation,
+  keeping version preparation on `develop` inert until a validated promotion
+  reaches `main`.
 
 ### Changed
 
@@ -47,7 +56,10 @@ Notable user-visible changes are recorded here. SpWKit follows semantic versioni
 - on the controlled AF_PACKET/veth host, raw Ethernet measured lower TX cost
   than UDP for 0/64/1024/4096-byte logical payloads, while the current copied
   raw-Ethernet RX path was slower and noisier than loopback UDP, identifying
-  receive-side copy/carrier handling as an optimization target.
+  receive-side copy/carrier handling as an optimization target;
+- end-to-end campaign reporting now treats payload size, repeated-run
+  distributions, packet rate and raw carrier fragmentation as first-class
+  evidence instead of publishing one host-dependent throughput number.
 
 ## v0.7.0 — 2026-09-21
 
