@@ -128,8 +128,9 @@ within one workflow run.
 The workflow generates per-run JSON, aggregate JSON/CSV, a Markdown statistics
 report and a Mermaid payload-size trend. Median throughput is the primary
 comparison value; mean, standard deviation, range, packet rate and RAW
-carrier-frames-per-logical-packet are retained to make host noise and
-fragmentation behavior visible.
+carrier-frames-per-logical-packet are retained to make host noise and transport
+overhead visible. Carrier frame counts include VSPW-TP control/ACK/keepalive
+traffic where present; the frame ratio is not a pure data-fragment count.
 
 Treat CI timings as runner-relative correctness/regression evidence, not as
 authoritative hardware throughput. GitHub-hosted machines are not controlled
