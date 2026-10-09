@@ -93,13 +93,15 @@ jobs:
 
       - name: Aggregate statistics and generate report
         shell: bash
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           python3 benchmarks/transport/summarize_ci_campaign.py \
             --udp-dir build/transport-ci-udp \
             --raw-dir build/transport-ci-raw \
             --output-dir build/transport-ci-report \
-            --commit "$GITHUB_SHA" \
+            --commit "$SOURCE_COMMIT" \
             --runner "GitHub-hosted ubuntu-24.04"
 
           echo "## Transport campaign report" >> "$GITHUB_STEP_SUMMARY"
