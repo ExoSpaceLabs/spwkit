@@ -56,7 +56,7 @@ def sample_from_log(path: Path, transport: str) -> dict[str, object]:
         raise ValueError(
             f"{path}: expected {expected_sources} source result(s), got {len(source)}"
         )
-    if len(sink) < expected_sources:
+    if len(sink) != expected_sources:
         raise ValueError(
             f"{path}: expected at least {expected_sources} sink result(s), got {len(sink)}"
         )
@@ -67,6 +67,49 @@ def sample_from_log(path: Path, transport: str) -> dict[str, object]:
         if int(row.get("link_errors", -1)) != 0:
             raise ValueError(f"{path}: non-zero link_errors")
 
+    # A successful process exit alone does not prove both endpoints reported
+    # matching, complete byte-for-byte verified traffic.
+    def keyed(records: list[dict[str, object]]) -> dict[int, dict[str, object]]:
+        links: dict[int, dict[str, object]] = {}
+        for record in records:
+            if "link_id" not in record:
+                raise ValueError(f"{path}: missing link_id in endpoint result")
+            link = int(record["link_id"])
+            if link in links:
+                raise ValueError(f"{path}: duplicate endpoint link_id={link}")
+            links[link] = record
+        return links
+
+    senders = keyed(source)
+    receivers = keyed(sink)
+    if senders.keys() != receivers.keys():
+        raise ValueError(f"{path}: source and sink link IDs do not match")
+    if profile == "duplex" and len(senders) != 2:
+        raise ValueError(f"{path}: duplex requires two distinct links")
+
+    for link, sender in senders.items():
+        receiver = receivers[link]
+        for field in ("total_bytes", "packets", "payload_bytes"):
+            if int(sender[field]) != int(receiver[field]):
+                raise ValueError(
+                    f"{path}: link {link} source/sink {field} mismatch"
+                )
+        if transport == "raw" and int(sender["ether_type"]) != int(
+            receiver["ether_type"]
+        ):
+            raise ValueError(f"{path}: link {link} EtherType mismatch")
+        if int(sender["total_bytes"]) <= 0 or int(sender["packets"]) <= 0:
+            raise ValueError(f"{path}: link {link} reported no useful traffic")
+        for row in (sender, receiver):
+            if int(row["elapsed_ns"]) <= 0:
+                raise ValueError(f"{path}: link {link} invalid elapsed time")
+            if not math.isfinite(float(row["payload_mbps"])) or (
+                float(row["payload_mbps"]) <= 0
+            ):
+                raise ValueError(f"{path}: link {link} invalid throughput")
+
+    # Sum of individually timed source-stream rates for duplex. This is not
+    # a synchronized wall-clock bidirectional link-capacity measurement.
     throughput = sum(float(row["payload_mbps"]) for row in source)
     pps = sum(
         int(row["packets"]) / (int(row["elapsed_ns"]) / 1_000_000_000.0)
@@ -250,6 +293,12 @@ def main() -> int:
         "syscall overhead and packet rate. Larger payloads exercise VSPW-TP",
         "fragmentation/reassembly and amortize fixed costs. RAW carrier-frame counts",
         "show how many Layer-2 frames are required per logical SpWKit packet.",
+        "",
+        "For duplex cases, throughput is the sum of two independently timed sender",
+        "streams. It is a useful **combined delivered payload-rate indicator**,",
+        "but NOT a synchronized end-to-end wall-clock link-capacity measurement.",
+        "For physical capacity claims, use synchronized start/end timestamps and",
+        "a shared observation interval.",
         "",
         "Each table cell below is aggregated from repeated complete transfers in the",
         "same workflow run. Median is the primary comparison value; mean, standard",
