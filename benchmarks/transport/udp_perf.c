@@ -200,6 +200,7 @@ static void emit_result(const perf_options_t* options,
             : 0.0L;
     printf("{\"schema\":\"spwkit.transport.udp-throughput.v1\""
            ",\"role\":\"%s\""
+           ",\"link_id\":%u"
            ",\"payload_bytes\":%zu"
            ",\"total_bytes\":%llu"
            ",\"packets\":%llu"
@@ -211,6 +212,7 @@ static void emit_result(const perf_options_t* options,
            ",\"rx_bytes\":%llu"
            ",\"link_errors\":%llu}\n",
            options->role == PERF_ROLE_SOURCE ? "source" : "sink",
+           options->link_id,
            options->payload_size,
            (unsigned long long)transferred,
            (unsigned long long)packets,
