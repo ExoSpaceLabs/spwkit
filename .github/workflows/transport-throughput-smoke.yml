@@ -138,6 +138,7 @@ jobs:
           samples = json.loads(Path("build/transport-ci-report/samples.json").read_text())
           assert samples
           assert all(row["link_errors"] == 0 for row in samples)
+          assert all(row["dropped_packets"] == 0 for row in samples)
           PY
 
       - name: Print concise statistics
