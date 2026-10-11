@@ -41,7 +41,8 @@ user-initiated and cannot be qualified by GitHub-hosted CI alone.
 |---|---|---|---|
 | Native PC <-> Raspberry Pi 5 | UDP | both directions, duplex, payload sweep, sustained transfer | COMPLETE (2026-10-11) |
 | Native PC <-> Raspberry Pi 5 | RAW Ethernet | both directions, duplex, payload sweep, sustained transfer | COMPLETE (2026-10-11) |
-| Native PC <-> STM32H755 | RAW Ethernet | 64/200/300/400 MHz, payload sweep, 1 GiB verified transfer, cycle evidence | PENDING hardware |\n| Native Pi 5 <-> STM32H755 | RAW Ethernet | 64/200/300/400 MHz, payload sweep, 1 GiB verified transfer, cycle evidence | PENDING hardware |
+| Native PC <-> STM32H755 | RAW Ethernet | 64/200/300/400 MHz, RTT sweep, 16 MiB verified echo per clock, cycle evidence | COMPLETE (2026-10-11), performance anomalies under investigation |
+| Native Pi 5 <-> STM32H755 | RAW Ethernet | 64/200/300/400 MHz, RTT sweep, 16 MiB verified echo per clock, cycle evidence | COMPLETE (2026-10-11), performance anomalies under investigation |
 | Docker <-> Raspberry Pi 5 | UDP | selected native-vs-container deployment comparison | OPTIONAL |
 | Docker <-> Raspberry Pi 5 | RAW Ethernet | selected native-vs-container deployment comparison | OPTIONAL |
 | Docker <-> STM32H755 | RAW Ethernet | 400 MHz deployment comparison first | OPTIONAL |
@@ -65,3 +66,20 @@ contains all raw measurement evidence.
 Preferred future entry point: `python3 scripts/physical_transport_campaign.py`
 from the PC, which can reuse a complete local PC↔Pi baseline and proceeds to
 PC↔STM32 and Pi↔STM32 after prompting for the physical cable changes.
+
+## Completed physical three-device campaign (2026-10-11)
+
+[Analysis and actionable follow-up](physical-2026-10-11-three-device/analysis.md)
+documents the completed PC↔Pi, PC↔STM32 and Pi↔STM32 runs, including
+all eight STM32 16 MiB transfers, four CM7 clock profiles, timing and
+MAC/driver counters. Both STM32 topologies passed protocol correctness and
+board-side fault checks. However, non-monotonic throughput and repeated
+carrier frames in several host/clock cases require **ACK/retry and scheduling
+investigation** before reporting CPU-scaling conclusions.
+
+The full evidence archive was supplied separately, including per-clock
+board evidence, host JSONL, OpenOCD/GDB/build logs and original PC↔Pi samples.
+It was **not** bulk-committed here: it contains compiled toolchain artifacts,
+local device addresses/host paths, and files not suitable for a public source
+repository. The analysis is a sanitized aggregation. Preserve the original
+archive independently for reproducing diagnostics.
