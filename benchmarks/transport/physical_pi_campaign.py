@@ -94,8 +94,8 @@ def choose_interface(name: str | None, is_pi: bool) -> str:
                 "Candidates: " + repr(found))
         name = found[0]
     if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}", name) or not (
-        Path("/sys/class/net") / name).exists()
-    ):
+        Path("/sys/class/net") / name
+    ).exists():
         raise RuntimeError(f"Invalid or missing interface: {name}")
     return name
 
