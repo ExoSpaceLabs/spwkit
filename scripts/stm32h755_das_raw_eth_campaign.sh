@@ -20,7 +20,7 @@ Runs the physical PC<->NUCLEO-H755ZI-Q raw-Ethernet HIL campaign at every
 DAS-supported stock-board CM7 frequency and aggregates the evidence.
 
 Options:
-  --interface IFACE
+  --interface IFACE       optional if exactly one wired NIC has carrier
   --output-root DIR
   --clocks "HZ ..."       default: 64000000 200000000 300000000 400000000
   --payloads CSV          default: 0,16,64,128,256,512,1024,1200,1400,4096
@@ -47,7 +47,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$INTERFACE" ]] || { usage >&2; exit 2; }
+source "$ROOT_DIR/scripts/lib/hil_prerequisites.sh"
+spwkit_hil_prepare_tools
+INTERFACE="$(spwkit_hil_detect_interface "$INTERFACE")"
+echo "[campaign] selected physical NIC: $INTERFACE"
 
 rm -rf -- "$OUTPUT_ROOT"
 mkdir -p "$OUTPUT_ROOT"
