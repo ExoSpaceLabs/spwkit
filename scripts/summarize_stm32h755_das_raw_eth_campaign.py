@@ -52,6 +52,7 @@ def mermaid_line(title: str, x_label: str, y_label: str,
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--linux-host", choices=("pc", "pi"), default="pc")
     parser.add_argument("--csv", required=True, type=Path)
     parser.add_argument("--markdown", required=True, type=Path)
     args = parser.parse_args()
@@ -120,10 +121,11 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(records)
 
+    host_name = "Raspberry Pi 5" if args.linux_host == "pi" else "PC"
     lines = [
         "# STM32H755 raw-Ethernet clock-scaling campaign",
         "",
-        "Measured evidence generated from the physical PC↔NUCLEO-H755ZI-Q campaign.",
+        f"Measured evidence from the physical {host_name}↔NUCLEO-H755ZI-Q campaign.",
         "The CSV beside this report is the canonical aggregate dataset.",
         "",
     ]
@@ -163,7 +165,7 @@ def main() -> int:
     lines += [
         "## Interpretation",
         "",
-        "- One-way logical throughput counts verified application payload sent PC→STM32.",
+        f"- One-way logical throughput counts verified application payload sent {host_name}→STM32.",
         "- Aggregate echo throughput counts both request and validated echo payload.",
         "- The STM32 profile is intentionally limited to 4096-byte logical packets; larger host payload cases are a separate host/Pi campaign.",
         "- Compare throughput scaling with board-side cycles/byte from each run's performance-summary.md before attributing a plateau to CPU frequency.",
