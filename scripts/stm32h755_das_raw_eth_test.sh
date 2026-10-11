@@ -15,6 +15,9 @@ BULK_BYTES=0
 BULK_PAYLOAD=4096
 GDB_BIN=""
 OPENOCD_PID=""
+REMOTE_PEER_SSH=""
+REMOTE_PEER_BIN=""
+SSH_CONTROL="${SPWKIT_HIL_SSH_CONTROL:-}"
 
 PINNED_DAS_SHA="4b768ef86b43652c94cc91b1c77e247fa37ebd8a"
 PINNED_CUBE_SHA="f5c0b7a2b1f6eb26fde150f72edb2d7deb647066"
@@ -37,6 +40,8 @@ Options:
   --stm32h7-root DIR      Optional STM32CubeH7 checkout root.
                           Default: <repo>/thirdparty/STM32CubeH7 (auto-managed).
   --interface IFACE       Linux Ethernet interface connected to CN14.
+  --peer-ssh USER@HOST    Remote Linux peer (Raspberry Pi) controlled over SSH.
+  --peer-bin PATH         Absolute path of the prepared binary on remote peer.
   --build-root DIR        Clean build root.
   --iterations N          Measured RTT exchanges per payload size (default 128).
   --warmup N              Warm-up exchanges per payload size (default 16).
@@ -59,6 +64,8 @@ while [[ $# -gt 0 ]]; do
     --das-root) DAS_ROOT="$2"; shift 2 ;;
     --stm32h7-root) STM32_CUBE_H7_DIR="$2"; shift 2 ;;
     --interface) INTERFACE="$2"; shift 2 ;;
+    --peer-ssh) REMOTE_PEER_SSH="$2"; shift 2 ;;
+    --peer-bin) REMOTE_PEER_BIN="$2"; shift 2 ;;
     --build-root) BUILD_ROOT="$2"; shift 2 ;;
     --iterations) ITERATIONS="$2"; shift 2 ;;
     --warmup) WARMUP="$2"; shift 2 ;;
@@ -128,18 +135,42 @@ for _payload in "${_payload_values[@]}"; do
   }
 done
 INTERFACE="$(spwkit_hil_detect_interface "$INTERFACE")"
+if [[ -n "$REMOTE_PEER_SSH" ]]; then
+  [[ "$REMOTE_PEER_SSH" =~ ^[A-Za-z0-9_.@-]+$ ]] || {
+    echo "Unsafe remote SSH hostname" >&2; exit 2;
+  }
+  [[ "$INTERFACE" =~ ^[A-Za-z0-9_.:-]{1,15}$ ]] || {
+    echo "Unsafe remote interface name" >&2; exit 2;
+  }
+  [[ "$REMOTE_PEER_BIN" =~ ^/[A-Za-z0-9_.+/-]+$ ]] || {
+    echo "--peer-bin needs a prepared absolute path on the Pi" >&2; exit 2;
+  }
+fi
+
+remote_ssh() {
+  local -a ssh_args=(-o BatchMode=yes -o ConnectTimeout=15)
+  if [[ -n "$SSH_CONTROL" ]]; then
+    ssh_args+=(-S "$SSH_CONTROL")
+  fi
+  ssh "${ssh_args[@]}" "$REMOTE_PEER_SSH" "$@"
+}
 
 spwkit_prepare_das "$DAS_ROOT" "$PINNED_DAS_SHA"
 spwkit_prepare_stm32cubeh7 "$STM32_CUBE_H7_DIR" "$PINNED_CUBE_SHA"
 DAS_SHA="$(git -C "$DAS_ROOT" rev-parse HEAD)"
 CUBE_SHA="$(git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD)"
 
-[[ -d "/sys/class/net/$INTERFACE" ]] || {
-  echo "Network interface not found: $INTERFACE" >&2
-  exit 2
-}
-
-HOST_MAC="$(cat "/sys/class/net/$INTERFACE/address")"
+if [[ -n "$REMOTE_PEER_SSH" ]]; then
+  HOST_MAC="$(remote_ssh "cat /sys/class/net/$INTERFACE/address")"
+  [[ -n "$HOST_MAC" ]] || {
+    echo "Cannot read Pi interface MAC via SSH" >&2; exit 2;
+  }
+else
+  [[ -d "/sys/class/net/$INTERFACE" ]] || {
+    echo "Network interface not found: $INTERFACE" >&2; exit 2;
+  }
+  HOST_MAC="$(cat "/sys/class/net/$INTERFACE/address")"
+fi
 [[ "$HOST_MAC" =~ ^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$ ]] || {
   echo "Invalid host MAC for $INTERFACE: $HOST_MAC" >&2
   exit 2
@@ -192,7 +223,27 @@ fail_with_log() {
 }
 
 net_stat() {
-  cat "/sys/class/net/$INTERFACE/statistics/$1"
+  if [[ -n "$REMOTE_PEER_SSH" ]]; then
+    remote_ssh "cat /sys/class/net/$INTERFACE/statistics/$1"
+  else
+    cat "/sys/class/net/$INTERFACE/statistics/$1"
+  fi
+}
+
+link_carrier() {
+  if [[ -n "$REMOTE_PEER_SSH" ]]; then
+    remote_ssh "cat /sys/class/net/$INTERFACE/carrier" 2>/dev/null || echo 0
+  else
+    cat "/sys/class/net/$INTERFACE/carrier" 2>/dev/null || echo 0
+  fi
+}
+
+link_brief() {
+  if [[ -n "$REMOTE_PEER_SSH" ]]; then
+    remote_ssh "ip -br link show dev $INTERFACE"
+  else
+    ip -br link show dev "$INTERFACE"
+  fi
 }
 
 board_phase_name() {
@@ -301,6 +352,14 @@ arm-none-eabi-nm -g "$ELF" | grep -q 'g_spwkit_das_raw_evidence'
 fi
 pass "[3/8] firmware built: $(arm-none-eabi-size "$ELF" | tail -n 1)"
 
+if [[ -n "$REMOTE_PEER_SSH" ]]; then
+  status "[4/8] Verify remote Pi native AF_PACKET peer"
+  remote_ssh "test -x '$REMOTE_PEER_BIN'" || {
+    echo "[HIL] Pi peer not built; run stm32h755_pi_peer_prepare.sh over SSH" >&2
+    exit 2
+  }
+  pass "[4/8] Pi peer verified at $REMOTE_PEER_BIN"
+else
 status "[4/8] Build native compact SpWKit and AF_PACKET peer"
 if ! ( set -e
 cmake -S "$ROOT_DIR" -B "$HOST_SPWKIT_BUILD" \
@@ -335,10 +394,15 @@ cmake --build "$HOST_PEER_BUILD" --parallel
 fi
 pass "[4/8] host AF_PACKET peer built"
 
+fi
 status "[5/8] Bring up Linux Ethernet interface $INTERFACE ($HOST_MAC)"
-sudo ip link set dev "$INTERFACE" up
-status "host link: $(ip -br link show dev "$INTERFACE")"
-status "carrier(before board start)=$(cat "/sys/class/net/$INTERFACE/carrier" 2>/dev/null || echo 0)"
+if [[ -n "$REMOTE_PEER_SSH" ]]; then
+  remote_ssh "ip link show dev '$INTERFACE'" >/dev/null
+else
+  sudo ip link set dev "$INTERFACE" up
+fi
+status "host link: $(link_brief)"
+status "carrier(before board start)=$(link_carrier)"
 pass "[5/8] host interface prepared"
 
 status "[6/8] Start OpenOCD and flash/run CM7 firmware"
@@ -365,10 +429,10 @@ if ! "$GDB_BIN" -q "$ELF" -batch \
 fi
 
 for _ in $(seq 1 100); do
-  [[ "$(cat "/sys/class/net/$INTERFACE/carrier" 2>/dev/null || echo 0)" == "1" ]] && break
+  [[ "$(link_carrier)" == "1" ]] && break
   sleep 0.1
 done
-[[ "$(cat "/sys/class/net/$INTERFACE/carrier" 2>/dev/null || echo 0)" == "1" ]] || {
+[[ "$(link_carrier)" == "1" ]] || {
   fail_with_log "no Ethernet carrier on $INTERFACE after board start" "$OPENOCD_LOG"
 }
 status "carrier(after board start)=1"
@@ -381,14 +445,21 @@ HOST_RX_BYTES_BEFORE="$(net_stat rx_bytes)"
 
 status "[7/8] Run physical AF_PACKET/VSPW echo and RTT campaign"
 set +e
-sudo "$HOST_PEER" \
-  --interface "$INTERFACE" \
-  --iterations "$ITERATIONS" \
-  --warmup "$WARMUP" \
-  --payloads "$PAYLOADS" \
-  --bulk-bytes "$BULK_BYTES" \
-  --bulk-payload "$BULK_PAYLOAD" 2>&1 | tee "$HOST_LOG"
-HOST_RC=${PIPESTATUS[0]}
+if [[ -n "$REMOTE_PEER_SSH" ]]; then
+  # The binary on the Pi has cap_net_raw; do not require remote root or
+  # redirect standard input away from its SSH control session.
+  remote_ssh "'$REMOTE_PEER_BIN' --interface '$INTERFACE' --iterations '$ITERATIONS' --warmup '$WARMUP' --payloads '$PAYLOADS' --bulk-bytes '$BULK_BYTES' --bulk-payload '$BULK_PAYLOAD'" 2>&1 | tee "$HOST_LOG"
+  HOST_RC=${PIPESTATUS[0]}
+else
+  sudo "$HOST_PEER" \
+    --interface "$INTERFACE" \
+    --iterations "$ITERATIONS" \
+    --warmup "$WARMUP" \
+    --payloads "$PAYLOADS" \
+    --bulk-bytes "$BULK_BYTES" \
+    --bulk-payload "$BULK_PAYLOAD" 2>&1 | tee "$HOST_LOG"
+  HOST_RC=${PIPESTATUS[0]}
+fi
 set -e
 HOST_TX_PACKETS_AFTER="$(net_stat tx_packets)"
 HOST_RX_PACKETS_AFTER="$(net_stat rx_packets)"
