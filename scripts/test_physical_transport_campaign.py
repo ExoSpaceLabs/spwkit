@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""No-hardware contract checks of the one-command physical HIL orchestrator."""
+import argparse
+import importlib.util
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+
+PATH = Path(__file__).with_name("physical_transport_campaign.py")
+SPEC = importlib.util.spec_from_file_location("physical_transport_campaign", PATH)
+assert SPEC and SPEC.loader
+module = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(module)
+
+
+class FakePi:
+    def __init__(self):
+        self.commands = []
+    def command(self, cmd, **kwargs):
+        self.commands.append((cmd, kwargs))
+        if cmd.startswith('printf'):
+            return "/home/operator"
+        if "spwkit-hil" in cmd and "choose_interface" in cmd:
+            return "eth0"
+        return ""
+
+
+class OrchestrationContracts(unittest.TestCase):
+    def test_pi_checkout_is_owned_and_revision_pinned(self):
+        pi = FakePi()
+        sha = "a" * 40
+        path = module.prepare_checkout(pi, sha)
+        self.assertEqual(path, "/home/operator/.cache/spwkit-hil/" + sha)
+        self.assertIn("checkout --detach " + sha, pi.commands[1][0])
+        self.assertIn("git clone --branch", pi.commands[1][0])
+
+    def test_auto_pi_nic(self):
+        pi = FakePi()
+        self.assertEqual(
+            module.find_pi_ethernet(pi, "/home/operator/.cache/spwkit-hil/test"),
+            "eth0"
+        )
+
+    def test_existing_complete_pi_results_reused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            folder = repo / "build/physical-pi/results-20261011T145919Z"
+            folder.mkdir(parents=True)
+            modes = [{"transport": tr, "mode": mode}
+                     for tr in ("udp", "raw")
+                     for mode in ("pc-to-pi", "pi-to-pc", "duplex")]
+            (folder / "samples.json").write_text(json.dumps(modes * 23))
+            for name in ("README.md", "environment.json", "results.csv"):
+                (folder / name).write_text("{}")
+            with mock.patch.object(module, "ROOT", repo):
+                self.assertEqual(module.completed_pi_baseline(), folder)
+
+    def test_incomplete_pi_not_reused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            folder = repo / "build/physical-pi/results-20261011T145919Z"
+            folder.mkdir(parents=True)
+            (folder / "samples.json").write_text(json.dumps([{"transport":"udp","mode":"pc-to-pi"}]))
+            for name in ("README.md", "environment.json", "results.csv"):
+                (folder / name).write_text("{}")
+            with mock.patch.object(module, "ROOT", repo):
+                self.assertIsNone(module.completed_pi_baseline())
+
+    def test_summary_reports_incomplete_phases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "pc-pi").mkdir()
+            (folder / "pc-pi/README.md").write_text("# baseline\n")
+            module.summary(folder, "b" * 40)
+            result = (folder / "README.md").read_text()
+            self.assertIn("pc-pi/README.md", result)
+            self.assertIn("pi-stm32: INCOMPLETE", result)
+
+    def test_remote_rejects_injected_options(self):
+        with self.assertRaises(ValueError):
+            module.RemotePi("-oProxyCommand=evil", "/tmp/mux")
+
+    def test_full_clock_campaign_not_customized(self):
+        file = Path(__file__).with_name("stm32h755_das_raw_eth_campaign.sh")
+        content = file.read_text()
+        self.assertIn("64000000 200000000 300000000 400000000", content)
+
+
+if __name__ == "__main__":
+    unittest.main()
