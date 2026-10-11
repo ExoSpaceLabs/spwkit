@@ -119,8 +119,8 @@ def configure_network(interface: str, address: str) -> None:
 
 
 def build_local() -> None:
-    prerequisite_packages()
     execute(["sudo", "-v"])
+    prerequisite_packages()
     # Restrict deletion to the build tree owned by this campaign only.
     if STATE.resolve().parent != (ROOT / "build").resolve():
         raise RuntimeError("Refusing unsafe build cleanup")
