@@ -148,7 +148,7 @@ if [[ -n "$REMOTE_PEER_SSH" ]]; then
 fi
 
 remote_ssh() {
-  local -a ssh_args=(-o BatchMode=yes -o ConnectTimeout=15)
+  local -a ssh_args=(-o ControlMaster=auto -o BatchMode=yes -o ConnectTimeout=15)
   if [[ -n "$SSH_CONTROL" ]]; then
     ssh_args+=(-S "$SSH_CONTROL")
   fi
