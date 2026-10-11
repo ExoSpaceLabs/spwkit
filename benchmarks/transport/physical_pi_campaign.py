@@ -522,11 +522,23 @@ def run_pc(args: argparse.Namespace) -> None:
                         capture_output=True
                     )
                 except (subprocess.CalledProcessError, RuntimeError) as exc:
-                    if args.udp_base_port is not None:
+                    detail = (
+                        (exc.stderr or exc.stdout or str(exc)).strip()
+                        if isinstance(exc, subprocess.CalledProcessError)
+                        else str(exc)
+                    )
+                    # A busy UDP port can be avoided safely. Invalid interface
+                    # addresses or denied socket permissions cannot; fail
+                    # immediately with the original OS diagnostic.
+                    busy = (
+                        f"errno {errno.EADDRINUSE}" in detail
+                        or "Address already in use" in detail
+                    )
+                    if args.udp_base_port is not None or not busy:
                         raise RuntimeError(
-                            f"UDP port preflight failed for base {candidate}: {exc}"
+                            f"UDP preflight failed at base {candidate}: {detail}"
                         ) from exc
-                    say(f"Skipping unavailable UDP port base {candidate}: {exc}")
+                    say(f"Port base {candidate} occupied, trying next pair: {detail}")
                     continue
                 selected = candidate
                 break
@@ -543,6 +555,7 @@ def run_pc(args: argparse.Namespace) -> None:
                 raise RuntimeError("Invalid Pi Ethernet MAC reported via SSH")
             metadata = {"pc": local, "pi": remote,
                         "pc_address": args.pc_address, "pi_address": args.pi_address,
+                        "udp_base_port": args.udp_base_port,
                         "completed_utc": stamp, "repeats": args.repeats}
             (output / "environment.json").write_text(json.dumps(metadata, indent=2) + "\n")
             cases: list[dict[str, object]] = []
