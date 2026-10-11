@@ -135,6 +135,20 @@ def completed_pi_baseline() -> Path | None:
     return None
 
 
+def find_pi_ethernet(pi: RemotePi, remote: str) -> str:
+    program = posixpath.join(remote, "benchmarks", "transport", "physical_pi_campaign.py")
+    # Reuse exactly the same NIC detection that the Pi transport runner uses.
+    py = ("import runpy; m=runpy.run_path(" + repr(program) + "); "
+          "print(m['choose_interface'](None, True))")
+    iface = pi.command("python3 -c " + shlex.quote(py), capture=True)
+    # A helper may log an autodetection warning to stdout; take final line.
+    name = iface.splitlines()[-1].strip()
+    if not VALID_NIC.fullmatch(name):
+        raise RuntimeError("Could not autodetect Pi wired NIC: " + repr(iface))
+    status("Pi wired Ethernet automatically detected as " + name)
+    return name
+
+
 def pi_pc(pi: RemotePi, remote: str, args: argparse.Namespace,
           out: Path) -> None:
     prompt_hardware(
@@ -208,10 +222,10 @@ def summary(out: Path, sha: str) -> None:
 
 def cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pi-ssh", required=True,
+    parser.add_argument("--pi-ssh",
                         help="Existing Pi Wi-Fi SSH, e.g. exn-cam@192.168.1.36")
     parser.add_argument("--pc-interface", help="PC wired Ethernet interface")
-    parser.add_argument("--pi-interface", default="eth0")
+    parser.add_argument("--pi-interface", help="Optional Pi Ethernet interface (automatic otherwise)")
     parser.add_argument("--fresh-pc-pi", action="store_true",
                         help="Rerun an already-passed PC↔Pi benchmark")
     parser.add_argument("--yes", action="store_true",
@@ -222,8 +236,14 @@ def cli() -> argparse.Namespace:
 
 def main() -> int:
     args = cli()
-    if not VALID_SSH.fullmatch(args.pi_ssh) or not VALID_NIC.fullmatch(args.pi_interface):
-        raise RuntimeError("Invalid Pi SSH address or Ethernet interface")
+    if not args.pi_ssh:
+        if not sys.stdin.isatty():
+            raise RuntimeError("Pi SSH destination required; use --pi-ssh USER@WIFI_HOST")
+        args.pi_ssh = input("Pi SSH via Wi-Fi (username@hostname.local or IP): ").strip()
+    if not VALID_SSH.fullmatch(args.pi_ssh):
+        raise RuntimeError("Invalid Pi SSH destination")
+    if args.pi_interface and not VALID_NIC.fullmatch(args.pi_interface):
+        raise RuntimeError("Invalid Pi Ethernet interface")
     if not args.pc_interface:
         path = ROOT / "benchmarks/transport/physical_pi_campaign.py"
         spec = importlib.util.spec_from_file_location("spwkit_pi", path)
@@ -246,6 +266,8 @@ def main() -> int:
         try:
             pi.start()
             remote = prepare_checkout(pi, sha)
+            if not args.pi_interface:
+                args.pi_interface = find_pi_ethernet(pi, remote)
             existing = None if args.fresh_pc_pi else completed_pi_baseline()
             if existing:
                 status("Reusing VERIFIED existing PC↔Pi baseline: " + str(existing))
