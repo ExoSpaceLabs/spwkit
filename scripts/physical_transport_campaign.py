@@ -60,7 +60,9 @@ class RemotePi:
     def start(self) -> None:
         status("SSH authentication over Pi Wi-Fi: " + self.destination)
         execute(["ssh", "-M", "-f", "-N", "-S", self.control,
-                 "-o", "ControlPersist=600", self.destination])
+                 "-o", "ControlPersist=yes",
+                 "-o", "ServerAliveInterval=30",
+                 "-o", "ServerAliveCountMax=3", self.destination])
         self.command("true")
 
     def command(self, command: str, *, interactive: bool = False,
