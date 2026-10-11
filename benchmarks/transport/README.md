@@ -17,7 +17,61 @@ transport providers.
 - For full-duplex saturation, use two independent SpWKit links concurrently so
   each port still follows the same-handle serialization contract.
 
-## Physical PC <-> Raspberry Pi 5: automated two-mode campaign
+## Three-device physical qualification: ONE PC command
+
+The preferred operator entry point is **one command on the Ubuntu PC**. Do not
+manually clone or install SpWKit on the Pi. The controller provisions a pinned,
+isolated Pi checkout via its existing **Wi-Fi SSH** service, detects the wired
+interfaces, builds both Linux peers, flashes the STM32 through PC ST-LINK USB,
+reuses the common STM32 firmware/clock-sweep methodology, and consolidates all
+three physical topologies.
+
+```bash
+python3 scripts/physical_transport_campaign.py
+```
+
+You will be prompted for the Pi's Wi-Fi SSH destination
+(e.g. `exn-cam@192.168.1.36`) and, when necessary, your SSH/sudo password.
+The PC Ethernet interface is selected automatically if unambiguous. You can
+also supply `--pi-ssh USER@HOST --pc-interface NIC` noninteractively for the
+parameters. Do **not** use `--yes` unless you have physically confirmed each
+requested cable change.
+
+The controller orchestrates:
+
+1. **PC ↔ Pi**: Pi Wi-Fi remains available for SSH; the Ethernet cable runs
+   from PC to Pi. Run all UDP/RAW bidirectional/duplex, repeated payload sweeps
+   and sustained transfers. A previous **complete** physical PC↔Pi dataset
+   under `build/physical-pi/results-*/` is reused by default, preserving
+   its exact measured commit; use `--fresh-pc-pi` to force a fresh run.
+2. **PC ↔ STM32H755**: move the Ethernet cable to the NUCLEO CN14; keep the
+   NUCLEO ST-LINK USB on the PC. PC automatically builds, flashes and verifies
+   all **64/200/300/400 MHz** clock profiles, RTT/cycle measurements and
+   verified 1 GiB echoed transfers.
+3. **Pi ↔ STM32H755**: move the Ethernet cable from the PC to Pi `eth0`,
+   leaving the NUCLEO ST-LINK USB on the PC. The **PC still flashes and reads
+   the MCU using OpenOCD/GDB**; the Pi executes the native Linux RAW Ethernet
+   host peer via SSH. Repeats the same complete four-clock STM32 campaign.
+
+The only operator actions are **initial PC command, SSH/sudo authentication,
+and confirming physical reconnections**. A program cannot reconnect the cable
+or move the ST-LINK USB. The Pi staging checkout is automatically cleaned
+after full success; failure preserves evidence for diagnosis and does not
+delete unrelated Pi work or system installations.
+
+Artifacts: `build/three-device-campaign/results-<UTC>/` with
+`pc-pi/`, `pc-stm32/`, `pi-stm32/`, phase logs and an overall README.
+
+**Measurement boundary:** PC↔Pi reports sender goodput (duplex is summed
+separately timed streams). STM32 HIL reports echoed RTT, bulk echo rate and
+board/DAS execution-cycle/polling evidence. These quantities must not be
+misrepresented as identical one-way carrier capacity metrics.
+
+This unified script is **hardware qualification**, not executable on hosted
+CI without the attached Pi and NUCLEO. CI covers syntax and orchestration
+contracts only. Physical Pi↔STM32 must be run to establish actual results.
+
+## Physical PC <-> Raspberry Pi 5 (standalone lower-level runner): automated two-mode campaign
 
 You should **not** install benchmark binaries manually or launch dozens of
 sender/sink pairs by hand. The physical campaign is controlled from the PC over
