@@ -257,7 +257,14 @@ SpaceWire HIL.
 ## End-to-end transport performance campaign
 
 The post-v0.7 end-to-end campaign separates automatic host evidence from
-manual physical-device qualification.
+user-initiated, **fully orchestrated** physical-device qualification.
+
+Primary entry point on the PC: `python3 scripts/physical_transport_campaign.py`.
+It provisions the Pi over Wi-Fi SSH, reuses complete PC↔Pi results when present,
+and prompts only for cable reconnections between PC↔Pi, PC↔STM32 and
+Pi↔STM32. For both STM32 topologies the PC flashes/reads the board using
+ST-LINK USB, while the measured RAW Ethernet host peer is respectively the
+PC or Pi. Both use the full four-frequency DAS hardware campaign.
 
 Automatic CI runs repeated payload-size sweeps for VSPW/UDP and VSPW/raw
 Ethernet over Docker bridge/veth paths. Each workflow run records the actual
