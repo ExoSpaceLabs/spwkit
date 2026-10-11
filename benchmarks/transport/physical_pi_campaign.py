@@ -48,7 +48,7 @@ def sudo(*cmd: str) -> None:
 
 def prerequisite_packages() -> None:
     packages = {
-        "cmake": "cmake", "cc": "build-essential", "git": "git",
+        "cmake": "cmake", "cc": "build-essential", "make": "build-essential", "git": "git",
         "ip": "iproute2", "setcap": "libcap2-bin",
         "ssh": "openssh-client",
     }
@@ -169,6 +169,8 @@ def prepare_pi(args: argparse.Namespace) -> None:
     build_local()
     interface = choose_interface(args.interface, True)
     configure_network(interface, args.pi_address)
+    if (Path("/sys/class/net") / interface / "carrier").read_text().strip() != "1":
+        raise RuntimeError(f"No physical Ethernet carrier on Pi interface {interface}")
     READY.write_text(json.dumps(details(interface), indent=2) + "\n")
     PEER.parent.mkdir(parents=True, exist_ok=True)
     # Per-user wrapper for SSH; no global installations or background service.
@@ -385,13 +387,13 @@ def report(output: Path, cases: list[dict[str, object]], metadata: dict[str, obj
              "",
              "**Duplex:** Mbit/s is the sum of independently timed sender streams;",
              "it is not a synchronized physical-link capacity figure.", "",
-             f"Source commit: \`{metadata['pc']['sha']}\`", "",
+             f"Source commit: `{metadata['pc']['sha']}`", "",
              "| Transport | Direction | Payload (B) | Transfer (B) | Repeats | Median Mbit/s | Stdev | Min | Max |",
              "|---|---|---:|---:|---:|---:|---:|---:|---:|"]
     for row in rows:
         lines.append("| {transport} | {mode} | {payload_bytes} | {transfer_bytes} | {repeats} | {median_mbps:.2f} | {stdev_mbps:.2f} | {min_mbps:.2f} | {max_mbps:.2f} |".format(**row))
     lines.extend(["", "Raw endpoint JSON and stderr logs are retained per test case.",
-                  "See \`environment.json\`, \`samples.json\`, and \`results.csv\`."])
+                  "See `environment.json`, `samples.json`, and `results.csv`."])
     (output / "README.md").write_text("\n".join(lines) + "\n")
 
 
