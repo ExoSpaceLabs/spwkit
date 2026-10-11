@@ -10,6 +10,7 @@ ITERATIONS=128
 WARMUP=16
 BULK_BYTES=""
 PROFILE=benchmark
+SHOW_PLAN=0
 BULK_PAYLOAD=4096
 REMOTE_PEER_SSH=""
 REMOTE_PEER_BIN=""
@@ -29,6 +30,7 @@ Options:
   --peer-bin PATH         path to the Pi prebuilt host peer executable
   --output-root DIR
   --profile MODE         benchmark (default) or stress (explicit opt-in)
+  --show-plan            print clock/byte selection, no hardware access
   --clocks "HZ ..."       benchmark: all four CM7 clocks; stress: 400000000
   --payloads CSV          default: 0,16,64,128,256,512,1024,1200,1400,4096
   --iterations N          default: 128
@@ -47,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --clocks) CLOCKS="$2"; shift 2 ;;
     --profile) PROFILE="$2"; shift 2 ;;
+    --show-plan) SHOW_PLAN=1; shift ;;
     --payloads) PAYLOADS="$2"; shift 2 ;;
     --iterations) ITERATIONS="$2"; shift 2 ;;
     --warmup) WARMUP="$2"; shift 2 ;;
@@ -75,7 +78,17 @@ esac
   echo "--bulk-bytes must be a positive integer" >&2
   exit 2
 }
+for clock_hz in $CLOCKS; do
+  case "$clock_hz" in
+    64000000|200000000|300000000|400000000) ;;
+    *) echo "Unsupported DAS clock in --clocks: $clock_hz" >&2; exit 2 ;;
+  esac
+done
 echo "[campaign] profile=$PROFILE clocks=${CLOCKS} bulk_bytes=$BULK_BYTES (verified echo)"
+if (( SHOW_PLAN )); then
+  echo "[campaign] SHOW-PLAN: no package installation, builds, flashing or packets"
+  exit 0
+fi
 echo "[campaign] benchmark = throughput/RTT/clock scaling; stress = long-term reliability"
 
 source "$ROOT_DIR/scripts/lib/hil_prerequisites.sh"
