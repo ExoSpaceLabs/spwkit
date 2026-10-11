@@ -47,7 +47,8 @@ The controller orchestrates:
 2. **PC ↔ STM32H755**: move the Ethernet cable to the NUCLEO CN14; keep the
    NUCLEO ST-LINK USB on the PC. PC automatically builds, flashes and verifies
    all **64/200/300/400 MHz** clock profiles, RTT/cycle measurements and
-   verified 1 GiB echoed transfers.
+   16 MiB verified echoed transfers by default. Use `--profile stress` to
+   opt into 1 GiB long-duration validation.
 3. **Pi ↔ STM32H755**: move the Ethernet cable from the PC to Pi `eth0`,
    leaving the NUCLEO ST-LINK USB on the PC. The **PC still flashes and reads
    the MCU using OpenOCD/GDB**; the Pi executes the native Linux RAW Ethernet
@@ -249,7 +250,25 @@ The stock NUCLEO-H755ZI-Q DAS backend advertises exactly:
 - 300 MHz
 - 400 MHz
 
-Run the complete clock sweep and 1 GiB verified echo at each frequency:
+Run the complete **64/200/300/400 MHz** performance clock sweep with a
+16 MiB verified bulk echo at each frequency (default):
+
+```bash
+bash scripts/stm32h755_das_raw_eth_campaign.sh --profile benchmark
+```
+
+For **optional endurance/stress testing** use:
+
+```bash
+bash scripts/stm32h755_das_raw_eth_campaign.sh --profile stress
+```
+
+The opt-in stress profile defaults to 400 MHz and 1 GiB. Select additional
+clock profiles explicitly with `--clocks "64000000 ..."` when required.
+
+The one-command controller also accepts `--profile benchmark|stress`.
+The current benchmark does not claim statistical confidence for long-term
+failure rates: long transfers are deliberately separate.
 
 ```sh
 bash scripts/stm32h755_das_raw_eth_campaign.sh --interface <NIC>
