@@ -264,7 +264,9 @@ It provisions the Pi over Wi-Fi SSH, reuses complete PC↔Pi results when presen
 and prompts only for cable reconnections between PC↔Pi, PC↔STM32 and
 Pi↔STM32. For both STM32 topologies the PC flashes/reads the board using
 ST-LINK USB, while the measured RAW Ethernet host peer is respectively the
-PC or Pi. Both use the full four-frequency DAS hardware campaign.
+PC or Pi. In the default benchmark profile both run the full four-frequency
+DAS clock sweep with a 16 MiB verified echo per clock; the separate
+`--profile stress` is an opt-in 1 GiB endurance test (400 MHz by default).
 
 Automatic CI runs repeated payload-size sweeps for VSPW/UDP and VSPW/raw
 Ethernet over Docker bridge/veth paths. Each workflow run records the actual
