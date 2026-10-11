@@ -245,7 +245,7 @@ static void diagnose_udp_open(const perf_options_t* options) {
     local.sin_family = AF_INET;
     local.sin_port = htons(options->local_port);
     if (inet_pton(AF_INET, options->local_address, &local.sin_addr) != 1) {
-        fprintf(stderr, "[udp-diag] invalid local address: %s\\n",
+        fprintf(stderr, "[udp-diag] invalid local address: %s\n",
                 options->local_address);
         return;
     }
@@ -253,17 +253,17 @@ static void diagnose_udp_open(const perf_options_t* options) {
     if (fd < 0) {
         saved_errno = errno;
         fprintf(stderr, "[udp-diag] socket(AF_INET, SOCK_DGRAM) failed: "
-                "errno=%d %s\\n", saved_errno, strerror(saved_errno));
+                "errno=%d %s\n", saved_errno, strerror(saved_errno));
         return;
     }
     if (bind(fd, (const struct sockaddr*)&local, sizeof(local)) != 0) {
         saved_errno = errno;
-        fprintf(stderr, "[udp-diag] bind(%s:%u) failed: errno=%d %s\\n",
+        fprintf(stderr, "[udp-diag] bind(%s:%u) failed: errno=%d %s\n",
                 options->local_address, (unsigned)options->local_port,
                 saved_errno, strerror(saved_errno));
     } else {
         fprintf(stderr, "[udp-diag] bind(%s:%u) succeeded in independent "
-                "probe; backend failed elsewhere or raced with another process\\n",
+                "probe; backend failed elsewhere or raced with another process\n",
                 options->local_address, (unsigned)options->local_port);
     }
     (void)close(fd);
