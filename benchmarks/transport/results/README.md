@@ -39,9 +39,9 @@ user-initiated and cannot be qualified by GitHub-hosted CI alone.
 
 | Topology | Transport | Required measurements | Status |
 |---|---|---|---|
-| Native PC <-> Raspberry Pi 5 | UDP | both directions, duplex, payload sweep, sustained transfer | PENDING |
-| Native PC <-> Raspberry Pi 5 | RAW Ethernet | both directions, duplex, payload sweep, sustained transfer | PENDING |
-| Native PC <-> STM32H755 | RAW Ethernet | 64/200/300/400 MHz, payload sweep, 1 GiB verified transfer, cycle evidence | PENDING |
+| Native PC <-> Raspberry Pi 5 | UDP | both directions, duplex, payload sweep, sustained transfer | COMPLETE (2026-10-11) |
+| Native PC <-> Raspberry Pi 5 | RAW Ethernet | both directions, duplex, payload sweep, sustained transfer | COMPLETE (2026-10-11) |
+| Native PC <-> STM32H755 | RAW Ethernet | 64/200/300/400 MHz, payload sweep, 1 GiB verified transfer, cycle evidence | PENDING hardware |\n| Native Pi 5 <-> STM32H755 | RAW Ethernet | 64/200/300/400 MHz, payload sweep, 1 GiB verified transfer, cycle evidence | PENDING hardware |
 | Docker <-> Raspberry Pi 5 | UDP | selected native-vs-container deployment comparison | OPTIONAL |
 | Docker <-> Raspberry Pi 5 | RAW Ethernet | selected native-vs-container deployment comparison | OPTIONAL |
 | Docker <-> STM32H755 | RAW Ethernet | 400 MHz deployment comparison first | OPTIONAL |
@@ -50,3 +50,18 @@ For each physical campaign, record at minimum the SpWKit commit, DAS commit wher
 applicable, endpoint hardware/OS, CPU or MCU clock state, NIC/link configuration,
 compiler/toolchain, build type, payload sizes, transfer sizes, direction/duplex
 mode, validation errors and the raw result files.
+
+## Completed physical PC–Pi evidence (2026-10-11)
+
+Archived human-operated run: [CSV](physical-2026-10-11-pc-pi/results.csv) and
+[Markdown report](physical-2026-10-11-pc-pi/README.md).
+These are the **actual measured summary results** uploaded after the successful
+PC↔Pi run, not CI data. Source revision: d2941e2e3e970bf942710a5a62ab8936bd3780b8.
+The uploaded material contained the aggregate report and CSV, **not the
+individual endpoint JSON or full environment files**; those must remain
+locally archived for later deep analysis. Do not claim this Git copy alone
+contains all raw measurement evidence.
+
+Preferred future entry point: `python3 scripts/physical_transport_campaign.py`
+from the PC, which can reuse a complete local PC↔Pi baseline and proceeds to
+PC↔STM32 and Pi↔STM32 after prompting for the physical cable changes.
