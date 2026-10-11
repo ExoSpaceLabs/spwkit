@@ -50,7 +50,7 @@ def prerequisite_packages() -> None:
     packages = {
         "cmake": "cmake", "cc": "build-essential", "make": "build-essential", "git": "git",
         "ip": "iproute2", "setcap": "libcap2-bin",
-        "ssh": "openssh-client",
+        "ssh": "openssh-client", "ethtool": "ethtool",
     }
     missing = sorted({package for command, package in packages.items()
                       if shutil.which(command) is None})
@@ -67,32 +67,39 @@ def revision() -> str:
                    capture_output=True).stdout.strip()
 
 
-def interface_candidates() -> list[str]:
-    names = []
+def interface_candidates() -> tuple[list[str], list[str]]:
+    connected: list[str] = []
+    physical: list[str] = []
     for path in Path("/sys/class/net").iterdir():
         if path.name == "lo" or not (path / "device").exists():
             continue
         if path.name.startswith(("wl", "ww", "docker", "br-", "veth")):
             continue
+        physical.append(path.name)
         if (path / "carrier").exists():
             try:
                 if (path / "carrier").read_text().strip() == "1":
-                    names.append(path.name)
+                    connected.append(path.name)
             except OSError:
                 pass
-    return names
+    return connected, physical
 
 
 def choose_interface(name: str | None, is_pi: bool) -> str:
     if not name and is_pi and Path("/sys/class/net/eth0").exists():
         name = "eth0"
     if not name:
-        found = interface_candidates()
-        if len(found) != 1:
+        found, physical = interface_candidates()
+        if len(found) == 1:
+            name = found[0]
+        elif not found and len(physical) == 1:
+            # Cable may be attached but peer NIC still administratively down.
+            name = physical[0]
+            say("Only physical wired interface has no carrier yet: " + name)
+        else:
             raise RuntimeError(
                 "Cannot uniquely identify wired Ethernet interface; pass --interface. "
-                "Candidates: " + repr(found))
-        name = found[0]
+                "Connected: " + repr(found) + "; physical: " + repr(physical))
     if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}", name) or not (
         Path("/sys/class/net") / name
     ).exists():
@@ -170,8 +177,9 @@ def prepare_pi(args: argparse.Namespace) -> None:
     build_local()
     interface = choose_interface(args.interface, True)
     configure_network(interface, args.pi_address)
-    if (Path("/sys/class/net") / interface / "carrier").read_text().strip() != "1":
-        raise RuntimeError(f"No physical Ethernet carrier on Pi interface {interface}")
+    carrier = Path("/sys/class/net") / interface / "carrier"
+    if carrier.exists() and carrier.read_text().strip() != "1":
+        say("Pi Ethernet not yet linked; PC mode will bring up its wired interface.")
     READY.write_text(json.dumps(details(interface), indent=2) + "\n")
     PEER.parent.mkdir(parents=True, exist_ok=True)
     # Per-user wrapper for SSH; no global installations or background service.
