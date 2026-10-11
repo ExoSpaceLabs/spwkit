@@ -34,7 +34,7 @@ class PhysicalPiContract(unittest.TestCase):
     def setUp(self):
         self.args = argparse.Namespace(
             pi_host="pi@10.77.77.2", pi_address="10.77.77.2/24",
-            pc_address="10.77.77.1/24",
+            pc_address="10.77.77.1/24", udp_base_port=43000,
         )
 
     def test_pc_autodetects_only_physical_nic_before_carrier(self):
@@ -48,6 +48,26 @@ class PhysicalPiContract(unittest.TestCase):
                                return_value=([], ["enp3s0", "enp4s0"])):
             with self.assertRaisesRegex(RuntimeError, "--interface"):
                 campaign.choose_interface(None, False)
+
+    def test_udp_port_pairs_are_disjoint(self):
+        self.assertEqual(campaign.udp_port_numbers(43000, False),
+                         (43000, 44000))
+        self.assertEqual(campaign.udp_port_numbers(43000, True),
+                         (43001, 44001))
+
+    def test_udp_pc_command_uses_selected_port_base(self):
+        self.args.udp_base_port = 47000
+        cmd = campaign.pc_command(
+            self.args, "udp", "source", 265, 64, 8192,
+            "02:42:ac:1e:00:11", "eth0"
+        )
+        self.assertEqual(cmd[cmd.index("--local-port") + 1], "48000")
+        self.assertEqual(cmd[cmd.index("--remote-port") + 1], "48001")
+
+    def test_udp_invalid_base_rejected(self):
+        for value in (-1, 0, 64500):
+            with self.assertRaises(RuntimeError):
+                campaign.udp_port_numbers(value, False)
 
     def test_direction_identifiers(self):
         self.assertEqual(campaign.direction_spec("udp", "pc-to-pi")[0], 264)
