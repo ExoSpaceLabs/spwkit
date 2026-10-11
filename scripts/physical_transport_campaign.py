@@ -75,6 +75,16 @@ class RemotePi:
         execute(args)
         return ""
 
+    def cleanup_owned_checkout(self, path: str) -> None:
+        # Only delete the exact per-SHA HIL directory; preserve user repositories.
+        quoted = shlex.quote(path)
+        guard = shlex.quote(posixpath.dirname(path))
+        self.command(
+            f"test -d {guard} && "
+            f"case {quoted} in {guard}/*) rm -rf -- {quoted} ;; "
+            "*) echo 'unsafe cleanup path' >&2; exit 2 ;; esac"
+        )
+
     def stop(self) -> None:
         subprocess.run(["ssh", "-S", self.control, "-O", "exit",
                         self.destination], check=False,
@@ -161,6 +171,7 @@ def pi_pc(pi: RemotePi, remote: str, args: argparse.Namespace,
     execute([sys.executable,
              str(ROOT / "benchmarks/transport/physical_pi_campaign.py"),
              "--mode", "pc", "--pi-host", pi.destination,
+             "--ssh-control-path", pi.control,
              "--interface", args.pc_interface], log=out / "pc-pi.log")
     folder = completed_pi_baseline()
     if folder is None:
@@ -226,6 +237,8 @@ def cli() -> argparse.Namespace:
                         help="Existing Pi Wi-Fi SSH, e.g. exn-cam@192.168.1.36")
     parser.add_argument("--pc-interface", help="PC wired Ethernet interface")
     parser.add_argument("--pi-interface", help="Optional Pi Ethernet interface (automatic otherwise)")
+    parser.add_argument("--keep-remote-builds", action="store_true",
+                        help="Preserve isolated Pi build tree after success")
     parser.add_argument("--fresh-pc-pi", action="store_true",
                         help="Rerun an already-passed PC↔Pi benchmark")
     parser.add_argument("--yes", action="store_true",
@@ -281,6 +294,9 @@ def main() -> int:
             pi_stm32(pi, remote, args, out)
             summary(out, sha)
             status("PASS. All three physical topologies: " + str(out / "README.md"))
+            if not args.keep_remote_builds:
+                pi.cleanup_owned_checkout(remote)
+                status("Cleaned isolated Pi HIL staging checkout; original Pi work untouched")
             return 0
         except (RuntimeError, subprocess.SubprocessError, OSError) as exc:
             summary(out, sha)
