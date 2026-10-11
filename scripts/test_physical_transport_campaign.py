@@ -79,6 +79,32 @@ class OrchestrationContracts(unittest.TestCase):
             self.assertIn("pc-pi/README.md", result)
             self.assertIn("pi-stm32: INCOMPLETE", result)
 
+    def test_cross_topology_comparison_all_four_frequencies(self):
+        import csv
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, scale in (("pc-stm32", 1.0), ("pi-stm32", 0.8)):
+                folder = root / name
+                folder.mkdir()
+                with (folder / "results.csv").open("w", newline="") as stream:
+                    writer = csv.DictWriter(
+                        stream, fieldnames=("kind", "clock_hz", "payload_bytes",
+                                            "one_way_payload_mbps", "median_ns"))
+                    writer.writeheader()
+                    for mhz in (64, 200, 300, 400):
+                        writer.writerow({"kind": "bulk", "clock_hz": mhz * 1000000,
+                                         "payload_bytes": 4096,
+                                         "one_way_payload_mbps": mhz * scale / 10,
+                                         "median_ns": ""})
+                        writer.writerow({"kind": "rtt", "clock_hz": mhz * 1000000,
+                                         "payload_bytes": 4096,
+                                         "one_way_payload_mbps": "",
+                                         "median_ns": int(1000000 / scale)})
+            text = "\n".join(module.comparison_data(root))
+            self.assertIn("64 MHz", text)
+            self.assertIn("400 MHz", text)
+            self.assertIn("0.800×", text)
+
     def test_remote_rejects_injected_options(self):
         with self.assertRaises(ValueError):
             module.RemotePi("-oProxyCommand=evil", "/tmp/mux")
