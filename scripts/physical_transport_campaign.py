@@ -8,6 +8,7 @@ Reconnection prompts are the only required hands-on operations.
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as dt
 import importlib.util
 import json
@@ -214,6 +215,55 @@ def pi_stm32(pi: RemotePi, remote: str, args: argparse.Namespace,
             log=out / "pi-stm32.log", env=env)
 
 
+def comparison_data(out: Path) -> list[str]:
+    """Compare only like-for-like STM32 HIL echo throughput and RTT."""
+    records: dict[str, dict[tuple[int, int, str], dict[str, str]]] = {}
+    for topology in ("pc-stm32", "pi-stm32"):
+        csv_path = out / topology / "results.csv"
+        if not csv_path.is_file():
+            return []
+        with csv_path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream))
+        records[topology] = {
+            (int(row["clock_hz"]), int(row["payload_bytes"]), row["kind"]): row
+            for row in rows
+        }
+    pc, pi = records["pc-stm32"], records["pi-stm32"]
+    clocks = (64000000, 200000000, 300000000, 400000000)
+    lines = [
+        "## Controlled PC vs Pi STM32 comparison", "",
+        "Identical STM32 firmware, DAS backend, logical packet size, clocks and",
+        "bulk-transfer volume; only the Linux host changes between phases.",
+        "These are **echo-derived** throughput/RTT measurements, not direct",
+        "one-way network-link capacity and not comparable with PC↔Pi goodput.",
+        "",
+        "| CM7 clock | PC→STM32 bulk (Mbps) | Pi→STM32 bulk (Mbps) | Pi/PC throughput | PC RTT 4096 B (µs) | Pi RTT 4096 B (µs) |",
+        "|---:|---:|---:|---:|---:|---:|",
+    ]
+    for clock in clocks:
+        pbulk = pc.get((clock, 4096, "bulk"))
+        ibulk = pi.get((clock, 4096, "bulk"))
+        prtt = pc.get((clock, 4096, "rtt"))
+        irtt = pi.get((clock, 4096, "rtt"))
+        if not all((pbulk, ibulk, prtt, irtt)):
+            raise RuntimeError(f"Missing PC/Pi STM32 comparable evidence at {clock} Hz")
+        p_rate = float(pbulk["one_way_payload_mbps"])
+        i_rate = float(ibulk["one_way_payload_mbps"])
+        ratio = i_rate / p_rate if p_rate else 0.0
+        lines.append(
+            f"| {clock // 1000000} MHz | {p_rate:.3f} | {i_rate:.3f} | "
+            f"{ratio:.3f}× | {float(prtt['median_ns']) / 1000:.2f} | "
+            f"{float(irtt['median_ns']) / 1000:.2f} |"
+        )
+    return lines + [
+        "", "Cycle, DMA and polling counters remain available inside each",
+        "clock-specific STM32 performance-summary.md and board-evidence.log.",
+        "Differences may reflect CPU/host scheduling, networking stacks, host",
+        "NICs or board firmware interactions. Throughput alone does not",
+        "uniquely attribute a bottleneck.", ""
+    ]
+
+
 def summary(out: Path, sha: str) -> None:
     lines = ["# Three-device SpWKit physical qualification", "",
              "Controller Git revision: " + sha, "",
@@ -228,6 +278,7 @@ def summary(out: Path, sha: str) -> None:
             lines.append(f"- [{key}]({key}/README.md): COMPLETE")
         else:
             lines.append(f"- {key}: INCOMPLETE")
+    lines += comparison_data(out)
     (out / "README.md").write_text("\n".join(lines) + "\n")
 
 
