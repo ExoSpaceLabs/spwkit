@@ -26,6 +26,17 @@ regressions.
 Physical results belong here once measured. Preserve the original machine-readable
 evidence beside any rendered summary.
 
+The automated physical PC/Pi campaign writes source/sink JSON, error logs,
+environment metadata, `samples.json`, `results.csv`, and `README.md` in
+`build/physical-pi/results-<timestamp>/` on the PC. No per-payload endpoint
+commands are required. After verifying the data, archive/import this directory
+into the physical result registry.
+
+The autonomous STM32 HIL clock campaign writes separate evidence at all four
+frequency profiles under `build/das-raw-eth-campaign/` plus an aggregate
+`results.csv` and Markdown/Mermaid report. Both physical campaigns are
+user-initiated and cannot be qualified by GitHub-hosted CI alone.
+
 | Topology | Transport | Required measurements | Status |
 |---|---|---|---|
 | Native PC <-> Raspberry Pi 5 | UDP | both directions, duplex, payload sweep, sustained transfer | PENDING |
