@@ -11,6 +11,8 @@ on:
       - 'integrations/das_stm32h755_raw_eth/**'
       - 'scripts/stm32h755_das_raw_eth_test.sh'
       - 'scripts/stm32h755_das_raw_eth_campaign.sh'
+      - 'scripts/stm32h755_pi_peer_prepare.sh'
+      - 'scripts/physical_transport_campaign.py'
       - 'scripts/lib/thirdparty.sh'
       - 'scripts/lib/hil_prerequisites.sh'
       - 'scripts/summarize_stm32h755_das_raw_eth.py'
@@ -63,6 +65,9 @@ jobs:
           bash -n scripts/lib/hil_prerequisites.sh
           bash -n scripts/stm32h755_das_raw_eth_test.sh
           bash -n scripts/stm32h755_das_raw_eth_campaign.sh
+          bash -n scripts/stm32h755_pi_peer_prepare.sh
+          python3 -m py_compile scripts/physical_transport_campaign.py
+          python3 -m unittest discover -s scripts -p test_physical_transport_campaign.py -v
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth.py
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth_campaign.py
           test "$(git -C external/das rev-parse HEAD)" = "$DAS_COMMIT"
