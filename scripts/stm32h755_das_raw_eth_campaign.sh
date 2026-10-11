@@ -86,7 +86,11 @@ for clock_hz in $CLOCKS; do
     "${extra_peer_args[@]}"
 done
 
-python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth_campaign.py"   --root "$OUTPUT_ROOT"   --csv "$OUTPUT_ROOT/results.csv"   --markdown "$OUTPUT_ROOT/README.md"
+host_label=pc
+if [[ -n "$REMOTE_PEER_SSH" ]]; then host_label=pi; fi
+python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth_campaign.py" \
+  --root "$OUTPUT_ROOT" --csv "$OUTPUT_ROOT/results.csv" \
+  --markdown "$OUTPUT_ROOT/README.md" --linux-host "$host_label"
 
 echo "[campaign] PASS"
 echo "[campaign] CSV:      $OUTPUT_ROOT/results.csv"
