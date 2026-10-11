@@ -65,7 +65,8 @@ class RemotePi:
 
     def command(self, command: str, *, interactive: bool = False,
                 capture: bool = False) -> str:
-        args = ["ssh", "-S", self.control, "-o", "BatchMode=yes"]
+        args = ["ssh", "-S", self.control, "-o", "ControlMaster=auto",
+                "-o", "BatchMode=yes"]
         if interactive:
             args.append("-tt")
         args.extend([self.destination, command])
