@@ -486,7 +486,7 @@ static int run_bulk(spw_port_t* port,
     fprintf(stderr,
             "[host] bulk START: target=%llu bytes (%.1f MiB), "
             "payload=%zu bytes, expected_packets=%llu; "
-            "progress every ~10 seconds\\n",
+            "progress every ~10 seconds\n",
             (unsigned long long)total_bytes,
             (double)total_bytes / (1024.0 * 1024.0),
             payload_size,
@@ -517,7 +517,7 @@ static int run_bulk(spw_port_t* port,
                 fprintf(stderr,
                         "[host] bulk PROGRESS: %.1f%% (%0.1f / %0.1f MiB); "
                         "elapsed=%.0f s; avg=%.3f Mbit/s; ETA=%.0f s; "
-                        "packets=%llu\\n",
+                        "packets=%llu\n",
                         100.0 * (double)transferred / (double)total_bytes,
                         mib_done, (double)total_bytes / 1048576.0,
                         elapsed_s, rate_mbps, eta_s,
