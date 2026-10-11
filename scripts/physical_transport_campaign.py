@@ -191,6 +191,7 @@ def pc_stm32(args: argparse.Namespace, out: Path) -> None:
     )
     execute(["bash", str(ROOT / "scripts/stm32h755_das_raw_eth_campaign.sh"),
              "--interface", args.pc_interface,
+             "--profile", args.profile,
              "--output-root", str(out / "pc-stm32")],
             log=out / "pc-stm32.log")
 
@@ -214,11 +215,12 @@ def pi_stm32(pi: RemotePi, remote: str, args: argparse.Namespace,
              "--interface", args.pi_interface,
              "--peer-ssh", pi.destination,
              "--peer-bin", peer,
+             "--profile", args.profile,
              "--output-root", str(out / "pi-stm32")],
             log=out / "pi-stm32.log", env=env)
 
 
-def comparison_data(out: Path) -> list[str]:
+def comparison_data(out: Path, profile: str = "benchmark") -> list[str]:
     """Compare only like-for-like STM32 HIL echo throughput and RTT."""
     records: dict[str, dict[tuple[int, int, str], dict[str, str]]] = {}
     for topology in ("pc-stm32", "pi-stm32"):
@@ -232,7 +234,10 @@ def comparison_data(out: Path) -> list[str]:
             for row in rows
         }
     pc, pi = records["pc-stm32"], records["pi-stm32"]
-    clocks = (64000000, 200000000, 300000000, 400000000)
+    clocks = (
+        (64000000, 200000000, 300000000, 400000000)
+        if profile == "benchmark" else (400000000,)
+    )
     lines = [
         "## Controlled PC vs Pi STM32 comparison", "",
         "Identical STM32 firmware, DAS backend, logical packet size, clocks and",
@@ -267,13 +272,16 @@ def comparison_data(out: Path) -> list[str]:
     ]
 
 
-def summary(out: Path, sha: str) -> None:
+def summary(out: Path, sha: str, profile: str = "benchmark") -> None:
     lines = ["# Three-device SpWKit physical qualification", "",
              "Controller Git revision: " + sha, "",
+             "STM32 profile: **" + profile + "**", "",
              "PC↔Pi measures one-way/duplex goodput. STM32 campaigns measure",
              "echo RTT and board timing/cycle evidence, which are not directly",
              "comparable to the PC↔Pi one-way goodput.", "",
-             "All STM32 campaigns require CM7 64/200/300/400 MHz.", "",
+             ("Benchmark: CM7 64/200/300/400 MHz, 16 MiB per clock."
+              if profile == "benchmark"
+              else "Stress: CM7 400 MHz, 1 GiB per Linux host by default."), "",
              "## Evidence", ""]
     for key in ("pc-pi", "pc-stm32", "pi-stm32"):
         path = out / key / "README.md"
@@ -281,7 +289,7 @@ def summary(out: Path, sha: str) -> None:
             lines.append(f"- [{key}]({key}/README.md): COMPLETE")
         else:
             lines.append(f"- {key}: INCOMPLETE")
-    lines += comparison_data(out)
+    lines += comparison_data(out, profile)
     (out / "README.md").write_text("\n".join(lines) + "\n")
 
 
@@ -297,6 +305,10 @@ def cli() -> argparse.Namespace:
                         help="Rerun an already-passed PC↔Pi benchmark")
     parser.add_argument("--yes", action="store_true",
                         help="Assume physical reconnection was externally confirmed")
+    parser.add_argument("--profile", choices=("benchmark", "stress"),
+                        default="benchmark",
+                        help="Benchmark all four clocks at 16 MiB (default); "
+                             "stress tests 400 MHz at 1 GiB (opt-in)")
     parser.add_argument("--results-root", type=Path)
     return parser.parse_args()
 
@@ -342,18 +354,18 @@ def main() -> int:
                 shutil.copytree(existing, out / "pc-pi")
             else:
                 pi_pc(pi, remote, args, out)
-            summary(out, sha)
+            summary(out, sha, args.profile)
             pc_stm32(args, out)
-            summary(out, sha)
+            summary(out, sha, args.profile)
             pi_stm32(pi, remote, args, out)
-            summary(out, sha)
+            summary(out, sha, args.profile)
             status("PASS. All three physical topologies: " + str(out / "README.md"))
             if not args.keep_remote_builds:
                 pi.cleanup_owned_checkout(remote)
                 status("Cleaned isolated Pi HIL staging checkout; original Pi work untouched")
             return 0
         except (RuntimeError, subprocess.SubprocessError, OSError) as exc:
-            summary(out, sha)
+            summary(out, sha, args.profile)
             status("FAIL: " + str(exc))
             status("Available results/logs preserved at " + str(out))
             return 1
