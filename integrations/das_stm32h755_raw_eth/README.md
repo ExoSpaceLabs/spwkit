@@ -164,6 +164,16 @@ Run the full physical scaling campaign with:
 bash scripts/stm32h755_das_raw_eth_campaign.sh
 ```
 
+The default **benchmark** profile executes all four DAS-supported frequencies:
+64/200/300/400 MHz with 16 MiB of verified echo per frequency. This is a
+throughput, RTT and CPU-cycle scaling benchmark, not a long-term endurance test.
+
+Use `bash scripts/stm32h755_das_raw_eth_campaign.sh --profile stress` only
+when sustained stress is intended. Stress defaults to a 1 GiB verified echo
+at 400 MHz; use `--clocks` to select other frequencies. `--show-plan`
+previews the profile and test volumes without touching hardware.
+
+The three-device controller exposes the same `--profile` option.
 The default campaign executes all four DAS-supported frequencies:
 
 ```text
@@ -174,7 +184,7 @@ The default campaign executes all four DAS-supported frequencies:
 ```
 
 For each frequency it runs the RTT payload sweep
-`0,16,64,128,256,512,1024,1200,1400,4096` and then transfers 1 GiB of
+`0,16,64,128,256,512,1024,1200,1400,4096` and then transfers 16 MiB of
 deterministically generated 4096-byte logical packets. Every packet is echoed
 by the STM32 and validated by the host before being discarded.
 
@@ -187,7 +197,7 @@ The aggregate output is written below
   each clock profile.
 
 The STM32 compact profile deliberately limits logical packets to 4096 bytes.
-Larger logical payloads belong to the host/Pi transport campaign; the 1 GiB
+Larger logical payloads belong to the host/Pi transport campaign; the optional 1 GiB
 STM32 test is a sustained transfer composed of many verified packets rather
 than an attempt to allocate a 1 MiB MCU packet buffer.
 
