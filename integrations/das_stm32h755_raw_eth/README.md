@@ -40,15 +40,30 @@ Requirements:
 - NUCLEO-H755ZI-Q connected over ST-LINK;
 - Ethernet cable on CN14 to a Linux Ethernet interface;
 - JP6/JP7 fitted for the board Ethernet route;
-- pinned DAS and STM32CubeH7 checkouts;
-- OpenOCD, Arm GNU toolchain, CMake, and gdb-multiarch or arm-none-eabi-gdb;
+- network access on first setup for pinned DAS and STM32CubeH7 checkouts;
+- Ubuntu/Debian with sudo; the runner installs missing OpenOCD/Arm GNU/CMake/
+  GDB packages through apt if necessary;
 - sudo permission for AF_PACKET raw sockets and bringing the Linux interface up.
 
-Run:
+Run the full qualification **from the PC only**:
+
+```sh
+bash scripts/stm32h755_das_raw_eth_campaign.sh
+```
+
+The script handles dependency preparation, clean local builds, OpenOCD/GDB
+flashing, each clock profile, the payload and sustained transfer campaign,
+evidence validation, and the aggregate report. It selects the sole physical
+wired NIC automatically; if the PC has multiple candidates, pass
+`--interface <NIC>`. It does **not** uninstall global packages or delete
+unrelated builds.
+
+For an optional quick 400 MHz hardware diagnostic before the full campaign:
 
 ```sh
 bash scripts/stm32h755_das_raw_eth_test.sh \
-  --interface enp0s31f6
+  --clock-hz 400000000 --payloads 64,1024,4096 \
+  --iterations 16 --warmup 4 --bulk-bytes 1048576
 ```
 
 By default the runner prepares its pinned public dependencies automatically
@@ -132,8 +147,7 @@ comparison point if DAS gains an interrupt-driven Ethernet path.
 Run the full physical scaling campaign with:
 
 ```sh
-bash scripts/stm32h755_das_raw_eth_campaign.sh \
-  --interface enp0s31f6
+bash scripts/stm32h755_das_raw_eth_campaign.sh
 ```
 
 The default campaign executes all four DAS-supported frequencies:
