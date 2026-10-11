@@ -35,6 +35,20 @@ current implementation and is guarded by a 32 KiB CI ceiling.
 
 ## Hardware run
 
+For full three-topology qualification, prefer the **single PC-side controller**:
+
+```bash
+python3 scripts/physical_transport_campaign.py
+```
+
+It provisions/controls Pi 5 over Wi-Fi SSH, reuses existing verified PC↔Pi
+results, prompts for PC↔STM32 and Pi↔STM32 Ethernet reconnections, and runs
+all 64/200/300/400 MHz hardware cycles in both STM32 topologies. The ST-LINK
+USB must remain on the PC even when the Pi is the measured Ethernet endpoint.
+The individual `stm32h755_das_raw_eth_campaign.sh` remains a lower-level tool.
+
+
+
 Requirements:
 
 - NUCLEO-H755ZI-Q connected over ST-LINK;
