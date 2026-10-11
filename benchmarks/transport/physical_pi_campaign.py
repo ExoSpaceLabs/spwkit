@@ -494,8 +494,9 @@ def run_pc(args: argparse.Namespace) -> None:
     output = STATE / ("results-" + stamp)
     output.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="spwkit-pi-ssh-") as temp:
-        control = str(Path(temp) / "master")
-        # Initial SSH authentication may require the normal password/key prompt.
+        control = args.ssh_control_path or str(Path(temp) / "master")
+        # A unified three-device controller may supply its authenticated SSH
+        # master. Never close a master owned by the caller.
         execute(ssh_cmd(args, control, ["--mode", "info"]), capture_output=True)
         try:
             ready = execute(ssh_cmd(args, control, ["--mode", "info"]), capture_output=True)
@@ -596,8 +597,9 @@ def run_pc(args: argparse.Namespace) -> None:
             say("PASS; report: " + str(output / "README.md"))
             say("CSV: " + str(output / "results.csv"))
         finally:
-            subprocess.run(["ssh", "-S", control, "-O", "exit", args.pi_host],
-                           capture_output=True, text=True, check=False)
+            if not args.ssh_control_path:
+                subprocess.run(["ssh", "-S", control, "-O", "exit", args.pi_host],
+                               capture_output=True, text=True, check=False)
 
 
 def info() -> None:
@@ -614,6 +616,7 @@ def cli() -> argparse.Namespace:
     parser.add_argument("--mode", required=True, choices=("pi", "pc", "info", "endpoint", "probe"))
     parser.add_argument("--interface", help="Ethernet interface; autodetected if unambiguous")
     parser.add_argument("--pi-host", help="SSH destination via Wi-Fi, e.g. exn-cam@192.168.1.36")
+    parser.add_argument("--ssh-control-path", help="Reuse an existing authenticated SSH master (owned by caller)")
     parser.add_argument("--pc-address", default=ALIASES["pc"])
     parser.add_argument("--pi-address", default=ALIASES["pi"])
     parser.add_argument("--payloads", default=",".join(map(str, PAYLOADS)))
