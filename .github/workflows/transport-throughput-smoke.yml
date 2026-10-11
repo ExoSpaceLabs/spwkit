@@ -5,6 +5,8 @@ on:
     branches: [develop, main]
     paths:
       - 'benchmarks/transport/**'
+      - 'scripts/physical_transport_campaign.py'
+      - 'scripts/test_physical_transport_campaign.py'
       - 'src/backends/ethernet/**'
       - 'include/spwkit/**'
       - '.github/workflows/transport-throughput-smoke.yml'
