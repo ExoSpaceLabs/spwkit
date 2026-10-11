@@ -66,7 +66,13 @@ python3 benchmarks/transport/physical_pi_campaign.py --mode pc \
 ```
 
 The PC mode does the same clean local setup, verifies the Pi commit over SSH,
-discovers local/Pi MACs, and orchestrates the entire suite:
+and **probes both hosts' UDP socket binds before starting any benchmark**.
+It chooses a free base-port pair automatically when the default ports are
+occupied and stops immediately with the OS error if the test IP is unavailable
+or socket creation is denied. The selected ports are saved in the environment
+evidence. If a port-open error still occurs, the UDP benchmark prints a
+socket/bind diagnostic instead of only SpWKit's generic backend code.
+It then discovers local/Pi MACs and orchestrates the entire suite:
 
 - UDP and RAW Ethernet;
 - logical payloads 64/256/1024/1400/4096/16384/65536 bytes;
