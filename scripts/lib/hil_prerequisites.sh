@@ -17,6 +17,7 @@ spwkit_hil_prepare_tools() {
     echo "[HIL] missing sudo; install permissions are required" >&2
     return 2
   }
+  sudo -v
   for entry in "${dependencies[@]}"; do
     cmd="${entry%%:*}"
     package="${entry#*:}"
@@ -44,20 +45,25 @@ spwkit_hil_prepare_tools() {
 
 spwkit_hil_detect_interface() {
   local requested="${1:-}" candidate
-  local -a selected=()
+  local -a selected=() fallback=()
   if [[ -n "$requested" ]]; then
     printf '%s\n' "$requested"
     return 0
   fi
   for candidate in /sys/class/net/*; do
     [[ -e "$candidate/device" ]] || continue
-    [[ -e "$candidate/carrier" ]] || continue
-    [[ "$(cat "$candidate/carrier" 2>/dev/null || true)" == "1" ]] || continue
     case "${candidate##*/}" in
       wl*|ww*|docker*|veth*|br-*) continue ;;
     esac
+    fallback+=("${candidate##*/}")
+    [[ -e "$candidate/carrier" ]] || continue
+    [[ "$(cat "$candidate/carrier" 2>/dev/null || true)" == "1" ]] || continue
     selected+=("${candidate##*/}")
   done
+  if (( ${#selected[@]} == 0 && ${#fallback[@]} == 1 )); then
+    echo "[HIL] using the only physical wired NIC (carrier not yet present): ${fallback[0]}" >&2
+    selected=("${fallback[0]}")
+  fi
   if (( ${#selected[@]} != 1 )); then
     echo "[HIL] cannot uniquely detect connected physical Ethernet NIC" >&2
     echo "[HIL] candidates: ${selected[*]:-(none)}; use --interface NIC" >&2
