@@ -107,6 +107,25 @@ def choose_interface(name: str | None, is_pi: bool) -> str:
     return name
 
 
+def wait_for_carrier(interface: str, timeout_seconds: int = 20) -> None:
+    carrier = Path("/sys/class/net") / interface / "carrier"
+    if not carrier.exists():
+        raise RuntimeError(f"Cannot read Ethernet carrier status for {interface}")
+    for _ in range(timeout_seconds * 2):
+        try:
+            if carrier.read_text().strip() == "1":
+                say(f"Ethernet carrier UP on {interface}")
+                return
+        except OSError:
+            pass
+        time.sleep(0.5)
+    raise RuntimeError(
+        f"No Ethernet carrier on {interface} after {timeout_seconds}s. "
+        "Connect PC wired Ethernet directly to Pi eth0 (or through a switch). "
+        "SSH can remain on Wi-Fi."
+    )
+
+
 def mac_address(interface: str) -> str:
     value = (Path("/sys/class/net") / interface / "address").read_text().strip()
     if MAC.fullmatch(value) is None or (int(value[:2], 16) & 1):
@@ -419,6 +438,7 @@ def run_pc(args: argparse.Namespace) -> None:
     build_local()
     interface = choose_interface(args.interface, False)
     configure_network(interface, args.pc_address)
+    wait_for_carrier(interface)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     output = STATE / ("results-" + stamp)
     output.mkdir(parents=True, exist_ok=False)
