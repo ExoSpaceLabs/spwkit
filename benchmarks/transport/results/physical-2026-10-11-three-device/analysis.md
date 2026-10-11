@@ -10,6 +10,8 @@
 - For **all eight STM32 runs**: host `HOST_RESULT: PASS`, board `RESULT: PASS`, `phase=0x0000700d`, `result=0`, measured core clock equals requested profile, `das_tx_failures=0`, `das_rx_errors=0`, processor fault registers zero, `echoed_packets=5536`. Both profiles transferred **16,777,216 verified application bytes in 4,096 echo packets per clock**.
 - All results below are **one bulk trial per frequency and host**. The RTT sweep has 128 iterations per payload, but bulk rate has no between-run error bars. Full raw evidence and executable/build logs remain in the user-supplied archive; this repository file contains an aggregate analysis without local user/device identifiers.
 
+The [machine-readable eight-run summary](summary.csv) contains throughput, RTT, host carrier-frame counts and board DAS status. Follow-up tracked in [#266](https://github.com/ExoSpaceLabs/spwkit/issues/266).
+
 ## Verified throughput and latency
 
 The rates are **logical bytes per time spent sending and waiting for verified echoes**. They are not unidirectional physical-carrier goodput and must not be compared directly to PC↔Pi sender-throughput results.
