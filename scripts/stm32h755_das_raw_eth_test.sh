@@ -79,6 +79,9 @@ need() {
   }
 }
 
+source "$ROOT_DIR/scripts/lib/hil_prerequisites.sh"
+spwkit_hil_prepare_tools
+
 for command in cmake git openocd arm-none-eabi-gcc arm-none-eabi-nm \
                arm-none-eabi-size arm-none-eabi-addr2line ip sudo timeout tee grep python3; do
   need "$command"
@@ -124,10 +127,7 @@ for _payload in "${_payload_values[@]}"; do
     exit 2
   }
 done
-[[ -n "$INTERFACE" ]] || {
-  usage >&2
-  exit 2
-}
+INTERFACE="$(spwkit_hil_detect_interface "$INTERFACE")"
 
 spwkit_prepare_das "$DAS_ROOT" "$PINNED_DAS_SHA"
 spwkit_prepare_stm32cubeh7 "$STM32_CUBE_H7_DIR" "$PINNED_CUBE_SHA"
