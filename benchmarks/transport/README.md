@@ -72,7 +72,9 @@ occupied and stops immediately with the OS error if the test IP is unavailable
 or socket creation is denied. The selected ports are saved in the environment
 evidence. If a port-open error still occurs, the UDP benchmark prints a
 socket/bind diagnostic instead of only SpWKit's generic backend code.
-It then discovers local/Pi MACs and orchestrates the entire suite:
+It then discovers local/Pi MACs, runs a **short UDP and RAW Ethernet
+physical smoke** to establish end-to-end packet exchange, and only after that
+orchestrates the full suite:
 
 - UDP and RAW Ethernet;
 - logical payloads 64/256/1024/1400/4096/16384/65536 bytes;
