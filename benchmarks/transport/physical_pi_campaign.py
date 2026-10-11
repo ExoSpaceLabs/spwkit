@@ -560,6 +560,15 @@ def run_pc(args: argparse.Namespace) -> None:
             (output / "environment.json").write_text(json.dumps(metadata, indent=2) + "\n")
             cases: list[dict[str, object]] = []
             try:
+                # Early physical-layer/protocol smoke before the full high-
+                # repetition sweep: one short verified transfer per backend.
+                for transport in ("udp", "raw"):
+                    say(f"Pre-campaign physical smoke: {transport} PC->Pi 4096 B")
+                    test_case(
+                        args, control, interface, pi_mac, transport, "pc-to-pi",
+                        4096, 65536, 0, output
+                    )
+                say("Physical smoke PASS for UDP and RAW Ethernet")
                 for transport in ("udp", "raw"):
                     for payload in payloads:
                         for repetition in range(1, args.repeats + 1):
