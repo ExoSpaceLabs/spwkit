@@ -42,6 +42,8 @@ jobs:
           bash -n benchmarks/transport/run_raw_docker.sh
           python3 -m py_compile benchmarks/transport/summarize_ci_campaign.py
           python3 -m unittest discover -s benchmarks/transport -p "test_summarize_ci_campaign.py" -v
+          python3 -m py_compile benchmarks/transport/physical_pi_campaign.py
+          python3 -m unittest discover -s benchmarks/transport -p "test_physical_pi_campaign.py" -v
 
       - name: Build transport benchmark peers
         shell: bash
