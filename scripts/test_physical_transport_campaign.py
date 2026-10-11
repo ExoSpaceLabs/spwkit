@@ -4,6 +4,7 @@
 import argparse
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -108,6 +109,41 @@ class OrchestrationContracts(unittest.TestCase):
     def test_remote_rejects_injected_options(self):
         with self.assertRaises(ValueError):
             module.RemotePi("-oProxyCommand=evil", "/tmp/mux")
+
+    def test_benchmark_and_stress_plans_without_hardware(self):
+        runner = Path(__file__).with_name("stm32h755_das_raw_eth_campaign.sh")
+        for profile, clocks, size in (
+            ("benchmark", "64000000 200000000 300000000 400000000", "16777216"),
+            ("stress", "400000000", "1073741824"),
+        ):
+            process = subprocess.run(
+                ["bash", str(runner), "--profile", profile, "--show-plan"],
+                capture_output=True, text=True, check=True
+            )
+            self.assertIn("profile=" + profile, process.stdout)
+            self.assertIn("clocks=" + clocks, process.stdout)
+            self.assertIn("bulk_bytes=" + size, process.stdout)
+            self.assertIn("no package installation", process.stdout)
+
+    def test_stress_comparison_only_requires_400_mhz(self):
+        import csv
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ("pc-stm32", "pi-stm32"):
+                folder = root / name
+                folder.mkdir()
+                with (folder / "results.csv").open("w", newline="") as stream:
+                    w = csv.DictWriter(stream, fieldnames=(
+                        "clock_hz", "payload_bytes", "kind",
+                        "median_ns", "one_way_payload_mbps"))
+                    w.writeheader()
+                    w.writerow(dict(clock_hz=400000000, payload_bytes=4096,
+                                    kind="bulk", one_way_payload_mbps=10.0))
+                    w.writerow(dict(clock_hz=400000000, payload_bytes=4096,
+                                    kind="rtt", median_ns=1000000))
+            result = "\n".join(module.comparison_data(root, "stress"))
+            self.assertIn("400 MHz", result)
+            self.assertNotIn("64 MHz", result)
 
     def test_full_clock_campaign_not_customized(self):
         file = Path(__file__).with_name("stm32h755_das_raw_eth_campaign.sh")
