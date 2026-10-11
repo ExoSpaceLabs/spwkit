@@ -37,6 +37,18 @@ class PhysicalPiContract(unittest.TestCase):
             pc_address="10.77.77.1/24",
         )
 
+    def test_pc_autodetects_only_physical_nic_before_carrier(self):
+        with mock.patch.object(campaign, "interface_candidates",
+                               return_value=([], ["enp3s0"])), \
+             mock.patch.object(Path, "exists", return_value=True):
+            self.assertEqual(campaign.choose_interface(None, False), "enp3s0")
+
+    def test_pc_refuses_ambiguous_wired_interfaces(self):
+        with mock.patch.object(campaign, "interface_candidates",
+                               return_value=([], ["enp3s0", "enp4s0"])):
+            with self.assertRaisesRegex(RuntimeError, "--interface"):
+                campaign.choose_interface(None, False)
+
     def test_direction_identifiers(self):
         self.assertEqual(campaign.direction_spec("udp", "pc-to-pi")[0], 264)
         self.assertEqual(campaign.direction_spec("udp", "pi-to-pc")[0], 265)
