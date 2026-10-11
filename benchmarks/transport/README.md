@@ -17,76 +17,88 @@ transport providers.
 - For full-duplex saturation, use two independent SpWKit links concurrently so
   each port still follows the same-handle serialization contract.
 
-## UDP host baseline
+## Physical PC <-> Raspberry Pi 5: automated two-mode campaign
 
-Build and run a same-host baseline:
+You should **not** install benchmark binaries manually or launch dozens of
+sender/sink pairs by hand. The physical campaign is controlled from the PC over
+SSH using one preparation step on the Pi.
 
-```sh
-bash benchmarks/transport/run_udp_pair.sh \
-  --payloads "64 256 1024 1400 4096 16384 65536 262144 1048576" \
-  --total-bytes 1073741824
-```
+### Before starting
 
-The runner writes JSONL evidence under `build/transport-udp/`.
+- Connect the PC's benchmark Ethernet interface to Pi 5 \`eth0\` (direct
+  cable or isolated switch). Do not use the PC's internet/Wi-Fi interface.
+- Ensure the Pi is accessible from the PC over SSH, for example
+  \`ssh youruser@10.77.77.2\`. OpenSSH can ask for the usual password or key
+  once; the campaign reuses its connection.
+- Both checkouts must be at the **same exact commit**. The script checks this
+  and refuses to mix versions. Use the PR branch during qualification.
+- The Pi script can configure \`10.77.77.2/24\` on \`eth0\`; the PC script
+  configures \`10.77.77.1/24\` on its detected physical Ethernet interface.
+  Existing IPs and default routes are not cleared or replaced. You can use
+  \`--interface\` when there is more than one suitable wired NIC.
+- The scripts install missing Debian/Ubuntu dependencies via \`apt-get\`, if
+  necessary, after a normal sudo authentication. Builds and staged executables
+  remain exclusively under \`build/physical-pi/\`. No global SpWKit install is
+  modified. A per-user SSH endpoint wrapper is placed at
+  \`~/.local/bin/spwkit-pi-endpoint\` on the Pi.
+- \`cap_net_raw\` is applied to the campaign-local RAW executable; launching
+  every RAW endpoint using sudo is not required.
 
-For a physical PC↔Raspberry Pi 5 test, build the same executable on each host:
+### On the Pi (once, from its checkout)
 
-```sh
-cmake -S benchmarks/transport -B build/transport -DCMAKE_BUILD_TYPE=Release
-cmake --build build/transport --parallel --target spwkit_udp_perf
-```
+\`\`\`sh
+python3 benchmarks/transport/physical_pi_campaign.py --mode pi
+\`\`\`
 
-Example Pi sink:
+The Pi mode cleans old **campaign-owned** binaries, builds Release peers,
+stages them, sets the necessary RAW socket capability, brings up Ethernet,
+installs the fixed-purpose SSH endpoint wrapper and prints \`PASS\`.
 
-```sh
-build/transport/spwkit_udp_perf \
-  --role sink \
-  --local-address 192.0.2.20 --remote-address 192.0.2.10 \
-  --local-port 43001 --remote-port 43000 --link-id 264 \
-  --payload-size 4096 --total-bytes 1073741824
-```
+### On the PC (from its checkout)
 
-Matching PC source:
+\`\`\`sh
+python3 benchmarks/transport/physical_pi_campaign.py --mode pc \
+  --pi-host <PI_SSH_USER>@10.77.77.2
+\`\`\`
 
-```sh
-build/transport/spwkit_udp_perf \
-  --role source \
-  --local-address 192.0.2.10 --remote-address 192.0.2.20 \
-  --local-port 43000 --remote-port 43001 --link-id 264 \
-  --payload-size 4096 --total-bytes 1073741824
-```
+The PC mode does the same clean local setup, verifies the Pi commit over SSH,
+discovers local/Pi MACs, and orchestrates the entire suite:
 
-Use real addresses from the isolated benchmark network; the documentation
-addresses above are placeholders.
+- UDP and RAW Ethernet;
+- logical payloads 64/256/1024/1400/4096/16384/65536 bytes;
+- PC→Pi, Pi→PC and concurrent duplex modes;
+- three independent 8 MiB verified runs for each case;
+- sustained 1 GiB runs at 4096 and 65536 bytes in each direction, for each
+  transport;
+- deterministic payload verification at each receiving endpoint, sender/sink
+  byte and packet count reconciliation, and nonzero error/drop rejection;
+- reports including raw endpoint logs, per-run JSON, aggregate CSV,
+  mean/median/stddev/min/max throughput, and exact environment/revision data.
 
-## RAW Ethernet PC↔Pi 5
+All results are saved under \`build/physical-pi/results-<UTC timestamp>/\`.
+Failure preserves partial evidence. The PC script **does not** run a physical
+PC↔PC baseline or Docker tests: those are covered by CI.
 
-On Linux, the same transport build also produces
-`spwkit_raw_ethernet_perf`. It uses AF_PACKET and therefore normally requires
-root or an appropriate `CAP_NET_RAW` setup.
+The SSH endpoint only launches the fixed benchmark binaries with validated
+arguments; there is no remotely exposed benchmark control daemon. Sudo
+permissions are requested during local preparation, not by each SSH test.
 
-Pi sink:
+**Interpretation:** Duplex throughput is the sum of separately timed source
+streams, not a synchronized line-capacity measurement. Physically measured
+results are distinct from GitHub-hosted container results.
 
-```sh
-sudo build/transport/spwkit_raw_ethernet_perf \
-  --role sink --interface eth0 --remote-mac <PC-MAC> \
-  --payload-size 4096 --total-bytes 1073741824
-```
+The \`--mode pi\` command must be re-run after the Pi's checkout changes or
+after reboot if the temporary Ethernet address is lost. The PC refuses
+revision mismatches. The scripts deliberately do not remove preexisting system
+packages or network configuration; destructive global cleanup would be both
+unnecessary and unsafe.
 
-PC source:
+### Troubleshooting
 
-```sh
-sudo build/transport/spwkit_raw_ethernet_perf \
-  --role source --interface <NIC> --remote-mac <PI-MAC> \
-  --payload-size 4096 --total-bytes 1073741824
-```
-
-Swap source/sink for the reverse direction. For simultaneous bidirectional
-traffic, run a second independent link in the opposite direction with both a
-different `--link-id` and a different experimental `--ether-type`. The links
-still share the same NIC and physical carrier, but AF_PACKET can demultiplex
-them before one benchmark process is forced to drain the other link's traffic.
-The Docker duplex campaign uses `0x88B5` and `0x88B6` for this reason.
+Use \`--interface <NIC>\` on either host when interface detection is
+ambiguous. If SSH is not reachable at \`10.77.77.2\`, verify the Pi is running
+an SSH server and has a working physical link before starting the PC command.
+The PC reports the failing transport/mode/payload and retains the logs.
 
 ## Docker container-to-container UDP
 
