@@ -25,11 +25,15 @@ SSH using one preparation step on the Pi.
 
 ### Before starting
 
-- Connect the PC's benchmark Ethernet interface to Pi 5 `eth0` (direct
-  cable or isolated switch). Do not use the PC's internet/Wi-Fi interface.
-- Ensure the Pi is accessible from the PC over SSH, for example
-  `ssh youruser@10.77.77.2`. OpenSSH can ask for the usual password or key
-  once; the campaign reuses its connection.
+- **Two separate connections:** keep the Pi connected to Wi-Fi for SSH
+  management. Also connect Pi `eth0` directly to the PC's **wired**
+  Ethernet interface, or through a dedicated Ethernet switch. Only the wired
+  link carries benchmark traffic. The PC may keep Wi-Fi for internet/SSH.
+- Use the Pi's **existing Wi-Fi IP address or hostname** for SSH, for example
+  `ssh youruser@192.168.1.42`. Do **not** mistake `10.77.77.2`
+  (the benchmark Ethernet address) for the Wi-Fi SSH destination. OpenSSH
+  can ask for the usual password or key once; the campaign reuses its
+  connection.
 - Both checkouts must be at the **same exact commit**. The script checks this
   and refuses to mix versions. Use the PR branch during qualification.
 - The Pi script can configure `10.77.77.2/24` on `eth0`; the PC script
@@ -58,7 +62,7 @@ installs the fixed-purpose SSH endpoint wrapper and prints `PASS`.
 
 ```sh
 python3 benchmarks/transport/physical_pi_campaign.py --mode pc \
-  --pi-host <PI_SSH_USER>@10.77.77.2
+  --pi-host <PI_SSH_USER>@<PI_WIFI_IP>
 ```
 
 The PC mode does the same clean local setup, verifies the Pi commit over SSH,
@@ -96,8 +100,11 @@ unnecessary and unsafe.
 ### Troubleshooting
 
 Use `--interface <NIC>` on either host when interface detection is
-ambiguous. If SSH is not reachable at `10.77.77.2`, verify the Pi is running
-an SSH server and has a working physical link before starting the PC command.
+ambiguous. If SSH is not reachable through the Pi's existing Wi-Fi address,
+fix that management connection first. The PC runner independently verifies
+the wired Ethernet carrier before traffic starts. Pi preparation may finish
+even while the PC's wired NIC is still administratively down; PC mode
+brings that NIC up automatically.
 The PC reports the failing transport/mode/payload and retains the logs.
 
 ## Docker container-to-container UDP
