@@ -522,9 +522,12 @@ if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS$' "$GDB_LOG"; then
   exit 1
 fi
 
+host_label=pc
+if [[ -n "$REMOTE_PEER_SSH" ]]; then host_label=pi; fi
 python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
   --host "$HOST_LOG" \
   --board "$GDB_LOG" \
+  --linux-host "$host_label" \
   --output "$SUMMARY_MD"
 
 pass "[8/8] board evidence validated"
