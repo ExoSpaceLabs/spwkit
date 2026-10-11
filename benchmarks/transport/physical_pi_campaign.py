@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import errno
 import ipaddress
 import json
 import os
@@ -212,6 +213,48 @@ def prepare_pi(args: argparse.Namespace) -> None:
     say("Pi interface IP: " + str(args.pi_address))
 
 
+def udp_port_numbers(base: int, on_pi: bool) -> tuple[int, int]:
+    if base < 1024 or base > 64000:
+        raise RuntimeError("Invalid UDP base port")
+    offset = 1 if on_pi else 0
+    return base + offset, base + 1000 + offset
+
+
+def probe_udp_ports(address: str, base: int, on_pi: bool) -> None:
+    ip = ipaddress.IPv4Interface(address).ip.compressed
+    sockets: list[socket.socket] = []
+    try:
+        for port in udp_port_numbers(base, on_pi):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sockets.append(sock)
+            try:
+                sock.bind((ip, port))
+            except OSError as exc:
+                raise RuntimeError(
+                    f"UDP preflight failed binding {ip}:{port}: "
+                    f"{exc.strerror} (errno {exc.errno}). "
+                    "Check ip -4 addr, and whether another process owns the port."
+                ) from exc
+        say(f"UDP socket preflight PASS {ip}:"
+            + ",".join(str(p) for p in udp_port_numbers(base, on_pi)))
+    finally:
+        for sock in sockets:
+            sock.close()
+
+
+def probe(args: argparse.Namespace) -> None:
+    if args.udp_base_port is None:
+        raise RuntimeError("Probe requires --udp-base-port")
+    if not READY.is_file():
+        raise RuntimeError("Pi not prepared: run --mode pi before PC campaign")
+    saved = json.loads(READY.read_text())
+    if saved["sha"] != revision():
+        raise RuntimeError("Pi checkout changed: rerun --mode pi")
+    if not (Path("/sys/class/net") / saved["interface"]).exists():
+        raise RuntimeError("Pi benchmark interface has disappeared")
+    probe_udp_ports(args.pi_address, args.udp_base_port, True)
+
+
 def endpoint(args: argparse.Namespace) -> None:
     if not READY.is_file():
         raise RuntimeError("Pi not prepared; run --mode pi first")
@@ -220,6 +263,8 @@ def endpoint(args: argparse.Namespace) -> None:
         raise RuntimeError("Pi checkout changed; rerun --mode pi")
     if args.transport not in WIRE or args.role not in ("source", "sink"):
         raise RuntimeError("Invalid endpoint request")
+    if args.udp_base_port is None:
+        raise RuntimeError("Missing UDP campaign port selection")
     if not 1 <= args.payload <= 1048576 or not 1 <= args.bytes <= (1 << 36):
         raise RuntimeError("Invalid transfer size")
     if args.link_id not in (264, 265, 364, 365):
@@ -227,8 +272,9 @@ def endpoint(args: argparse.Namespace) -> None:
     if args.transport == "udp":
         if args.link_id not in (264, 265):
             raise RuntimeError("Invalid UDP link ID")
-        local_port = 43001 if args.link_id == 264 else 44001
-        remote_port = 43000 if args.link_id == 264 else 44000
+        base = args.udp_base_port + (0 if args.link_id == 264 else 1000)
+        local_port = base + 1
+        remote_port = base
         cmd = [str(BIN / "spwkit_udp_perf"), "--role", args.role,
                "--local-address", args.pi_address.split("/")[0],
                "--remote-address", args.pc_address.split("/")[0],
@@ -282,8 +328,9 @@ def pc_command(args: argparse.Namespace, transport: str, role: str,
                link_id: int, payload: int, total: int, pi_mac: str,
                interface: str) -> list[str]:
     if transport == "udp":
-        local_port = 43000 if link_id == 264 else 44000
-        remote_port = 43001 if link_id == 264 else 44001
+        base = args.udp_base_port + (0 if link_id == 264 else 1000)
+        local_port = base
+        remote_port = base + 1
         cmd = [str(BIN / "spwkit_udp_perf"), "--role", role,
                "--local-address", args.pc_address.split("/")[0],
                "--remote-address", args.pi_address.split("/")[0],
@@ -317,7 +364,8 @@ def test_case(args: argparse.Namespace, control_path: str, interface: str,
                           "--remote-mac", mac_address(interface),
                           "--pc-address", args.pc_address,
                           "--pi-address", args.pi_address,
-                          "--endpoint-timeout", str(deadline)]
+                          "--endpoint-timeout", str(deadline),
+            "--udp-base-port", str(args.udp_base_port)]
                 cmd = ssh_cmd(args, control_path, params)
             else:
                 cmd = pc_command(args, transport, role, link_id, payload, total, pi_mac, interface)
@@ -338,7 +386,8 @@ def test_case(args: argparse.Namespace, control_path: str, interface: str,
                           "--remote-mac", mac_address(interface),
                           "--pc-address", args.pc_address,
                           "--pi-address", args.pi_address,
-                          "--endpoint-timeout", str(deadline)]
+                          "--endpoint-timeout", str(deadline),
+                          "--udp-base-port", str(args.udp_base_port)]
                 cmd = ssh_cmd(args, control_path, params)
             else:
                 cmd = pc_command(args, transport, role, link_id, payload, total, pi_mac, interface)
@@ -454,6 +503,41 @@ def run_pc(args: argparse.Namespace) -> None:
             local = details(interface)
             if local["sha"] != remote["sha"]:
                 raise RuntimeError(f"Git revision mismatch: PC={local['sha']} Pi={remote['sha']}")
+            # Probe real UDP binds on BOTH hosts before any benchmark process
+            # starts. Try alternate port pairs when a service owns the defaults;
+            # do not confuse unavailable IP addresses with port conflicts.
+            candidates = (
+                [args.udp_base_port] if args.udp_base_port is not None
+                else [43000, 45000, 47000, 49000, 51000, 53000, 55000]
+            )
+            selected = None
+            for candidate in candidates:
+                try:
+                    probe_udp_ports(args.pc_address, candidate, False)
+                    execute(
+                        ssh_cmd(args, control, [
+                            "--mode", "probe", "--pi-address", args.pi_address,
+                            "--udp-base-port", str(candidate)
+                        ]),
+                        capture_output=True
+                    )
+                except (subprocess.CalledProcessError, RuntimeError) as exc:
+                    if args.udp_base_port is not None:
+                        raise RuntimeError(
+                            f"UDP port preflight failed for base {candidate}: {exc}"
+                        ) from exc
+                    say(f"Skipping unavailable UDP port base {candidate}: {exc}")
+                    continue
+                selected = candidate
+                break
+            if selected is None:
+                raise RuntimeError(
+                    "No usable UDP port pair on both PC and Pi; verify "
+                    "Ethernet IP assignment and inspect busy UDP ports. "
+                    "From Pi run: ip -4 addr show eth0; ss -lunp"
+                )
+            args.udp_base_port = selected
+            say(f"Selected validated UDP port base {selected}")
             pi_mac = str(remote["mac"])
             if MAC.fullmatch(pi_mac) is None:
                 raise RuntimeError("Invalid Pi Ethernet MAC reported via SSH")
@@ -505,9 +589,9 @@ def info() -> None:
 
 def cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", required=True, choices=("pi", "pc", "info", "endpoint"))
+    parser.add_argument("--mode", required=True, choices=("pi", "pc", "info", "endpoint", "probe"))
     parser.add_argument("--interface", help="Ethernet interface; autodetected if unambiguous")
-    parser.add_argument("--pi-host", help="SSH destination, e.g. username@10.77.77.2")
+    parser.add_argument("--pi-host", help="SSH destination via Wi-Fi, e.g. exn-cam@192.168.1.36")
     parser.add_argument("--pc-address", default=ALIASES["pc"])
     parser.add_argument("--pi-address", default=ALIASES["pi"])
     parser.add_argument("--payloads", default=",".join(map(str, PAYLOADS)))
@@ -521,6 +605,8 @@ def cli() -> argparse.Namespace:
     parser.add_argument("--link-id", type=int)
     parser.add_argument("--remote-mac")
     parser.add_argument("--endpoint-timeout", type=int, default=3600)
+    parser.add_argument("--udp-base-port", type=int, default=None,
+                        help="Optional fixed UDP port base; otherwise PC automatically selects a free pair")
     return parser.parse_args()
 
 
@@ -535,6 +621,8 @@ if __name__ == "__main__":
             info()
         elif args.mode == "endpoint":
             endpoint(args)
+        elif args.mode == "probe":
+            probe(args)
     except (RuntimeError, OSError, subprocess.SubprocessError, ValueError) as exc:
         print(f"[physical-pi] FAIL: {exc}", file=sys.stderr)
         sys.exit(1)
