@@ -479,8 +479,19 @@ static int run_bulk(spw_port_t* port,
     const uint64_t rx_frames_before = io->rx_frames;
     const uint64_t rx_bytes_before = io->rx_bytes;
     const uint64_t start = monotonic_ns();
+    uint64_t last_progress_ns = start;
+    const uint64_t progress_interval_ns = UINT64_C(10000000000);
 
     if (payload_size == 0u || payload_size > PEER_MAX_PACKET) return 0;
+    fprintf(stderr,
+            "[host] bulk START: target=%llu bytes (%.1f MiB), "
+            "payload=%zu bytes, expected_packets=%llu; "
+            "progress every ~10 seconds\\n",
+            (unsigned long long)total_bytes,
+            (double)total_bytes / (1024.0 * 1024.0),
+            payload_size,
+            (unsigned long long)((total_bytes + payload_size - 1u) / payload_size));
+    fflush(stderr);
     while (transferred < total_bytes) {
         const uint64_t remaining = total_bytes - transferred;
         const size_t size = remaining < (uint64_t)payload_size
@@ -489,6 +500,32 @@ static int run_bulk(spw_port_t* port,
         if (!exchange(port, size, (*sequence)++)) return 0;
         transferred += (uint64_t)size;
         ++packets;
+        {
+            const uint64_t now = monotonic_ns();
+            if ((now >= last_progress_ns &&
+                 now - last_progress_ns >= progress_interval_ns) ||
+                transferred == total_bytes) {
+                const double elapsed_s = (double)(now - start) / 1000000000.0;
+                const double mib_done = (double)transferred / 1048576.0;
+                const double rate_mbps = elapsed_s > 0.0
+                    ? ((double)transferred * 8.0 / 1000000.0) / elapsed_s
+                    : 0.0;
+                const double eta_s = transferred > 0u
+                    ? elapsed_s * ((double)(total_bytes - transferred) /
+                                   (double)transferred)
+                    : 0.0;
+                fprintf(stderr,
+                        "[host] bulk PROGRESS: %.1f%% (%0.1f / %0.1f MiB); "
+                        "elapsed=%.0f s; avg=%.3f Mbit/s; ETA=%.0f s; "
+                        "packets=%llu\\n",
+                        100.0 * (double)transferred / (double)total_bytes,
+                        mib_done, (double)total_bytes / 1048576.0,
+                        elapsed_s, rate_mbps, eta_s,
+                        (unsigned long long)packets);
+                fflush(stderr);
+                last_progress_ns = now;
+            }
+        }
     }
 
     {
