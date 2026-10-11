@@ -53,6 +53,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--linux-host", choices=("pc", "pi"), default="pc")
+    parser.add_argument("--profile", choices=("benchmark", "stress"), default="benchmark")
     parser.add_argument("--csv", required=True, type=Path)
     parser.add_argument("--markdown", required=True, type=Path)
     args = parser.parse_args()
@@ -127,6 +128,10 @@ def main() -> int:
         "",
         f"Measured evidence from the physical {host_name}↔NUCLEO-H755ZI-Q campaign.",
         "The CSV beside this report is the canonical aggregate dataset.",
+        f"Campaign profile: **{args.profile}**.",
+        ("Benchmark: four-clock RTT and 16 MiB verified echo by default. "
+         if args.profile == "benchmark"
+         else "Stress: sustained 1 GiB echo at 400 MHz by default."),
         "",
     ]
 
