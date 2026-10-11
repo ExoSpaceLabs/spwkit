@@ -25,41 +25,41 @@ SSH using one preparation step on the Pi.
 
 ### Before starting
 
-- Connect the PC's benchmark Ethernet interface to Pi 5 \`eth0\` (direct
+- Connect the PC's benchmark Ethernet interface to Pi 5 `eth0` (direct
   cable or isolated switch). Do not use the PC's internet/Wi-Fi interface.
 - Ensure the Pi is accessible from the PC over SSH, for example
-  \`ssh youruser@10.77.77.2\`. OpenSSH can ask for the usual password or key
+  `ssh youruser@10.77.77.2`. OpenSSH can ask for the usual password or key
   once; the campaign reuses its connection.
 - Both checkouts must be at the **same exact commit**. The script checks this
   and refuses to mix versions. Use the PR branch during qualification.
-- The Pi script can configure \`10.77.77.2/24\` on \`eth0\`; the PC script
-  configures \`10.77.77.1/24\` on its detected physical Ethernet interface.
+- The Pi script can configure `10.77.77.2/24` on `eth0`; the PC script
+  configures `10.77.77.1/24` on its detected physical Ethernet interface.
   Existing IPs and default routes are not cleared or replaced. You can use
-  \`--interface\` when there is more than one suitable wired NIC.
-- The scripts install missing Debian/Ubuntu dependencies via \`apt-get\`, if
+  `--interface` when there is more than one suitable wired NIC.
+- The scripts install missing Debian/Ubuntu dependencies via `apt-get`, if
   necessary, after a normal sudo authentication. Builds and staged executables
-  remain exclusively under \`build/physical-pi/\`. No global SpWKit install is
+  remain exclusively under `build/physical-pi/`. No global SpWKit install is
   modified. A per-user SSH endpoint wrapper is placed at
-  \`~/.local/bin/spwkit-pi-endpoint\` on the Pi.
-- \`cap_net_raw\` is applied to the campaign-local RAW executable; launching
+  `~/.local/bin/spwkit-pi-endpoint` on the Pi.
+- `cap_net_raw` is applied to the campaign-local RAW executable; launching
   every RAW endpoint using sudo is not required.
 
 ### On the Pi (once, from its checkout)
 
-\`\`\`sh
+```sh
 python3 benchmarks/transport/physical_pi_campaign.py --mode pi
-\`\`\`
+```
 
 The Pi mode cleans old **campaign-owned** binaries, builds Release peers,
 stages them, sets the necessary RAW socket capability, brings up Ethernet,
-installs the fixed-purpose SSH endpoint wrapper and prints \`PASS\`.
+installs the fixed-purpose SSH endpoint wrapper and prints `PASS`.
 
 ### On the PC (from its checkout)
 
-\`\`\`sh
+```sh
 python3 benchmarks/transport/physical_pi_campaign.py --mode pc \
   --pi-host <PI_SSH_USER>@10.77.77.2
-\`\`\`
+```
 
 The PC mode does the same clean local setup, verifies the Pi commit over SSH,
 discovers local/Pi MACs, and orchestrates the entire suite:
@@ -75,7 +75,7 @@ discovers local/Pi MACs, and orchestrates the entire suite:
 - reports including raw endpoint logs, per-run JSON, aggregate CSV,
   mean/median/stddev/min/max throughput, and exact environment/revision data.
 
-All results are saved under \`build/physical-pi/results-<UTC timestamp>/\`.
+All results are saved under `build/physical-pi/results-<UTC timestamp>/`.
 Failure preserves partial evidence. The PC script **does not** run a physical
 PC↔PC baseline or Docker tests: those are covered by CI.
 
@@ -87,7 +87,7 @@ permissions are requested during local preparation, not by each SSH test.
 streams, not a synchronized line-capacity measurement. Physically measured
 results are distinct from GitHub-hosted container results.
 
-The \`--mode pi\` command must be re-run after the Pi's checkout changes or
+The `--mode pi` command must be re-run after the Pi's checkout changes or
 after reboot if the temporary Ethernet address is lost. The PC refuses
 revision mismatches. The scripts deliberately do not remove preexisting system
 packages or network configuration; destructive global cleanup would be both
@@ -95,8 +95,8 @@ unnecessary and unsafe.
 
 ### Troubleshooting
 
-Use \`--interface <NIC>\` on either host when interface detection is
-ambiguous. If SSH is not reachable at \`10.77.77.2\`, verify the Pi is running
+Use `--interface <NIC>` on either host when interface detection is
+ambiguous. If SSH is not reachable at `10.77.77.2`, verify the Pi is running
 an SSH server and has a working physical link before starting the PC command.
 The PC reports the failing transport/mode/payload and retains the logs.
 
