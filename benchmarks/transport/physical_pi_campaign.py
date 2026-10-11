@@ -170,6 +170,8 @@ def build_local() -> None:
         if not source.is_file():
             raise RuntimeError(f"Missing built peer {source}; see {log}")
         shutil.copy2(source, BIN / filename)
+    # Cross-platform/embedded builds may outlast sudo's cached authentication.
+    execute(["sudo", "-v"])
     sudo("setcap", "cap_net_raw+ep", str(BIN / "spwkit_raw_ethernet_perf"))
     say("Installed into campaign-owned directory " + str(BIN))
 
