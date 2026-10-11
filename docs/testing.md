@@ -265,22 +265,30 @@ per-case throughput and packet rate, aggregates repeats, and retains raw result
 artifacts. Those values are runner-relative regression evidence: GitHub-hosted
 machines are not controlled throughput reference platforms.
 
-Physical runs are deliberately manual because they require real external
-hardware and link configuration:
+Physical runs require the user to attach hardware and initiate the campaign,
+but **not** to launch each individual endpoint manually:
 
-- PC↔Raspberry Pi 5: UDP and raw Ethernet;
-- PC↔NUCLEO-H755ZI-Q: raw Ethernet only through DAS;
-- optional Docker↔device comparisons where container deployment overhead is
-  specifically being investigated.
-
-The STM32 campaign does not add UDP/lwIP solely for benchmarking. Run the
-complete supported CM7 clock sweep with:
+- PC↔Raspberry Pi 5: run `python3 benchmarks/transport/physical_pi_campaign.py
+  --mode pi` on the Pi once, then run the same script `--mode pc
+  --pi-host <USER>@10.77.77.2` from the PC. This automatically cleans its
+  private build/install area, builds peers, configures the isolated test
+  interface, coordinates SSH-backed UDP and RAW Ethernet source/sink/duplex
+  transfers, repeats the payload sweep, validates endpoints and writes
+  hardware results under `build/physical-pi/results-*/`.
+- PC↔NUCLEO-H755ZI-Q: **PC-only** script performs dependencies, clean builds,
+  flashing and clock changes, physical Ethernet verification, benchmarking and
+  reporting. Connect ST-LINK USB and Ethernet, then run:
 
 ```bash
-bash scripts/stm32h755_das_raw_eth_campaign.sh --interface <NIC>
+bash scripts/stm32h755_das_raw_eth_campaign.sh
 ```
 
-The runner exercises 64, 200, 300 and 400 MHz, performs a multi-payload RTT
-sweep plus verified sustained echo traffic, and writes aggregate CSV/Markdown
-evidence under `build/das-raw-eth-campaign/`. The DAS baseline is polling-only,
-so IRQ-to-task latency is not claimed by this campaign.
+Add `--interface <NIC>` only if auto-detection is ambiguous. The runner
+exercises **all** 64, 200, 300 and 400 MHz profiles, performs a multi-payload
+RTT sweep plus verified sustained echo traffic, and writes CSV/Markdown
+evidence under `build/das-raw-eth-campaign/`. STM32 UDP/lwIP is out of scope;
+DAS Ethernet is polling-only so IRQ-to-task latency is not claimed.
+
+Optional Docker↔device comparisons remain separate deployment-overhead tests.
+The automation intentionally does not remove global packages or rewrite other
+system configurations.
