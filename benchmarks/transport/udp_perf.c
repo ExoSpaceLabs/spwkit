@@ -5,6 +5,10 @@
 #include <spwkit/udp.h>
 
 #include <errno.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -228,6 +232,43 @@ static void emit_result(const perf_options_t* options,
     fflush(stdout);
 }
 
+/*
+ * Benchmark-only diagnostic: libspwkit exposes the transport-neutral -9
+ * SPW_ERR_BACKEND result, so inspect the platform bind separately if open
+ * fails. Never change the library's public error mapping or print inside
+ * the library itself.
+ */
+static void diagnose_udp_open(const perf_options_t* options) {
+    struct sockaddr_in local = {0};
+    int fd;
+    int saved_errno;
+    local.sin_family = AF_INET;
+    local.sin_port = htons(options->local_port);
+    if (inet_pton(AF_INET, options->local_address, &local.sin_addr) != 1) {
+        fprintf(stderr, "[udp-diag] invalid local address: %s\\n",
+                options->local_address);
+        return;
+    }
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        saved_errno = errno;
+        fprintf(stderr, "[udp-diag] socket(AF_INET, SOCK_DGRAM) failed: "
+                "errno=%d %s\\n", saved_errno, strerror(saved_errno));
+        return;
+    }
+    if (bind(fd, (const struct sockaddr*)&local, sizeof(local)) != 0) {
+        saved_errno = errno;
+        fprintf(stderr, "[udp-diag] bind(%s:%u) failed: errno=%d %s\\n",
+                options->local_address, (unsigned)options->local_port,
+                saved_errno, strerror(saved_errno));
+    } else {
+        fprintf(stderr, "[udp-diag] bind(%s:%u) succeeded in independent "
+                "probe; backend failed elsewhere or raced with another process\\n",
+                options->local_address, (unsigned)options->local_port);
+    }
+    (void)close(fd);
+}
+
 int main(int argc, char** argv) {
     perf_options_t options;
     spw_udp_config_t udp;
@@ -272,7 +313,10 @@ int main(int argc, char** argv) {
 
     result = spw_port_open(&config, &port);
     if (result != SPW_OK || port == NULL) {
-        fprintf(stderr, "spw_port_open failed: %d\n", (int)result);
+        fprintf(stderr, "spw_port_open failed: %d (local=%s:%u, remote=%s:%u)\n",
+                (int)result, options.local_address, (unsigned)options.local_port,
+                options.remote_address, (unsigned)options.remote_port);
+        diagnose_udp_open(&options);
         free(payload);
         return EXIT_FAILURE;
     }
