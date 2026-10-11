@@ -166,6 +166,7 @@ def details(interface: str) -> dict[str, object]:
 def prepare_pi(args: argparse.Namespace) -> None:
     if platform.system() != "Linux":
         raise RuntimeError("Physical Pi mode requires Linux")
+    READY.unlink(missing_ok=True)
     build_local()
     interface = choose_interface(args.interface, True)
     configure_network(interface, args.pi_address)
@@ -271,7 +272,7 @@ def test_case(args: argparse.Namespace, control_path: str, interface: str,
               total: int, repeat: int, output: Path) -> dict[str, object]:
     directions = ("pc-to-pi", "pi-to-pc") if direction == "duplex" else (direction,)
     jobs: list[tuple[str, str, int, subprocess.Popen[str]]] = []
-    ident = f"{transport}-{direction}-{payload}-r{repeat:02d}"
+    ident = f"{transport}-{direction}-{payload}-bytes{total}-r{repeat:02d}"
     deadline = max(120, min(3600, int(total / 250000) + 120))
     for flow in directions:
         link_id = direction_spec(transport, flow)[0]
