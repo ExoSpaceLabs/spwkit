@@ -52,6 +52,7 @@ def main() -> int:
     parser.add_argument("--host", required=True, type=Path)
     parser.add_argument("--board", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--linux-host", choices=("pc", "pi"), default="pc")
     args = parser.parse_args()
 
     host, bulk = parse_host(args.host)
@@ -86,7 +87,7 @@ def main() -> int:
         f"- Raw RX empty polls: {board['das_rx_empty_polls']}",
         "- Ethernet mode: polling-only; IRQ-to-worker latency is not applicable.",
         "",
-        "## Physical PC↔STM32 RTT",
+        f"## Physical {'Pi' if args.linux_host == 'pi' else 'PC'}↔STM32 RTT",
         "",
         "| Payload | Median | p95 | p99 | Min | Max |",
         "|---:|---:|---:|---:|---:|---:|",
