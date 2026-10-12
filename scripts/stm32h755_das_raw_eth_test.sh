@@ -19,8 +19,11 @@ REMOTE_PEER_SSH=""
 REMOTE_PEER_BIN=""
 SSH_CONTROL="${SPWKIT_HIL_SSH_CONTROL:-}"
 
-PINNED_DAS_TAG="v0.1.0"
-PINNED_DAS_SHA="8553d903a615fe99e2a3a434f876b51f9542fd46"
+# DAS is a test-fixture dependency of this STM32 adapter only. SpWKit's
+# ordinary CMake build, public headers and packages never reference DAS.
+source "$ROOT_DIR/integrations/das_stm32h755_raw_eth/das_release.env"
+PINNED_DAS_TAG="${STM32_HIL_DAS_TAG:?missing STM32 test DAS release tag}"
+PINNED_DAS_SHA="${STM32_HIL_DAS_COMMIT:?missing STM32 test DAS release commit}"
 PINNED_CUBE_SHA="f5c0b7a2b1f6eb26fde150f72edb2d7deb647066"
 source "$ROOT_DIR/scripts/lib/thirdparty.sh"
 
