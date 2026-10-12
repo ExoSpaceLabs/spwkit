@@ -27,6 +27,9 @@ on:
       - 'CMakeLists.txt'
       - 'integrations/das_stm32h755_raw_eth/**'
       - 'scripts/stm32h755_das_raw_eth_test.sh'
+      - 'scripts/stm32h755_das_raw_eth_campaign.sh'
+      - 'scripts/stm32h755_pi_peer_prepare.sh'
+      - 'scripts/physical_transport_campaign.py'
       - 'scripts/lib/thirdparty.sh'
       - 'scripts/lib/hil_prerequisites.sh'
       - 'scripts/summarize_stm32h755_das_raw_eth.py'
@@ -43,7 +46,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      DAS_COMMIT: 4b768ef86b43652c94cc91b1c77e247fa37ebd8a
+      DAS_TAG: v0.1.0
+      DAS_COMMIT: 8553d903a615fe99e2a3a434f876b51f9542fd46
       STM32_CUBE_H7_COMMIT: f5c0b7a2b1f6eb26fde150f72edb2d7deb647066
 
     steps:
@@ -54,7 +58,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: Inczert/device-abstraction-stack
-          ref: ${{ env.DAS_COMMIT }}
+          ref: ${{ env.DAS_TAG }}
           path: external/das
 
       - name: Validate runner syntax
@@ -71,10 +75,15 @@ jobs:
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth.py
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth_campaign.py
           test "$(git -C external/das rev-parse HEAD)" = "$DAS_COMMIT"
+          test "$(git -C external/das rev-parse "refs/tags/$DAS_TAG^{commit}")" = "$DAS_COMMIT"
+          test "$(cat external/das/VERSION)" = "${DAS_TAG#v}"
+          grep -q "^PINNED_DAS_TAG=\"$DAS_TAG\"$" scripts/stm32h755_das_raw_eth_test.sh
+          grep -q "^PINNED_DAS_SHA=\"$DAS_COMMIT\"$" scripts/stm32h755_das_raw_eth_test.sh
           source scripts/lib/thirdparty.sh
           auto_das="${RUNNER_TEMP}/spwkit-auto-das"
-          spwkit_prepare_das "$auto_das" "$DAS_COMMIT"
+          spwkit_prepare_das "$auto_das" "$DAS_COMMIT" "" "$DAS_TAG"
           test "$(git -C "$auto_das" rev-parse HEAD)" = "$DAS_COMMIT"
+          test "$(git -C "$auto_das" rev-parse "refs/tags/$DAS_TAG^{commit}")" = "$DAS_COMMIT"
 
       - name: Install build toolchains
         run: |
