@@ -30,6 +30,21 @@ def parse_host(path: Path) -> list[dict[str, object]]:
     return rows
 
 
+def parse_dependencies(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        raise SystemExit(f"missing STM32 dependency provenance in {path}")
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            result[key] = value
+    for name in ("das_release_tag", "das_commit", "stm32cubeh7_commit",
+                 "spwkit_commit", "stm32_clock_hz"):
+        if not result.get(name):
+            raise SystemExit(f"missing {name} in {path}")
+    return result
+
+
 def mermaid_line(title: str, x_label: str, y_label: str,
                  xs: list[int], ys: list[float]) -> list[str]:
     if not xs:
@@ -61,6 +76,7 @@ def main() -> int:
     records: list[dict[str, object]] = []
     rtt_by_payload: dict[int, list[tuple[int, float]]] = {}
     bulk_points: list[tuple[int, float, float]] = []
+    release_identity: dict[str, str] | None = None
 
     for run_dir in sorted(args.root.glob("clock-*mhz")):
         board_path = run_dir / "evidence" / "board-evidence.log"
@@ -73,6 +89,18 @@ def main() -> int:
         if clock_hz == 0:
             raise SystemExit(f"missing core_hz in {board_path}")
         clock_mhz = clock_hz // 1_000_000
+        deps = parse_dependencies(run_dir / "evidence" / "dependencies.txt")
+        if int(deps["stm32_clock_hz"]) != clock_hz:
+            raise SystemExit(f"dependency clock does not match MCU readback: {run_dir}")
+        identity = {k: v for k, v in deps.items() if k != "stm32_clock_hz"}
+        if release_identity is None:
+            release_identity = identity
+        elif release_identity != identity:
+            raise SystemExit(f"mixed dependency revisions across clock runs: {run_dir}")
+        if deps["das_release_tag"] != "v0.1.0" or deps["das_commit"] != (
+            "8553d903a615fe99e2a3a434f876b51f9542fd46"
+        ):
+            raise SystemExit(f"not the qualified DAS v0.1.0 release: {run_dir}")
 
         for row in parse_host(host_path):
             schema = str(row.get("schema", ""))
@@ -82,6 +110,8 @@ def main() -> int:
                 rtt_by_payload.setdefault(payload, []).append((clock_mhz, median_ns))
                 records.append({
                     "kind": "rtt",
+                    "das_release_tag": deps["das_release_tag"],
+                    "das_commit": deps["das_commit"],
                     "clock_hz": clock_hz,
                     "payload_bytes": payload,
                     "total_bytes": "",
@@ -99,6 +129,8 @@ def main() -> int:
                 bulk_points.append((clock_mhz, one_way, aggregate))
                 records.append({
                     "kind": "bulk",
+                    "das_release_tag": deps["das_release_tag"],
+                    "das_commit": deps["das_commit"],
                     "clock_hz": clock_hz,
                     "payload_bytes": int(row["payload_bytes"]),
                     "total_bytes": int(row["transferred_bytes"]),
@@ -112,7 +144,8 @@ def main() -> int:
                 })
 
     fieldnames = [
-        "kind", "clock_hz", "payload_bytes", "total_bytes", "packets",
+        "kind", "das_release_tag", "das_commit", "clock_hz",
+        "payload_bytes", "total_bytes", "packets",
         "elapsed_ns", "median_ns", "p95_ns", "p99_ns",
         "one_way_payload_mbps", "aggregate_echo_mbps",
     ]
@@ -128,6 +161,13 @@ def main() -> int:
         "",
         f"Measured evidence from the physical {host_name}↔NUCLEO-H755ZI-Q campaign.",
         "The CSV beside this report is the canonical aggregate dataset.",
+        f"DAS release: **{release_identity['das_release_tag']}** "
+        f"(`{release_identity['das_commit']}`)." if release_identity
+        else "No completed clock runs.",
+        f"STM32CubeH7: `{release_identity['stm32cubeh7_commit']}`."
+        if release_identity else "",
+        f"SpWKit: `{release_identity['spwkit_commit']}`."
+        if release_identity else "",
         f"Campaign profile: **{args.profile}**.",
         ("Benchmark: four-clock RTT and 16 MiB verified echo by default. "
          if args.profile == "benchmark"
