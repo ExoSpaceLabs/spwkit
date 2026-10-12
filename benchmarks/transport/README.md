@@ -37,6 +37,12 @@ also supply `--pi-ssh USER@HOST --pc-interface NIC` noninteractively for the
 parameters. Do **not** use `--yes` unless you have physically confirmed each
 requested cable change.
 
+This is a **test-harness-specific external dependency**, not a
+SpWKit library or transport-provider requirement. The generic SpWKit library,
+its UDP/RAW Ethernet host tests, and non-STM32 targets build independently of
+DAS. The optional STM32 integration owns its pin in
+[`das_release.env`](../../integrations/das_stm32h755_raw_eth/das_release.env).
+
 The STM32 dependency is always the verified official DAS
 [`v0.1.0` release](https://github.com/Inczert/device-abstraction-stack/releases/tag/v0.1.0)
 (immutable commit `8553d903a615fe99e2a3a434f876b51f9542fd46`), built from its source
