@@ -20,7 +20,7 @@ SpWKit has no direct dependency on DAS. The adapter is integration code only.
 
 ## Reproducible baseline
 
-- DAS commit: `4b768ef86b43652c94cc91b1c77e247fa37ebd8a`
+- DAS release: [`v0.1.0`](https://github.com/Inczert/device-abstraction-stack/releases/tag/v0.1.0) (commit `8553d903a615fe99e2a3a434f876b51f9542fd46`), verified against the annotated release tag and `VERSION`.
 - STM32CubeH7 commit: `f5c0b7a2b1f6eb26fde150f72edb2d7deb647066`
 - board: NUCLEO-H755ZI-Q, CM7
 - board MAC: `02:00:00:00:00:01`
@@ -86,8 +86,15 @@ under `thirdparty/`:
 - `thirdparty/device-abstraction-stack`;
 - `thirdparty/STM32CubeH7`.
 
+The runner records `das_release_tag`, `das_commit`, STM32CubeH7 commit,
+SpWKit commit and requested board clock in each per-clock
+`evidence/dependencies.txt`. The prebuilt DAS release package is not used:
+we build the exact **released source** for the board/toolchain combination.
+
 Missing checkouts are cloned automatically. Existing clean checkouts are
-fetched/checked out to the exact pinned revisions before the build, so stale
+fetched/checked out to the exact pinned revisions before the build. For DAS,
+the annotated `v0.1.0` tag is also fetched, peeled and checked against the
+expected commit and `VERSION=0.1.0`, so stale
 dependencies cannot silently contaminate HIL evidence. The optional
 `--das-root` and `--stm32h7-root` arguments remain available for custom
 checkout locations; local modifications are never discarded automatically.
