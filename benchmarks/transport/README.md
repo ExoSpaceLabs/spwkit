@@ -37,6 +37,13 @@ also supply `--pi-ssh USER@HOST --pc-interface NIC` noninteractively for the
 parameters. Do **not** use `--yes` unless you have physically confirmed each
 requested cable change.
 
+The STM32 dependency is always the verified official DAS
+[`v0.1.0` release](https://github.com/Inczert/device-abstraction-stack/releases/tag/v0.1.0)
+(immutable commit `8553d903a615fe99e2a3a434f876b51f9542fd46`), built from its source
+for the CM7 integration. Individual measurements record this identity. The
+October 11 results were collected on the previous DAS commit and remain
+historical evidence, **not** qualification evidence for the new release.
+
 The controller orchestrates:
 
 1. **PC ↔ Pi**: Pi Wi-Fi remains available for SSH; the Ethernet cable runs
