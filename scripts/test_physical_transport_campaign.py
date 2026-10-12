@@ -16,6 +16,13 @@ assert SPEC and SPEC.loader
 module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(module)
 
+summary_path = Path(__file__).with_name("summarize_stm32h755_das_raw_eth_campaign.py")
+summary_spec = importlib.util.spec_from_file_location("spwkit_stm32_summary", summary_path)
+assert summary_spec and summary_spec.loader
+summary_module = importlib.util.module_from_spec(summary_spec)
+summary_spec.loader.exec_module(summary_module)
+
+
 
 class FakePi:
     def __init__(self):
@@ -105,6 +112,24 @@ class OrchestrationContracts(unittest.TestCase):
             self.assertIn("64 MHz", text)
             self.assertIn("400 MHz", text)
             self.assertIn("0.800×", text)
+
+    def test_das_release_evidence_provenance_parser(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            file = Path(temporary) / "dependencies.txt"
+            data = (
+                "das_release_tag=v0.1.0\n"
+                "das_commit=8553d903a615fe99e2a3a434f876b51f9542fd46\n"
+                "stm32cubeh7_commit=abc\n"
+                "spwkit_commit=def\n"
+                "stm32_clock_hz=400000000\n"
+            )
+            file.write_text(data)
+            actual = summary_module.parse_dependencies(file)
+            self.assertEqual(actual["das_release_tag"], "v0.1.0")
+            self.assertEqual(actual["stm32_clock_hz"], "400000000")
+            file.write_text("das_release_tag=v0.1.0\n")
+            with self.assertRaises(SystemExit):
+                summary_module.parse_dependencies(file)
 
     def test_remote_rejects_injected_options(self):
         with self.assertRaises(ValueError):
