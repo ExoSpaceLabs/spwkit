@@ -256,6 +256,14 @@ SpaceWire HIL.
 
 ## End-to-end transport performance campaign
 
+The STM32 HIL campaign builds DAS from immutable official
+[`v0.1.0`](https://github.com/Inczert/device-abstraction-stack/releases/tag/v0.1.0)
+source (commit `8553d903a615fe99e2a3a434f876b51f9542fd46`).
+Both the physical script and CI verify the release tag and commit; per-run
+evidence includes the dependency identity. Older physical results remain
+attributed to their original pre-release DAS revision and must be
+requalified before comparing them as `v0.1.0` performance.
+
 The post-v0.7 end-to-end campaign separates automatic host evidence from
 user-initiated, **fully orchestrated** physical-device qualification.
 
