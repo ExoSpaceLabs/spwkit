@@ -16,7 +16,17 @@ application
                     -> RMII / LAN8742A / CN14
 ```
 
-SpWKit has no direct dependency on DAS. The adapter is integration code only.
+**Dependency boundary:** SpWKit's core, public headers, generic transport
+providers, host/PC/Pi backends, CMake package and normal CI do **not** depend
+on DAS. The optional `integrations/das_stm32h755_raw_eth/` test fixture
+uses DAS only to drive the STM32 board's Ethernet MAC through a narrow
+RAW-Ethernet transport adapter. The dependency points from this integration
+to both independently built packages, never from SpWKit core to DAS.
+
+The integration's authoritative release pin is
+[`das_release.env`](das_release.env). Only the dedicated STM32 hardware
+runner and its CI job load this manifest. They verify DAS release `v0.1.0`
+and its exact commit; changing DAS must not change a generic SpWKit build.
 
 ## Reproducible baseline
 
