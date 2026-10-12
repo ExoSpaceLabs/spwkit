@@ -99,7 +99,7 @@ spwkit_prepare_das() {
     fi
     package_version="${release_tag#v}"
     [[ -f "$destination/VERSION" ]] &&
-      [[ "$(tr -d '\\r\\n' < "$destination/VERSION")" == "$package_version" ]] || {
+      [[ "$(tr -d '\r\n' < "$destination/VERSION")" == "$package_version" ]] || {
       echo "DAS VERSION does not match verified release $release_tag" >&2
       return 2
     }
