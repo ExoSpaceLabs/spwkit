@@ -79,9 +79,31 @@ spwkit_prepare_das() {
   local destination="$1"
   local revision="$2"
   local url="${3:-https://github.com/Inczert/device-abstraction-stack.git}"
+  local release_tag="${4:-}"
+  local tag_commit
+  local package_version
 
   spwkit_prepare_git_checkout \
     "DAS" "$url" "$revision" "$destination"
+
+  if [[ -n "$release_tag" ]]; then
+    # Pin both the release label and its peeled commit. A moving tag must never
+    # silently replace the version used for reproducible HIL evidence.
+    echo "[deps] verifying DAS release $release_tag resolves to $revision"
+    git -C "$destination" fetch --no-tags origin \
+      "refs/tags/$release_tag:refs/tags/$release_tag"
+    tag_commit="$(git -C "$destination" rev-parse "refs/tags/$release_tag^{commit}")"
+    if [[ "$tag_commit" != "$revision" ]]; then
+      echo "DAS release $release_tag points to $tag_commit; expected $revision" >&2
+      return 2
+    fi
+    package_version="${release_tag#v}"
+    [[ -f "$destination/VERSION" ]] &&
+      [[ "$(tr -d '\\r\\n' < "$destination/VERSION")" == "$package_version" ]] || {
+      echo "DAS VERSION does not match verified release $release_tag" >&2
+      return 2
+    }
+  fi
 
   [[ -f "$destination/cmake/toolchains/arm-none-eabi.cmake" ]] || {
     echo "Incomplete DAS checkout: missing toolchain file in $destination" >&2
