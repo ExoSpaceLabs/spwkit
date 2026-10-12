@@ -110,11 +110,16 @@ independence work tracked by #229:
 - public `SPW_BACKEND_RAW_ETHERNET` callback binding;
 - Linux AF_PACKET/veth host-carrier evidence and explicit copied-buffer audit;
 - raw-Ethernet framing v2.0 with an explicit VSPW length to handle Ethernet
-  minimum-frame padding safely.
+  minimum-frame padding safely;
+- physical NUCLEO-H755ZI-Q raw-Ethernet integration through DAS, including
+  PC↔STM32 VSPW traffic and Cortex-M7/DAS timing evidence at the polling MAC/DMA
+  boundary (#230).
 
 These are integration-branch capabilities until a subsequent release publishes
-them. Embedded MAC/DMA/IRQ performance remains hardware evidence under #230,
-not an architectural blocker.
+them. #230 is complete. The follow-on #264 campaign expands the evidence into
+repeated end-to-end UDP/raw-Ethernet payload sweeps, sustained transfer,
+PC↔Pi qualification and STM32 64/200/300/400 MHz scaling. Physical-device runs
+remain manual evidence; hosted/container campaigns are automated.
 
 ## v0.8.x contract and ECSS architecture phase
 

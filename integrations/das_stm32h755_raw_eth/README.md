@@ -16,11 +16,21 @@ application
                     -> RMII / LAN8742A / CN14
 ```
 
-SpWKit has no direct dependency on DAS. The adapter is integration code only.
+**Dependency boundary:** SpWKit's core, public headers, generic transport
+providers, host/PC/Pi backends, CMake package and normal CI do **not** depend
+on DAS. The optional `integrations/das_stm32h755_raw_eth/` test fixture
+uses DAS only to drive the STM32 board's Ethernet MAC through a narrow
+RAW-Ethernet transport adapter. The dependency points from this integration
+to both independently built packages, never from SpWKit core to DAS.
+
+The integration's authoritative release pin is
+[`das_release.env`](das_release.env). Only the dedicated STM32 hardware
+runner and its CI job load this manifest. They verify DAS release `v0.1.0`
+and its exact commit; changing DAS must not change a generic SpWKit build.
 
 ## Reproducible baseline
 
-- DAS commit: `4b768ef86b43652c94cc91b1c77e247fa37ebd8a`
+- DAS release: [`v0.1.0`](https://github.com/Inczert/device-abstraction-stack/releases/tag/v0.1.0) (commit `8553d903a615fe99e2a3a434f876b51f9542fd46`), verified against the annotated release tag and `VERSION`.
 - STM32CubeH7 commit: `f5c0b7a2b1f6eb26fde150f72edb2d7deb647066`
 - board: NUCLEO-H755ZI-Q, CM7
 - board MAC: `02:00:00:00:00:01`
@@ -35,20 +45,49 @@ current implementation and is guarded by a 32 KiB CI ceiling.
 
 ## Hardware run
 
+For full three-topology qualification, prefer the **single PC-side controller**:
+
+```bash
+python3 scripts/physical_transport_campaign.py
+```
+
+It provisions/controls Pi 5 over Wi-Fi SSH, reuses existing verified PC↔Pi
+results, prompts for PC↔STM32 and Pi↔STM32 Ethernet reconnections, and runs
+all 64/200/300/400 MHz hardware cycles in both STM32 topologies. The ST-LINK
+USB must remain on the PC even when the Pi is the measured Ethernet endpoint.
+The individual `stm32h755_das_raw_eth_campaign.sh` remains a lower-level tool.
+
+
+
 Requirements:
 
 - NUCLEO-H755ZI-Q connected over ST-LINK;
 - Ethernet cable on CN14 to a Linux Ethernet interface;
 - JP6/JP7 fitted for the board Ethernet route;
-- pinned DAS and STM32CubeH7 checkouts;
-- OpenOCD, Arm GNU toolchain, CMake, and gdb-multiarch or arm-none-eabi-gdb;
+- network access on first setup for pinned DAS and STM32CubeH7 checkouts;
+- Ubuntu/Debian with sudo; the runner installs missing OpenOCD/Arm GNU/CMake/
+  GDB packages through apt if necessary;
 - sudo permission for AF_PACKET raw sockets and bringing the Linux interface up.
 
-Run:
+Run the full qualification **from the PC only**:
+
+```sh
+bash scripts/stm32h755_das_raw_eth_campaign.sh
+```
+
+The script handles dependency preparation, clean local builds, OpenOCD/GDB
+flashing, each clock profile, the payload and sustained transfer campaign,
+evidence validation, and the aggregate report. It selects the sole physical
+wired NIC automatically; if the PC has multiple candidates, pass
+`--interface <NIC>`. It does **not** uninstall global packages or delete
+unrelated builds.
+
+For an optional quick 400 MHz hardware diagnostic before the full campaign:
 
 ```sh
 bash scripts/stm32h755_das_raw_eth_test.sh \
-  --interface enp0s31f6
+  --clock-hz 400000000 --payloads 64,1024,4096 \
+  --iterations 16 --warmup 4 --bulk-bytes 1048576
 ```
 
 By default the runner prepares its pinned public dependencies automatically
@@ -57,18 +96,30 @@ under `thirdparty/`:
 - `thirdparty/device-abstraction-stack`;
 - `thirdparty/STM32CubeH7`.
 
+The runner records `das_release_tag`, `das_commit`, STM32CubeH7 commit,
+SpWKit commit and requested board clock in each per-clock
+`evidence/dependencies.txt`. The prebuilt DAS release package is not used:
+we build the exact **released source** for the board/toolchain combination.
+
 Missing checkouts are cloned automatically. Existing clean checkouts are
-fetched/checked out to the exact pinned revisions before the build, so stale
+fetched/checked out to the exact pinned revisions before the build. For DAS,
+the annotated `v0.1.0` tag is also fetched, peeled and checked against the
+expected commit and `VERSION=0.1.0`, so stale
 dependencies cannot silently contaminate HIL evidence. The optional
 `--das-root` and `--stm32h7-root` arguments remain available for custom
 checkout locations; local modifications are never discarded automatically.
 
 The script performs a clean build of compact Cortex-M7 SpWKit, pinned DAS,
 board firmware, native compact SpWKit and the Linux AF_PACKET peer. It flashes
-the CM7 image, establishes VSPW RUN over physical Ethernet, exercises 64, 256,
-1024 and 4096 byte echo traffic, records host RTT distributions, captures
-STM32 DWT cycle evidence, validates the board evidence structure through GDB,
-and emits a Markdown performance summary.
+the CM7 image, establishes VSPW RUN over physical Ethernet, exercises a
+configurable logical-payload RTT sweep, optionally performs a sustained
+verified bulk echo, records host distributions/throughput, captures STM32 DWT
+cycle evidence, validates the board evidence structure through GDB, and emits
+a Markdown performance summary.
+
+The board clock is selectable through DAS using only the stock-board profiles
+advertised by the NUCLEO-H755ZI-Q backend: 64, 200, 300 and 400 MHz. The runner
+checks the live clock readback against the requested profile.
 
 Expected final markers:
 
@@ -94,8 +145,10 @@ Evidence files are retained below
   evidence;
 - `openocd.log`: debugger/server log.
 
-The board timing evidence uses the Cortex-M7 DWT cycle counter at the configured
-400 MHz core clock. It records:
+The board timing evidence uses the Cortex-M7 DWT cycle counter at the selected
+DAS core clock and records the live `core_hz` beside the measurements. A
+single run defaults to 400 MHz; the scaling campaign exercises all four
+supported profiles. It records:
 
 - successful logical `spw_port_send()` echo cost;
 - successful `spw_port_receive()` call cost, explicitly polling-inclusive;
@@ -119,3 +172,52 @@ handling plus cache invalidation/copy.
 It must not claim IRQ-to-worker latency: there is no IRQ-driven DAS Ethernet
 path yet. That metric is not applicable to this baseline and remains a future
 comparison point if DAS gains an interrupt-driven Ethernet path.
+
+## Clock-scaling throughput campaign
+
+Run the full physical scaling campaign with:
+
+```sh
+bash scripts/stm32h755_das_raw_eth_campaign.sh
+```
+
+The default **benchmark** profile executes all four DAS-supported frequencies:
+64/200/300/400 MHz with 16 MiB of verified echo per frequency. This is a
+throughput, RTT and CPU-cycle scaling benchmark, not a long-term endurance test.
+
+Use `bash scripts/stm32h755_das_raw_eth_campaign.sh --profile stress` only
+when sustained stress is intended. Stress defaults to a 1 GiB verified echo
+at 400 MHz; use `--clocks` to select other frequencies. `--show-plan`
+previews the profile and test volumes without touching hardware.
+
+The three-device controller exposes the same `--profile` option.
+The default campaign executes all four DAS-supported frequencies:
+
+```text
+64 MHz
+200 MHz
+300 MHz
+400 MHz
+```
+
+For each frequency it runs the RTT payload sweep
+`0,16,64,128,256,512,1024,1200,1400,4096` and then transfers 16 MiB of
+deterministically generated 4096-byte logical packets. Every packet is echoed
+by the STM32 and validated by the host before being discarded.
+
+The aggregate output is written below
+`build/das-raw-eth-campaign/`:
+
+- `results.csv`: canonical machine-readable cross-clock results;
+- `README.md`: generated tables and Mermaid `xychart-beta` plots;
+- one `clock-<N>mhz/` directory containing the complete raw evidence for
+  each clock profile.
+
+The STM32 compact profile deliberately limits logical packets to 4096 bytes.
+Larger logical payloads belong to the host/Pi transport campaign; the optional 1 GiB
+STM32 test is a sustained transfer composed of many verified packets rather
+than an attempt to allocate a 1 MiB MCU packet buffer.
+
+The stock board backend intentionally rejects 480 MHz. DAS uses the
+NUCLEO-H755ZI-Q direct-SMPS policy and caps that configuration at 400 MHz;
+480 MHz would require a different LDO power-path/hardware configuration.

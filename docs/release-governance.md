@@ -95,13 +95,15 @@ feature/fix branch
       -> develop -> main release PR
       -> Validate develop to main release boundary
       -> main
+      -> read release version from VERSION
       -> immutable vX.Y.Z tag
       -> exact-tag Release workflow
 ```
 
 `.github/workflows/release-policy.yml` validates that a new release version
-is the next allowed SemVer step, that CMake/API versions agree, that release
-documentation exists, and that a new `main` release boundary originated from
+is the next allowed SemVer step, that the root `VERSION` and public API
+version agree, that release documentation exists, and that a new `main`
+release boundary originated from
 a merged `develop -> main` pull request.
 
 ## Recovery procedures
