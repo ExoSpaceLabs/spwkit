@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           source integrations/das_stm32h755_raw_eth/das_release.env
-          [[ "$STM32_HIL_DAS_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]
+          [[ "$STM32_HIL_DAS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$STM32_HIL_DAS_COMMIT" =~ ^[a-f0-9]{40}$ ]]
           echo "DAS_TAG=$STM32_HIL_DAS_TAG" >> "$GITHUB_ENV"
           echo "DAS_COMMIT=$STM32_HIL_DAS_COMMIT" >> "$GITHUB_ENV"
@@ -90,6 +90,16 @@ jobs:
           test "$STM32_HIL_DAS_TAG" = "$DAS_TAG"
           test "$STM32_HIL_DAS_COMMIT" = "$DAS_COMMIT"
           grep -q 'source .*integrations/das_stm32h755_raw_eth/das_release.env' scripts/stm32h755_das_raw_eth_test.sh
+          # DAS must remain an optional STM32 fixture dependency, not a
+          # requirement of the SpWKit library, public headers or package.
+          if grep -ER -n '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"]das/' include/ src/; then
+            echo "Core SpWKit must not include DAS headers" >&2
+            exit 1
+          fi
+          if grep -Ei 'find_package[[:space:]]*\\([[:space:]]*DAS|FetchContent_Declare[[:space:]]*\\([[:space:]]*DAS' CMakeLists.txt; then
+            echo "Root SpWKit CMake must not depend on DAS" >&2
+            exit 1
+          fi
           source scripts/lib/thirdparty.sh
           auto_das="${RUNNER_TEMP}/spwkit-auto-das"
           spwkit_prepare_das "$auto_das" "$DAS_COMMIT" "" "$DAS_TAG"
