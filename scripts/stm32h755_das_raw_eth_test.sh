@@ -19,7 +19,8 @@ REMOTE_PEER_SSH=""
 REMOTE_PEER_BIN=""
 SSH_CONTROL="${SPWKIT_HIL_SSH_CONTROL:-}"
 
-PINNED_DAS_SHA="4b768ef86b43652c94cc91b1c77e247fa37ebd8a"
+PINNED_DAS_TAG="v0.1.0"
+PINNED_DAS_SHA="8553d903a615fe99e2a3a434f876b51f9542fd46"
 PINNED_CUBE_SHA="f5c0b7a2b1f6eb26fde150f72edb2d7deb647066"
 source "$ROOT_DIR/scripts/lib/thirdparty.sh"
 
@@ -155,7 +156,7 @@ remote_ssh() {
   ssh "${ssh_args[@]}" "$REMOTE_PEER_SSH" "$@"
 }
 
-spwkit_prepare_das "$DAS_ROOT" "$PINNED_DAS_SHA"
+spwkit_prepare_das "$DAS_ROOT" "$PINNED_DAS_SHA" "" "$PINNED_DAS_TAG"
 spwkit_prepare_stm32cubeh7 "$STM32_CUBE_H7_DIR" "$PINNED_CUBE_SHA"
 DAS_SHA="$(git -C "$DAS_ROOT" rev-parse HEAD)"
 CUBE_SHA="$(git -C "$STM32_CUBE_H7_DIR" rev-parse HEAD)"
@@ -279,9 +280,18 @@ trap cleanup EXIT INT TERM
 rm -rf -- "$BUILD_ROOT"
 mkdir -p "$LOG_DIR" "$RUN_LOG_DIR"
 
+# Immutable release identity is recorded alongside measured board/host data.
+cat > "$LOG_DIR/dependencies.txt" <<EOF
+das_release_tag=$PINNED_DAS_TAG
+das_commit=$DAS_SHA
+stm32cubeh7_commit=$CUBE_SHA
+spwkit_commit=$(git -C "$ROOT_DIR" rev-parse HEAD)
+stm32_clock_hz=$CLOCK_HZ
+EOF
+
 status "SpWKit STM32H755 raw-Ethernet HIL"
 status "interface=$INTERFACE host_mac=$HOST_MAC"
-status "DAS revision=$DAS_SHA"
+status "DAS release=$PINNED_DAS_TAG revision=$DAS_SHA"
 status "clock_hz=$CLOCK_HZ payloads=$PAYLOADS bulk_bytes=$BULK_BYTES bulk_payload=$BULK_PAYLOAD"
 status "STM32CubeH7 revision=$CUBE_SHA"
 status "full build/debug logs: $RUN_LOG_DIR"
