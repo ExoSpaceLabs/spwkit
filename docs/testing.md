@@ -256,6 +256,12 @@ SpaceWire HIL.
 
 ## End-to-end transport performance campaign
 
+**DAS is an external dependency of the optional STM32H755 HIL
+integration only**, never of SpWKit core, the public SpWKit API or normal
+package consumers. The test fixture's version pin lives in
+`integrations/das_stm32h755_raw_eth/das_release.env`, used exclusively
+by STM32 test scripts and dedicated CI.
+
 The STM32 HIL campaign builds DAS from immutable official
 [`v0.1.0`](https://github.com/Inczert/device-abstraction-stack/releases/tag/v0.1.0)
 source (commit `8553d903a615fe99e2a3a434f876b51f9542fd46`).
