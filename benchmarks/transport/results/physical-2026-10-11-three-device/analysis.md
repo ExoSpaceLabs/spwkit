@@ -4,6 +4,7 @@
 
 - Source: user-supplied full physical evidence archive `results-20261011T164753Z.zip`.
 - Original controller revision: `b47ca0a30797af9e8f8dc8319db28ba70816e08a`.
+- **Historical DAS source commit: `4b768ef86b43652c94cc91b1c77e247fa37ebd8a` (pre-release).** These results were collected *before* DAS `v0.1.0` was selected as the new qualification reference (release commit `8553d903a615fe99e2a3a434f876b51f9542fd46`). Do not relabel them as v0.1.0 measurements; after instrumenting issue #266, repeat hardware qualification against the tagged release.
 - Controller profile: `benchmark`. Verified 16 MiB echo with 4096-byte logical payload at each clock, plus RTT sweeps (128 measured iterations, 16 warm-ups each payload).
 - Transport: VSPW-TP over RAW Ethernet; stock NUCLEO-H755ZI-Q, STM32 CM7 at **64/200/300/400 MHz**, 100 Mbps full duplex; DAS polling backend.
 - Completed topologies: PC↔Pi UDP/RAW; PC↔STM32 RAW; Pi↔STM32 RAW. PC↔Pi measured summary is preserved separately at `../physical-2026-10-11-pc-pi/`.
