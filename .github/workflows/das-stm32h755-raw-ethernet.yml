@@ -46,13 +46,22 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      DAS_TAG: v0.1.0
-      DAS_COMMIT: 8553d903a615fe99e2a3a434f876b51f9542fd46
       STM32_CUBE_H7_COMMIT: f5c0b7a2b1f6eb26fde150f72edb2d7deb647066
 
     steps:
       - name: Checkout SpWKit
         uses: actions/checkout@v6
+
+      - name: Select STM32-only DAS test fixture release
+        shell: bash
+        run: |
+          set -euo pipefail
+          source integrations/das_stm32h755_raw_eth/das_release.env
+          [[ "$STM32_HIL_DAS_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]
+          [[ "$STM32_HIL_DAS_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          echo "DAS_TAG=$STM32_HIL_DAS_TAG" >> "$GITHUB_ENV"
+          echo "DAS_COMMIT=$STM32_HIL_DAS_COMMIT" >> "$GITHUB_ENV"
+          echo "STM32 HIL uses DAS $STM32_HIL_DAS_TAG; core SpWKit has no DAS dependency"
 
       - name: Checkout pinned DAS
         uses: actions/checkout@v6
@@ -77,8 +86,10 @@ jobs:
           test "$(git -C external/das rev-parse HEAD)" = "$DAS_COMMIT"
           test "$(git -C external/das rev-parse "refs/tags/$DAS_TAG^{commit}")" = "$DAS_COMMIT"
           test "$(cat external/das/VERSION)" = "${DAS_TAG#v}"
-          grep -q "^PINNED_DAS_TAG=\"$DAS_TAG\"$" scripts/stm32h755_das_raw_eth_test.sh
-          grep -q "^PINNED_DAS_SHA=\"$DAS_COMMIT\"$" scripts/stm32h755_das_raw_eth_test.sh
+          source integrations/das_stm32h755_raw_eth/das_release.env
+          test "$STM32_HIL_DAS_TAG" = "$DAS_TAG"
+          test "$STM32_HIL_DAS_COMMIT" = "$DAS_COMMIT"
+          grep -q 'source .*integrations/das_stm32h755_raw_eth/das_release.env' scripts/stm32h755_das_raw_eth_test.sh
           source scripts/lib/thirdparty.sh
           auto_das="${RUNNER_TEMP}/spwkit-auto-das"
           spwkit_prepare_das "$auto_das" "$DAS_COMMIT" "" "$DAS_TAG"
