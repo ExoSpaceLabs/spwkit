@@ -96,7 +96,7 @@ jobs:
             echo "Core SpWKit must not include DAS headers" >&2
             exit 1
           fi
-          if grep -Ei 'find_package[[:space:]]*\\([[:space:]]*DAS|FetchContent_Declare[[:space:]]*\\([[:space:]]*DAS' CMakeLists.txt; then
+          if grep -Ei 'find_package[[:space:]]*\([[:space:]]*DAS|FetchContent_Declare[[:space:]]*\([[:space:]]*DAS' CMakeLists.txt; then
             echo "Root SpWKit CMake must not depend on DAS" >&2
             exit 1
           fi
