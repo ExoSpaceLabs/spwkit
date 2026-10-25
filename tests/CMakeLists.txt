@@ -82,6 +82,16 @@ target_link_libraries(spwkit_vspw_engine_test PRIVATE spwkit::spwkit spwkit_test
 target_include_directories(spwkit_vspw_engine_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 set_target_properties(spwkit_vspw_engine_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
+# Test-only in-memory VSPW CPU profiler. No symbols enter the public ABI.
+add_executable(spwkit_vspw_engine_profile
+    ${PROJECT_SOURCE_DIR}/benchmarks/vspw_engine_profile.c)
+target_link_libraries(spwkit_vspw_engine_profile
+    PRIVATE spwkit::spwkit spwkit_test_internals)
+target_include_directories(spwkit_vspw_engine_profile
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
+set_target_properties(spwkit_vspw_engine_profile PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS OFF)
+
 add_executable(spwkit_raw_ethernet_backend_test raw_ethernet_backend.c)
 target_link_libraries(spwkit_raw_ethernet_backend_test PRIVATE spwkit::spwkit)
 target_include_directories(spwkit_raw_ethernet_backend_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
@@ -250,6 +260,12 @@ add_test(NAME transport_provider_contract COMMAND spwkit_transport_provider_test
 set_tests_properties(transport_provider_contract PROPERTIES LABELS "unit;transport;contract;c")
 add_test(NAME vspw_engine_in_memory COMMAND spwkit_vspw_engine_test)
 set_tests_properties(vspw_engine_in_memory PROPERTIES LABELS "unit;transport;integration;contract;c")
+add_test(NAME vspw_profile_unfragmented
+    COMMAND spwkit_vspw_engine_profile --payload 1400 --iterations 16 --ack-pump immediate)
+add_test(NAME vspw_profile_fragmented_deferred_ack
+    COMMAND spwkit_vspw_engine_profile --payload 1401 --iterations 16 --ack-pump deferred)
+set_tests_properties(vspw_profile_unfragmented vspw_profile_fragmented_deferred_ack
+    PROPERTIES LABELS "unit;transport;profiling;c")
 add_test(NAME raw_ethernet_public_backend COMMAND spwkit_raw_ethernet_backend_test)
 set_tests_properties(raw_ethernet_public_backend PROPERTIES LABELS "unit;transport;integration;contract;raw-ethernet;c")
 add_test(NAME raw_ethernet_workspace_requirements COMMAND spwkit_raw_ethernet_workspace_test)

@@ -79,7 +79,31 @@ typedef struct spw_vspw_delivered_key {
     uint32_t message_id;
 } spw_vspw_delivered_key_t;
 
+/* Private VSPW-TP diagnostic counters: no public API or wire change. */
+typedef struct spw_vspw_diagnostics {
+    uint64_t tx_data_frames, tx_ack_frames, tx_keepalive_frames;
+    uint64_t tx_time_code_frames;
+    uint64_t rx_data_frames, rx_ack_frames, rx_keepalive_frames;
+    uint64_t rx_time_code_frames;
+    uint64_t provider_send_failures;
+    uint64_t ack_timeouts, retry_attempts, retry_exhaustions;
+    uint64_t retransmitted_frames;
+    uint64_t ack_matched, ack_unmatched, ack_wrong_session;
+    uint64_t ack_age_us_sum, ack_age_us_max;
+    uint64_t ack_age_buckets[8];
+    uint64_t duplicate_messages, duplicate_fragments;
+    uint64_t invalid_fragments, conflicting_fragments;
+    uint64_t invalid_frames;
+    uint64_t staged_bytes, fragmented_bytes, delivered_copy_bytes;
+    uint64_t tx_slot_wait_calls, tx_slot_wait_us_total;
+    uint64_t tx_slot_wait_us_max, tx_slot_wait_timeouts;
+    uint64_t provider_receive_calls, provider_receive_timeouts;
+    uint64_t provider_receive_us_total;
+} spw_vspw_diagnostics_t;
+
 typedef struct spw_vspw_engine {
+    spw_vspw_diagnostics_t diagnostics;
+    bool diagnostic_retransmitting;
     spw_vspw_engine_config_t config;
     spw_virtual_link_timing_t virtual_timing;
     spw_transport_provider_t transport;
