@@ -145,6 +145,33 @@ def main() -> int:
             f"| {board[prefix + '_max_cycles']} |"
         )
 
+    if "vspw_tx_data_frames" in board:
+        lines += [
+            "",
+            "## VSPW-TP diagnostic counters (board)",
+            "",
+            "| Counter | Value |",
+            "|---|---:|",
+        ]
+        for name in (
+            "vspw_tx_data_frames",
+            "vspw_rx_data_frames",
+            "vspw_tx_ack_frames",
+            "vspw_rx_ack_frames",
+            "vspw_retry_attempts",
+            "vspw_retransmitted_frames",
+            "vspw_ack_timeouts",
+            "vspw_retry_exhaustions",
+            "vspw_ack_matched",
+            "vspw_duplicate_messages",
+            "vspw_duplicate_fragments",
+            "vspw_provider_receive_us",
+            "vspw_tx_slot_wait_us",
+            "vspw_tx_slot_wait_calls",
+        ):
+            if name in board:
+                lines.append(f"| {name} | {board[name]} |")
+
     lines += [
         "",
         "### Interpretation boundary",

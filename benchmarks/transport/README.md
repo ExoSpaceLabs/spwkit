@@ -311,3 +311,26 @@ plateau that stops scaling with CM7 frequency is evidence that the bottleneck
 has moved away from raw CPU execution and should be correlated with DMA,
 memory/copy, polling, fragmentation/reassembly and carrier behavior before any
 optimization is accepted.
+
+## VSPW-TP protocol diagnostics for physical HIL
+
+The host peer emits a `spwkit.embedded.vspw-diagnostics.v1` JSONL
+record and the STM32 debugger evidence contains `vspw_*` fields,
+including ACK attempts/matches, retransmissions, duplicate frames and
+TX-slot/provider-wait timing. Both are **cumulative snapshots** for the
+entire RTT + bulk + completion sequence, not bulk-only throughput.
+Provider receive elapsed time can include blocking/polling, so it
+is not a measurement of CPU consumption. The board summaries render
+the new counters where available.
+
+The snapshot function is a private source-tree-only helper in
+`src/backends/ethernet/vspw_hil_diagnostics.h` and is not part of the
+installed C API or its compatibility promise. Existing
+`spw_port_*` signatures and the wire protocol remain unchanged.
+DAS is only used below this integration fixture.
+
+Before claiming a bottleneck is understood, verify that no output
+was fabricated by the instrumentation, compare the instrumentation's
+own overhead against an uninstrumented build, then repeat the short
+benchmark with a controlled timeout variation. Hardware runs must
+use DAS v0.1.0, not the old development SHA.

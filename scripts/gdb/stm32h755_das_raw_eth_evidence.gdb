@@ -150,6 +150,20 @@ printf "das_tx_failures=%u\n", $das_tx_failures
 printf "das_rx_errors=%u\n", $das_rx_errors
 printf "das_last_tx_size=%u\n", $das_last_tx_size
 printf "das_last_rx_size=%u\n", $das_last_rx_size
+printf "vspw_tx_data_frames=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_tx_data_frames
+printf "vspw_rx_data_frames=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_rx_data_frames
+printf "vspw_tx_ack_frames=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_tx_ack_frames
+printf "vspw_rx_ack_frames=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_rx_ack_frames
+printf "vspw_retry_attempts=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_retry_attempts
+printf "vspw_retransmitted_frames=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_retransmitted_frames
+printf "vspw_ack_timeouts=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_ack_timeouts
+printf "vspw_retry_exhaustions=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_retry_exhaustions
+printf "vspw_ack_matched=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_ack_matched
+printf "vspw_duplicate_messages=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_duplicate_messages
+printf "vspw_duplicate_fragments=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_duplicate_fragments
+printf "vspw_provider_receive_us=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_provider_receive_us
+printf "vspw_tx_slot_wait_us=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_tx_slot_wait_us
+printf "vspw_tx_slot_wait_calls=%llu\\n", (unsigned long long)g_spwkit_das_raw_evidence.vspw_tx_slot_wait_calls
 printf "das_last_tx_header=%02x:%02x:%02x:%02x:%02x:%02x %02x:%02x:%02x:%02x:%02x:%02x ethertype=%02x%02x\n", g_spwkit_das_raw_evidence.das_last_tx_header[0], g_spwkit_das_raw_evidence.das_last_tx_header[1], g_spwkit_das_raw_evidence.das_last_tx_header[2], g_spwkit_das_raw_evidence.das_last_tx_header[3], g_spwkit_das_raw_evidence.das_last_tx_header[4], g_spwkit_das_raw_evidence.das_last_tx_header[5], g_spwkit_das_raw_evidence.das_last_tx_header[6], g_spwkit_das_raw_evidence.das_last_tx_header[7], g_spwkit_das_raw_evidence.das_last_tx_header[8], g_spwkit_das_raw_evidence.das_last_tx_header[9], g_spwkit_das_raw_evidence.das_last_tx_header[10], g_spwkit_das_raw_evidence.das_last_tx_header[11], g_spwkit_das_raw_evidence.das_last_tx_header[12], g_spwkit_das_raw_evidence.das_last_tx_header[13]
 printf "das_last_rx_header=%02x:%02x:%02x:%02x:%02x:%02x %02x:%02x:%02x:%02x:%02x:%02x ethertype=%02x%02x\n", g_spwkit_das_raw_evidence.das_last_rx_header[0], g_spwkit_das_raw_evidence.das_last_rx_header[1], g_spwkit_das_raw_evidence.das_last_rx_header[2], g_spwkit_das_raw_evidence.das_last_rx_header[3], g_spwkit_das_raw_evidence.das_last_rx_header[4], g_spwkit_das_raw_evidence.das_last_rx_header[5], g_spwkit_das_raw_evidence.das_last_rx_header[6], g_spwkit_das_raw_evidence.das_last_rx_header[7], g_spwkit_das_raw_evidence.das_last_rx_header[8], g_spwkit_das_raw_evidence.das_last_rx_header[9], g_spwkit_das_raw_evidence.das_last_rx_header[10], g_spwkit_das_raw_evidence.das_last_rx_header[11], g_spwkit_das_raw_evidence.das_last_rx_header[12], g_spwkit_das_raw_evidence.das_last_rx_header[13]
 
