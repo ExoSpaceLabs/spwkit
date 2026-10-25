@@ -47,3 +47,14 @@ VSPW wire-format limitations. It supports no more than eight queued
 fragments per logical packet; `--fragment` accepts up to 2008 bytes.
 
 Hardware operator action is **not required** for this profiling stage.
+
+## CI evidence: repeatable protocol-only CPU comparison
+
+The `Transport performance campaign` workflow now builds the same private
+`spwkit_vspw_engine_profile` test target and executes three independent
+1500-transaction measurements for each payload (0, 64, 1400, 1401,
+4096 and 8192 bytes), in immediate-ACK and deferred-ACK modes.
+`build/vspw-cpu-profile/samples.jsonl` preserves individual measurements;
+`summary.md` reports per-mode CPU time, DATA frames, and TX-slot waits.
+CI asserts zero retries and timeouts on the clean in-memory fixture but
+**does not** gate on hosted CPU speed or treat it as physical throughput.

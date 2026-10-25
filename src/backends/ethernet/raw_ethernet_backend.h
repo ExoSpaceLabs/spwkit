@@ -3,12 +3,15 @@
 #define SPWKIT_RAW_ETHERNET_BACKEND_H
 
 #include "core/backend_c.h"
+#include "backends/ethernet/vspw_engine.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 const spw_backend_factory_t* spw_raw_ethernet_backend_factory(void);
+spw_result_t spw_raw_ethernet_copy_diagnostics(
+    const void* context, spw_vspw_diagnostics_t* out);
 
 #ifdef __cplusplus
 } /* extern "C" */

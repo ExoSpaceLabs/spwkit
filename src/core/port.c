@@ -11,6 +11,7 @@
 #include "backends/driver/driver_backend.h"
 #include "backends/loopback/loopback_backend.h"
 #include "backends/ethernet/raw_ethernet_backend.h"
+#include "backends/ethernet/vspw_hil_diagnostics.h"
 #ifdef SPWKIT_HAS_DEVICE
 #include "backends/device/device_backend.h"
 #endif
@@ -49,6 +50,14 @@ struct spw_port {
     bool locally_started;
     uint64_t ownership_epoch;
 };
+
+spw_result_t spwkit_private_vspw_diagnostics(
+    const spw_port_t* port, spw_vspw_diagnostics_t* out) {
+    const spw_backend_factory_t* factory = spw_raw_ethernet_backend_factory();
+    if (port == NULL || out == NULL) return SPW_ERR_INVALID_ARGUMENT;
+    if (port->ops != factory->ops) return SPW_ERR_UNSUPPORTED;
+    return spw_raw_ethernet_copy_diagnostics(port->backend_context, out);
+}
 
 static size_t align_up(size_t value, size_t alignment) {
     return (value + alignment - 1u) & ~(alignment - 1u);

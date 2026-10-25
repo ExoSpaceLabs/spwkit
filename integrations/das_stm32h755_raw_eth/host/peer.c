@@ -3,6 +3,7 @@
 
 #include <spwkit/raw_ethernet.h>
 #include <spwkit/spwkit.h>
+#include "backends/ethernet/vspw_hil_diagnostics.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -24,6 +25,7 @@
 #define PEER_FRAME_CAPACITY 1518u
 #define PEER_MAX_PACKET 4096u
 #define PEER_MAX_ITERATIONS 4096u
+#define PEER_MAX_PAYLOAD_CASES 32u
 #define PEER_LINK_ID UINT32_C(0x44534153)
 
 typedef struct packet_context {
@@ -318,6 +320,46 @@ static uint64_t monotonic_ns(void) {
            (uint64_t)now.tv_nsec;
 }
 
+static int parse_u64(const char* text, uint64_t* out_value) {
+    char* end = NULL;
+    unsigned long long value;
+    if (text == NULL || text[0] == '\0' || out_value == NULL) return 0;
+    errno = 0;
+    value = strtoull(text, &end, 0);
+    if (errno != 0 || end == text || *end != '\0') return 0;
+    *out_value = (uint64_t)value;
+    return 1;
+}
+
+static int parse_payloads(const char* text,
+                          size_t* values,
+                          size_t capacity,
+                          size_t* out_count) {
+    char buffer[512];
+    char* save = NULL;
+    char* token;
+    size_t count = 0u;
+
+    if (text == NULL || values == NULL || out_count == NULL ||
+        strlen(text) >= sizeof(buffer)) {
+        return 0;
+    }
+    (void)snprintf(buffer, sizeof(buffer), "%s", text);
+    token = strtok_r(buffer, ",", &save);
+    while (token != NULL) {
+        uint64_t value = 0u;
+        if (count >= capacity || !parse_u64(token, &value) ||
+            value > PEER_MAX_PACKET) {
+            return 0;
+        }
+        values[count++] = (size_t)value;
+        token = strtok_r(NULL, ",", &save);
+    }
+    if (count == 0u) return 0;
+    *out_count = count;
+    return 1;
+}
+
 static int compare_u64(const void* lhs, const void* rhs) {
     const uint64_t a = *(const uint64_t*)lhs;
     const uint64_t b = *(const uint64_t*)rhs;
@@ -426,9 +468,154 @@ static int run_size(spw_port_t* port,
     return 1;
 }
 
+static int run_bulk(spw_port_t* port,
+                    size_t payload_size,
+                    uint64_t total_bytes,
+                    uint32_t* sequence,
+                    packet_context_t* io) {
+    uint64_t transferred = 0u;
+    uint64_t packets = 0u;
+    const uint64_t tx_frames_before = io->tx_frames;
+    const uint64_t tx_bytes_before = io->tx_bytes;
+    const uint64_t rx_frames_before = io->rx_frames;
+    const uint64_t rx_bytes_before = io->rx_bytes;
+    spw_vspw_diagnostics_t diag_before, diag_after;
+    uint64_t start;
+    if (spwkit_private_vspw_diagnostics(port, &diag_before) != SPW_OK) {
+        fprintf(stderr, "[host] bulk VSPW diagnostics baseline failed\n");
+        return 0;
+    }
+    start = monotonic_ns();
+    uint64_t last_progress_ns = start;
+    const uint64_t progress_interval_ns = UINT64_C(10000000000);
+
+    if (payload_size == 0u || payload_size > PEER_MAX_PACKET) return 0;
+    fprintf(stderr,
+            "[host] bulk START: target=%llu bytes (%.1f MiB), "
+            "payload=%zu bytes, expected_packets=%llu; "
+            "progress every ~10 seconds\n",
+            (unsigned long long)total_bytes,
+            (double)total_bytes / (1024.0 * 1024.0),
+            payload_size,
+            (unsigned long long)((total_bytes + payload_size - 1u) / payload_size));
+    fflush(stderr);
+    while (transferred < total_bytes) {
+        const uint64_t remaining = total_bytes - transferred;
+        const size_t size = remaining < (uint64_t)payload_size
+                                ? (size_t)remaining
+                                : payload_size;
+        if (!exchange(port, size, (*sequence)++)) return 0;
+        transferred += (uint64_t)size;
+        ++packets;
+        {
+            const uint64_t now = monotonic_ns();
+            if ((now >= last_progress_ns &&
+                 now - last_progress_ns >= progress_interval_ns) ||
+                transferred == total_bytes) {
+                const double elapsed_s = (double)(now - start) / 1000000000.0;
+                const double mib_done = (double)transferred / 1048576.0;
+                const double rate_mbps = elapsed_s > 0.0
+                    ? ((double)transferred * 8.0 / 1000000.0) / elapsed_s
+                    : 0.0;
+                const double eta_s = transferred > 0u
+                    ? elapsed_s * ((double)(total_bytes - transferred) /
+                                   (double)transferred)
+                    : 0.0;
+                fprintf(stderr,
+                        "[host] bulk PROGRESS: %.1f%% (%0.1f / %0.1f MiB); "
+                        "elapsed=%.0f s; avg=%.3f Mbit/s; ETA=%.0f s; "
+                        "packets=%llu\n",
+                        100.0 * (double)transferred / (double)total_bytes,
+                        mib_done, (double)total_bytes / 1048576.0,
+                        elapsed_s, rate_mbps, eta_s,
+                        (unsigned long long)packets);
+                fflush(stderr);
+                last_progress_ns = now;
+            }
+        }
+    }
+
+    {
+        const uint64_t elapsed = monotonic_ns() - start;
+        if (spwkit_private_vspw_diagnostics(port, &diag_after) != SPW_OK) {
+            fprintf(stderr, "[host] bulk VSPW diagnostics final snapshot failed\n");
+            return 0;
+        }
+        const long double seconds = (long double)elapsed / 1000000000.0L;
+        const long double one_way_mbps =
+            seconds > 0.0L
+                ? ((long double)transferred * 8.0L / 1000000.0L) / seconds
+                : 0.0L;
+        const long double aggregate_mbps = one_way_mbps * 2.0L;
+        printf("{\"schema\":\"spwkit.embedded.raw-ethernet-bulk.v1\""
+               ",\"payload_bytes\":%zu"
+               ",\"requested_bytes\":%llu"
+               ",\"transferred_bytes\":%llu"
+               ",\"packets\":%llu"
+               ",\"elapsed_ns\":%llu"
+               ",\"one_way_payload_mbps\":%.6Lf"
+               ",\"aggregate_echo_mbps\":%.6Lf"
+               ",\"tx_frames\":%llu"
+               ",\"tx_frame_bytes\":%llu"
+               ",\"rx_frames\":%llu"
+               ",\"rx_frame_bytes\":%llu"
+               ",\"vspw_bulk_tx_data_frames\":%llu"
+               ",\"vspw_bulk_rx_data_frames\":%llu"
+               ",\"vspw_bulk_tx_ack_frames\":%llu"
+               ",\"vspw_bulk_rx_ack_frames\":%llu"
+               ",\"vspw_bulk_retry_attempts\":%llu"
+               ",\"vspw_bulk_retransmitted_frames\":%llu"
+               ",\"vspw_bulk_ack_timeouts\":%llu"
+               ",\"vspw_bulk_ack_matched\":%llu"
+               ",\"vspw_bulk_tx_slot_wait_calls\":%llu"
+               ",\"vspw_bulk_tx_slot_wait_us\":%llu"
+               ",\"vspw_bulk_provider_receive_us\":%llu}\n",
+               payload_size,
+               (unsigned long long)total_bytes,
+               (unsigned long long)transferred,
+               (unsigned long long)packets,
+               (unsigned long long)elapsed,
+               one_way_mbps,
+               aggregate_mbps,
+               (unsigned long long)(io->tx_frames - tx_frames_before),
+               (unsigned long long)(io->tx_bytes - tx_bytes_before),
+               (unsigned long long)(io->rx_frames - rx_frames_before),
+               (unsigned long long)(io->rx_bytes - rx_bytes_before),
+               (unsigned long long)(diag_after.tx_data_frames -
+                                    diag_before.tx_data_frames),
+               (unsigned long long)(diag_after.rx_data_frames -
+                                    diag_before.rx_data_frames),
+               (unsigned long long)(diag_after.tx_ack_frames -
+                                    diag_before.tx_ack_frames),
+               (unsigned long long)(diag_after.rx_ack_frames -
+                                    diag_before.rx_ack_frames),
+               (unsigned long long)(diag_after.retry_attempts -
+                                    diag_before.retry_attempts),
+               (unsigned long long)(diag_after.retransmitted_frames -
+                                    diag_before.retransmitted_frames),
+               (unsigned long long)(diag_after.ack_timeouts -
+                                    diag_before.ack_timeouts),
+               (unsigned long long)(diag_after.ack_matched -
+                                    diag_before.ack_matched),
+               (unsigned long long)(diag_after.tx_slot_wait_calls -
+                                    diag_before.tx_slot_wait_calls),
+               (unsigned long long)(diag_after.tx_slot_wait_us_total -
+                                    diag_before.tx_slot_wait_us_total),
+               (unsigned long long)(diag_after.provider_receive_us_total -
+                                    diag_before.provider_receive_us_total));
+        fflush(stdout);
+    }
+    return 1;
+}
+
 static void usage(const char* program) {
     fprintf(stderr,
-            "usage: %s --interface IFACE [--iterations N] [--warmup N]\n",
+            "usage: %s --interface IFACE [options]\n"
+            "  --iterations N       RTT samples per payload (default 128)\n"
+            "  --warmup N           RTT warmup exchanges (default 16)\n"
+            "  --payloads CSV       RTT payloads <= 4096 bytes\n"
+            "  --bulk-bytes N       verified echoed bytes; 0 disables bulk\n"
+            "  --bulk-payload N     bulk logical packet size (default 4096)\n",
             program);
 }
 
@@ -442,7 +629,12 @@ int main(int argc, char** argv) {
         SPW_PORT_CONFIG_INITIALIZER(SPW_BACKEND_RAW_ETHERNET);
     spw_port_t* port = NULL;
     uint32_t sequence = 1u;
-    static const size_t sizes[] = {64u, 256u, 1024u, 4096u};
+    size_t sizes[PEER_MAX_PAYLOAD_CASES] = {
+        0u, 16u, 64u, 128u, 256u, 512u, 1024u, 1200u, 1400u, 4096u
+    };
+    size_t size_count = 10u;
+    uint64_t bulk_bytes = 0u;
+    size_t bulk_payload = 4096u;
     size_t index;
     int i;
 
@@ -453,6 +645,25 @@ int main(int argc, char** argv) {
             iterations = (size_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--warmup") == 0 && i + 1 < argc) {
             warmup = (size_t)strtoul(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--payloads") == 0 && i + 1 < argc) {
+            if (!parse_payloads(argv[++i], sizes,
+                                PEER_MAX_PAYLOAD_CASES, &size_count)) {
+                usage(argv[0]);
+                return 2;
+            }
+        } else if (strcmp(argv[i], "--bulk-bytes") == 0 && i + 1 < argc) {
+            if (!parse_u64(argv[++i], &bulk_bytes)) {
+                usage(argv[0]);
+                return 2;
+            }
+        } else if (strcmp(argv[i], "--bulk-payload") == 0 && i + 1 < argc) {
+            uint64_t parsed = 0u;
+            if (!parse_u64(argv[++i], &parsed) ||
+                parsed == 0u || parsed > PEER_MAX_PACKET) {
+                usage(argv[0]);
+                return 2;
+            }
+            bulk_payload = (size_t)parsed;
         } else {
             usage(argv[0]);
             return 2;
@@ -507,12 +718,21 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    for (index = 0u; index < sizeof(sizes) / sizeof(sizes[0]); ++index) {
+    for (index = 0u; index < size_count; ++index) {
         if (!run_size(port, sizes[index], warmup, iterations, &sequence)) {
             fprintf(stderr, "exchange failed at payload %zu\n", sizes[index]);
             (void)spw_port_close(port);
             return 1;
         }
+    }
+
+    if (bulk_bytes != 0u &&
+        !run_bulk(port, bulk_payload, bulk_bytes, &sequence, &io)) {
+        fprintf(stderr,
+                "bulk exchange failed at payload %zu after request %llu bytes\n",
+                bulk_payload, (unsigned long long)bulk_bytes);
+        (void)spw_port_close(port);
+        return 1;
     }
 
     {
@@ -527,6 +747,48 @@ int main(int argc, char** argv) {
             (void)spw_port_close(port);
             return 1;
         }
+    }
+
+    {
+        spw_vspw_diagnostics_t d;
+        if (spwkit_private_vspw_diagnostics(port, &d) != SPW_OK) {
+            fprintf(stderr, "private VSPW diagnostics failed\n");
+            (void)spw_port_close(port);
+            return 1;
+        }
+        /* Full campaign counters including RTT, bulk and completion. */
+        printf("{\"schema\":\"spwkit.embedded.vspw-diagnostics.v1\","
+               "\"endpoint\":\"host\","
+               "\"tx_data_frames\":%llu,\"rx_data_frames\":%llu,"
+               "\"tx_ack_frames\":%llu,\"rx_ack_frames\":%llu,"
+               "\"tx_keepalive_frames\":%llu,\"rx_keepalive_frames\":%llu,"
+               "\"retry_attempts\":%llu,\"retransmitted_frames\":%llu,"
+               "\"ack_timeouts\":%llu,\"retry_exhaustions\":%llu,"
+               "\"ack_matched\":%llu,\"ack_unmatched\":%llu,"
+               "\"duplicate_messages\":%llu,\"duplicate_fragments\":%llu,"
+               "\"provider_receive_us\":%llu,\"tx_slot_wait_us\":%llu,"
+               "\"tx_slot_wait_calls\":%llu,"
+               "\"staged_bytes\":%llu,\"fragmented_bytes\":%llu}\n",
+               (unsigned long long)d.tx_data_frames,
+               (unsigned long long)d.rx_data_frames,
+               (unsigned long long)d.tx_ack_frames,
+               (unsigned long long)d.rx_ack_frames,
+               (unsigned long long)d.tx_keepalive_frames,
+               (unsigned long long)d.rx_keepalive_frames,
+               (unsigned long long)d.retry_attempts,
+               (unsigned long long)d.retransmitted_frames,
+               (unsigned long long)d.ack_timeouts,
+               (unsigned long long)d.retry_exhaustions,
+               (unsigned long long)d.ack_matched,
+               (unsigned long long)d.ack_unmatched,
+               (unsigned long long)d.duplicate_messages,
+               (unsigned long long)d.duplicate_fragments,
+               (unsigned long long)d.provider_receive_us_total,
+               (unsigned long long)d.tx_slot_wait_us_total,
+               (unsigned long long)d.tx_slot_wait_calls,
+               (unsigned long long)d.staged_bytes,
+               (unsigned long long)d.fragmented_bytes);
+        fflush(stdout);
     }
 
     printf("HOST_RESULT: PASS\n");

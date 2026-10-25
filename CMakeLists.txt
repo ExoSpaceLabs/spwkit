@@ -1,10 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
 
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/VERSION" SPWKIT_PROJECT_VERSION LIMIT_COUNT 1)
+string(STRIP "${SPWKIT_PROJECT_VERSION}" SPWKIT_PROJECT_VERSION)
+if(NOT SPWKIT_PROJECT_VERSION MATCHES
+   "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$")
+    message(FATAL_ERROR
+        "VERSION must contain exactly one semantic version X.Y.Z")
+endif()
+
 # libspwkit is a C11 runtime. C++ is an optional convenience layer above the
 # public C ABI and is never required by the runtime implementation.
 project(
     spwkit
-    VERSION 0.7.0
+    VERSION "${SPWKIT_PROJECT_VERSION}"
     DESCRIPTION "SpaceWire Development & Integration Toolkit"
     LANGUAGES C
 )

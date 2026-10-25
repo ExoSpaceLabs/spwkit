@@ -10,8 +10,13 @@ on:
       - 'CMakeLists.txt'
       - 'integrations/das_stm32h755_raw_eth/**'
       - 'scripts/stm32h755_das_raw_eth_test.sh'
+      - 'scripts/stm32h755_das_raw_eth_campaign.sh'
+      - 'scripts/stm32h755_pi_peer_prepare.sh'
+      - 'scripts/physical_transport_campaign.py'
       - 'scripts/lib/thirdparty.sh'
+      - 'scripts/lib/hil_prerequisites.sh'
       - 'scripts/summarize_stm32h755_das_raw_eth.py'
+      - 'scripts/summarize_stm32h755_das_raw_eth_campaign.py'
       - 'scripts/gdb/stm32h755_das_raw_eth_*.gdb'
       - '.github/workflows/das-stm32h755-raw-ethernet.yml'
   pull_request:
@@ -22,7 +27,11 @@ on:
       - 'CMakeLists.txt'
       - 'integrations/das_stm32h755_raw_eth/**'
       - 'scripts/stm32h755_das_raw_eth_test.sh'
+      - 'scripts/stm32h755_das_raw_eth_campaign.sh'
+      - 'scripts/stm32h755_pi_peer_prepare.sh'
+      - 'scripts/physical_transport_campaign.py'
       - 'scripts/lib/thirdparty.sh'
+      - 'scripts/lib/hil_prerequisites.sh'
       - 'scripts/summarize_stm32h755_das_raw_eth.py'
       - 'scripts/gdb/stm32h755_das_raw_eth_*.gdb'
       - '.github/workflows/das-stm32h755-raw-ethernet.yml'
@@ -37,18 +46,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      DAS_COMMIT: 4b768ef86b43652c94cc91b1c77e247fa37ebd8a
       STM32_CUBE_H7_COMMIT: f5c0b7a2b1f6eb26fde150f72edb2d7deb647066
 
     steps:
       - name: Checkout SpWKit
         uses: actions/checkout@v6
 
+      - name: Select STM32-only DAS test fixture release
+        shell: bash
+        run: |
+          set -euo pipefail
+          source integrations/das_stm32h755_raw_eth/das_release.env
+          [[ "$STM32_HIL_DAS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$STM32_HIL_DAS_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          echo "DAS_TAG=$STM32_HIL_DAS_TAG" >> "$GITHUB_ENV"
+          echo "DAS_COMMIT=$STM32_HIL_DAS_COMMIT" >> "$GITHUB_ENV"
+          echo "STM32 HIL uses DAS $STM32_HIL_DAS_TAG; core SpWKit has no DAS dependency"
+
       - name: Checkout pinned DAS
         uses: actions/checkout@v6
         with:
           repository: Inczert/device-abstraction-stack
-          ref: ${{ env.DAS_COMMIT }}
+          ref: ${{ env.DAS_TAG }}
           path: external/das
 
       - name: Validate runner syntax
@@ -56,13 +75,39 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/lib/thirdparty.sh
+          bash -n scripts/lib/hil_prerequisites.sh
           bash -n scripts/stm32h755_das_raw_eth_test.sh
+          bash -n scripts/stm32h755_das_raw_eth_campaign.sh
+          bash -n scripts/stm32h755_pi_peer_prepare.sh
+          python3 -m py_compile scripts/physical_transport_campaign.py
+          python3 -m unittest discover -s scripts -p test_physical_transport_campaign.py -v
+          python3 -m py_compile scripts/validate_vspw_hil_evidence.py
+          python3 -m unittest discover -s scripts -p test_validate_vspw_hil_evidence.py -v
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth.py
+          python3 -m unittest discover -s scripts -p test_summarize_stm32h755_das_raw_eth.py -v
+          python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth_campaign.py
           test "$(git -C external/das rev-parse HEAD)" = "$DAS_COMMIT"
+          test "$(git -C external/das rev-parse "refs/tags/$DAS_TAG^{commit}")" = "$DAS_COMMIT"
+          test "$(cat external/das/VERSION)" = "${DAS_TAG#v}"
+          source integrations/das_stm32h755_raw_eth/das_release.env
+          test "$STM32_HIL_DAS_TAG" = "$DAS_TAG"
+          test "$STM32_HIL_DAS_COMMIT" = "$DAS_COMMIT"
+          grep -q 'source .*integrations/das_stm32h755_raw_eth/das_release.env' scripts/stm32h755_das_raw_eth_test.sh
+          # DAS must remain an optional STM32 fixture dependency, not a
+          # requirement of the SpWKit library, public headers or package.
+          if grep -ER -n '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"]das/' include/ src/; then
+            echo "Core SpWKit must not include DAS headers" >&2
+            exit 1
+          fi
+          if grep -Ei 'find_package[[:space:]]*\([[:space:]]*DAS|FetchContent_Declare[[:space:]]*\([[:space:]]*DAS' CMakeLists.txt; then
+            echo "Root SpWKit CMake must not depend on DAS" >&2
+            exit 1
+          fi
           source scripts/lib/thirdparty.sh
           auto_das="${RUNNER_TEMP}/spwkit-auto-das"
-          spwkit_prepare_das "$auto_das" "$DAS_COMMIT"
+          spwkit_prepare_das "$auto_das" "$DAS_COMMIT" "" "$DAS_TAG"
           test "$(git -C "$auto_das" rev-parse HEAD)" = "$DAS_COMMIT"
+          test "$(git -C "$auto_das" rev-parse "refs/tags/$DAS_TAG^{commit}")" = "$DAS_COMMIT"
 
       - name: Install build toolchains
         run: |

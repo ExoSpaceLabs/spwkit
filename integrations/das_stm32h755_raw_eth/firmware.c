@@ -5,6 +5,7 @@
 #include <das/das.h>
 #include <spwkit/raw_ethernet.h>
 #include <spwkit/spwkit.h>
+#include "backends/ethernet/vspw_hil_diagnostics.h"
 
 #include <stdalign.h>
 #include <stddef.h>
@@ -16,7 +17,9 @@
 #define SPWKIT_DAS_LINK_ID UINT32_C(0x44534153)
 #define SPWKIT_DAS_EVIDENCE_MAGIC UINT32_C(0x53504441)
 #define SPWKIT_DAS_PASS_PHASE UINT32_C(0x0000700d)
+#ifndef SPWKIT_DAS_CORE_HZ
 #define SPWKIT_DAS_CORE_HZ UINT32_C(400000000)
+#endif
 
 typedef struct spw_das_evidence {
     uint32_t magic;
@@ -43,6 +46,20 @@ typedef struct spw_das_evidence {
     volatile uint32_t das_rx_empty_polls;
     volatile uint32_t das_last_tx_size;
     volatile uint32_t das_last_rx_size;
+    volatile uint64_t vspw_tx_data_frames;
+    volatile uint64_t vspw_rx_data_frames;
+    volatile uint64_t vspw_tx_ack_frames;
+    volatile uint64_t vspw_rx_ack_frames;
+    volatile uint64_t vspw_retry_attempts;
+    volatile uint64_t vspw_retransmitted_frames;
+    volatile uint64_t vspw_ack_timeouts;
+    volatile uint64_t vspw_retry_exhaustions;
+    volatile uint64_t vspw_ack_matched;
+    volatile uint64_t vspw_duplicate_messages;
+    volatile uint64_t vspw_duplicate_fragments;
+    volatile uint64_t vspw_provider_receive_us;
+    volatile uint64_t vspw_tx_slot_wait_us;
+    volatile uint64_t vspw_tx_slot_wait_calls;
     volatile uint8_t das_last_tx_header[14];
     volatile uint8_t das_last_rx_header[14];
 } spw_das_evidence_t;
@@ -51,7 +68,7 @@ volatile spw_das_evidence_t g_spwkit_das_raw_evidence = {
     .magic = SPWKIT_DAS_EVIDENCE_MAGIC,
     .phase = 0u,
     .result = UINT32_MAX,
-    .core_hz = SPWKIT_DAS_CORE_HZ
+    .core_hz = 0u
 };
 
 static spw_das_cycle_stats_t g_app_send_cycles;
@@ -60,6 +77,7 @@ static spw_das_cycle_stats_t g_app_receive_cycles;
 static alignas(max_align_t) uint8_t g_workspace[SPWKIT_DAS_WORKSPACE_BYTES];
 static uint8_t g_rx[SPWKIT_DAS_PACKET_BYTES];
 static spw_das_raw_io_t g_raw_io;
+static spw_port_t* g_diag_port = NULL;
 
 static const uint8_t BOARD_MAC[DAS_ETH_MAC_ADDRESS_SIZE] = {
     0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x01u
@@ -84,6 +102,25 @@ static void snapshot_raw_stats(void) {
     g_spwkit_das_raw_evidence.das_rx_empty_polls = raw_stats.rx_empty_polls;
     g_spwkit_das_raw_evidence.das_last_tx_size = raw_stats.last_tx_size;
     g_spwkit_das_raw_evidence.das_last_rx_size = raw_stats.last_rx_size;
+    if (g_diag_port != NULL) {
+        spw_vspw_diagnostics_t d;
+        if (spwkit_private_vspw_diagnostics(g_diag_port, &d) == SPW_OK) {
+            g_spwkit_das_raw_evidence.vspw_tx_data_frames = d.tx_data_frames;
+            g_spwkit_das_raw_evidence.vspw_rx_data_frames = d.rx_data_frames;
+            g_spwkit_das_raw_evidence.vspw_tx_ack_frames = d.tx_ack_frames;
+            g_spwkit_das_raw_evidence.vspw_rx_ack_frames = d.rx_ack_frames;
+            g_spwkit_das_raw_evidence.vspw_retry_attempts = d.retry_attempts;
+            g_spwkit_das_raw_evidence.vspw_retransmitted_frames = d.retransmitted_frames;
+            g_spwkit_das_raw_evidence.vspw_ack_timeouts = d.ack_timeouts;
+            g_spwkit_das_raw_evidence.vspw_retry_exhaustions = d.retry_exhaustions;
+            g_spwkit_das_raw_evidence.vspw_ack_matched = d.ack_matched;
+            g_spwkit_das_raw_evidence.vspw_duplicate_messages = d.duplicate_messages;
+            g_spwkit_das_raw_evidence.vspw_duplicate_fragments = d.duplicate_fragments;
+            g_spwkit_das_raw_evidence.vspw_provider_receive_us = d.provider_receive_us_total;
+            g_spwkit_das_raw_evidence.vspw_tx_slot_wait_us = d.tx_slot_wait_us_total;
+            g_spwkit_das_raw_evidence.vspw_tx_slot_wait_calls = d.tx_slot_wait_calls;
+        }
+    }
     memcpy((void*)g_spwkit_das_raw_evidence.das_last_tx_header,
            raw_stats.last_tx_header,
            sizeof(raw_stats.last_tx_header));
@@ -169,13 +206,18 @@ int main(void) {
     spw_capabilities_t capabilities = {0};
     spw_port_t* port = NULL;
     uint32_t echoed = 0u;
+    uint32_t core_hz = 0u;
 
     g_spwkit_das_raw_evidence.phase = 1u;
     if (das_board_led_init_all(false) != DAS_OK ||
-        das_clock_set_frequency(UINT32_C(400000000)) != DAS_OK ||
+        !das_clock_frequency_supported(SPWKIT_DAS_CORE_HZ) ||
+        das_clock_set_frequency(SPWKIT_DAS_CORE_HZ) != DAS_OK ||
+        das_clock_get_core_frequency(&core_hz) != DAS_OK ||
+        core_hz != SPWKIT_DAS_CORE_HZ ||
         das_time_init() != DAS_OK) {
         fail(0x101u);
     }
+    g_spwkit_das_raw_evidence.core_hz = core_hz;
 
     memcpy(eth_config.mac, BOARD_MAC, sizeof(BOARD_MAC));
     if (das_board_eth_init(DAS_BOARD_ETH_RJ45, &eth_config, &eth) != DAS_OK ||
@@ -220,6 +262,7 @@ int main(void) {
         capabilities.max_packet_size > sizeof(g_rx)) {
         fail(0x202u);
     }
+    g_diag_port = port;
     g_spwkit_das_raw_evidence.max_packet_size =
         capabilities.max_packet_size;
 

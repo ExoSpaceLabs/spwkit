@@ -24,16 +24,19 @@ def parse_board(path: Path) -> dict[str, int]:
     return values
 
 
-def parse_host(path: Path) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
+def parse_host(path: Path) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    rtt: list[dict[str, object]] = []
+    bulk: list[dict[str, object]] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
         raw = raw.strip()
         if not raw.startswith("{"):
             continue
         record = json.loads(raw)
         if record.get("schema") == "spwkit.embedded.raw-ethernet-rtt.v1":
-            rows.append(record)
-    return rows
+            rtt.append(record)
+        elif record.get("schema") == "spwkit.embedded.raw-ethernet-bulk.v1":
+            bulk.append(record)
+    return rtt, bulk
 
 
 def mean_cycles(board: dict[str, int], prefix: str) -> float:
@@ -49,9 +52,10 @@ def main() -> int:
     parser.add_argument("--host", required=True, type=Path)
     parser.add_argument("--board", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--linux-host", choices=("pc", "pi"), default="pc")
     args = parser.parse_args()
 
-    host = parse_host(args.host)
+    host, bulk = parse_host(args.host)
     board = parse_board(args.board)
     required = [
         "core_hz",
@@ -83,7 +87,7 @@ def main() -> int:
         f"- Raw RX empty polls: {board['das_rx_empty_polls']}",
         "- Ethernet mode: polling-only; IRQ-to-worker latency is not applicable.",
         "",
-        "## Physical PC↔STM32 RTT",
+        f"## Physical {'Pi' if args.linux_host == 'pi' else 'PC'}↔STM32 RTT",
         "",
         "| Payload | Median | p95 | p99 | Min | Max |",
         "|---:|---:|---:|---:|---:|---:|",
@@ -97,6 +101,53 @@ def main() -> int:
             f"| {int(row['min_ns'])} ns "
             f"| {int(row['max_ns'])} ns |"
         )
+
+    if bulk:
+        lines += [
+            "",
+            "## Sustained verified echo throughput",
+            "",
+            "| Payload | Logical bytes | Packets | Elapsed | One-way payload | Aggregate request+echo |",
+            "|---:|---:|---:|---:|---:|---:|",
+        ]
+        for row in bulk:
+            lines.append(
+                f"| {int(row['payload_bytes'])} B "
+                f"| {int(row['transferred_bytes'])} "
+                f"| {int(row['packets'])} "
+                f"| {int(row['elapsed_ns']) / 1_000_000_000.0:.3f} s "
+                f"| {float(row['one_way_payload_mbps']):.3f} Mbit/s "
+                f"| {float(row['aggregate_echo_mbps']):.3f} Mbit/s |"
+            )
+
+    if any("vspw_bulk_tx_data_frames" in row for row in bulk):
+        lines += [
+            "",
+            "## VSPW-TP host bulk-phase diagnostics",
+            "",
+            "Host-side deltas for bulk only (RTT warm-up and startup excluded).",
+            "Provider elapsed time includes blocking/polling and is not CPU time.",
+            "",
+            "| Counter | Value |",
+            "|---|---:|",
+        ]
+        names = (
+            "vspw_bulk_tx_data_frames",
+            "vspw_bulk_rx_data_frames",
+            "vspw_bulk_tx_ack_frames",
+            "vspw_bulk_rx_ack_frames",
+            "vspw_bulk_retry_attempts",
+            "vspw_bulk_retransmitted_frames",
+            "vspw_bulk_ack_timeouts",
+            "vspw_bulk_ack_matched",
+            "vspw_bulk_tx_slot_wait_calls",
+            "vspw_bulk_tx_slot_wait_us",
+            "vspw_bulk_provider_receive_us",
+        )
+        for row in bulk:
+            for name in names:
+                if name in row:
+                    lines.append(f"| {name} | {int(row[name])} |")
 
     lines += [
         "",
@@ -122,6 +173,33 @@ def main() -> int:
             f"| {board[prefix + '_min_cycles']} "
             f"| {board[prefix + '_max_cycles']} |"
         )
+
+    if "vspw_tx_data_frames" in board:
+        lines += [
+            "",
+            "## VSPW-TP diagnostic counters (board)",
+            "",
+            "| Counter | Value |",
+            "|---|---:|",
+        ]
+        for name in (
+            "vspw_tx_data_frames",
+            "vspw_rx_data_frames",
+            "vspw_tx_ack_frames",
+            "vspw_rx_ack_frames",
+            "vspw_retry_attempts",
+            "vspw_retransmitted_frames",
+            "vspw_ack_timeouts",
+            "vspw_retry_exhaustions",
+            "vspw_ack_matched",
+            "vspw_duplicate_messages",
+            "vspw_duplicate_fragments",
+            "vspw_provider_receive_us",
+            "vspw_tx_slot_wait_us",
+            "vspw_tx_slot_wait_calls",
+        ):
+            if name in board:
+                lines.append(f"| {name} | {board[name]} |")
 
     lines += [
         "",

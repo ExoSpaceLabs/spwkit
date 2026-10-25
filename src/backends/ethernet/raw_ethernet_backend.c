@@ -232,3 +232,13 @@ static const spw_backend_factory_t RAW_FACTORY = {
 const spw_backend_factory_t* spw_raw_ethernet_backend_factory(void) {
     return &RAW_FACTORY;
 }
+
+/* Internal diagnostic snapshot for HIL fixtures (not public SpWKit API). */
+spw_result_t spw_raw_ethernet_copy_diagnostics(
+    const void* context, spw_vspw_diagnostics_t* out) {
+    const spw_raw_ethernet_backend_t* backend =
+        (const spw_raw_ethernet_backend_t*)context;
+    if (backend == NULL || out == NULL) return SPW_ERR_INVALID_ARGUMENT;
+    *out = backend->engine.diagnostics;
+    return SPW_OK;
+}

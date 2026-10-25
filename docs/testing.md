@@ -253,3 +253,65 @@ Automated tests are engineering evidence supporting the explicitly scoped softwa
 A separate performance workflow exercises the callbacks over real Linux
 AF_PACKET/veth sockets. That is host-carrier evidence, not physical
 SpaceWire HIL.
+
+## End-to-end transport performance campaign
+
+**DAS is an external dependency of the optional STM32H755 HIL
+integration only**, never of SpWKit core, the public SpWKit API or normal
+package consumers. The test fixture's version pin lives in
+`integrations/das_stm32h755_raw_eth/das_release.env`, used exclusively
+by STM32 test scripts and dedicated CI.
+
+The STM32 HIL campaign builds DAS from immutable official
+[`v0.1.0`](https://github.com/Inczert/device-abstraction-stack/releases/tag/v0.1.0)
+source (commit `8553d903a615fe99e2a3a434f876b51f9542fd46`).
+Both the physical script and CI verify the release tag and commit; per-run
+evidence includes the dependency identity. Older physical results remain
+attributed to their original pre-release DAS revision and must be
+requalified before comparing them as `v0.1.0` performance.
+
+The post-v0.7 end-to-end campaign separates automatic host evidence from
+user-initiated, **fully orchestrated** physical-device qualification.
+
+Primary entry point on the PC: `python3 scripts/physical_transport_campaign.py`.
+It provisions the Pi over Wi-Fi SSH, reuses complete PC↔Pi results when present,
+and prompts only for cable reconnections between PC↔Pi, PC↔STM32 and
+Pi↔STM32. For both STM32 topologies the PC flashes/reads the board using
+ST-LINK USB, while the measured RAW Ethernet host peer is respectively the
+PC or Pi. In the default benchmark profile both run the full four-frequency
+DAS clock sweep with a 16 MiB verified echo per clock; the separate
+`--profile stress` is an opt-in 1 GiB endurance test (400 MHz by default).
+
+Automatic CI runs repeated payload-size sweeps for VSPW/UDP and VSPW/raw
+Ethernet over Docker bridge/veth paths. Each workflow run records the actual
+per-case throughput and packet rate, aggregates repeats, and retains raw result
+artifacts. Those values are runner-relative regression evidence: GitHub-hosted
+machines are not controlled throughput reference platforms.
+
+Physical runs require the user to attach hardware and initiate the campaign,
+but **not** to launch each individual endpoint manually:
+
+- PC↔Raspberry Pi 5: run `python3 benchmarks/transport/physical_pi_campaign.py
+  --mode pi` on the Pi once, then run the same script `--mode pc
+  --pi-host <USER>@10.77.77.2` from the PC. This automatically cleans its
+  private build/install area, builds peers, configures the isolated test
+  interface, coordinates SSH-backed UDP and RAW Ethernet source/sink/duplex
+  transfers, repeats the payload sweep, validates endpoints and writes
+  hardware results under `build/physical-pi/results-*/`.
+- PC↔NUCLEO-H755ZI-Q: **PC-only** script performs dependencies, clean builds,
+  flashing and clock changes, physical Ethernet verification, benchmarking and
+  reporting. Connect ST-LINK USB and Ethernet, then run:
+
+```bash
+bash scripts/stm32h755_das_raw_eth_campaign.sh
+```
+
+Add `--interface <NIC>` only if auto-detection is ambiguous. The runner
+exercises **all** 64, 200, 300 and 400 MHz profiles, performs a multi-payload
+RTT sweep plus verified sustained echo traffic, and writes CSV/Markdown
+evidence under `build/das-raw-eth-campaign/`. STM32 UDP/lwIP is out of scope;
+DAS Ethernet is polling-only so IRQ-to-task latency is not claimed.
+
+Optional Docker↔device comparisons remain separate deployment-overhead tests.
+The automation intentionally does not remove global packages or rewrite other
+system configurations.
