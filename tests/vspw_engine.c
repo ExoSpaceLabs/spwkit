@@ -154,6 +154,38 @@ int main(void) {
     assert(stats_b.rx_bytes == sizeof(tx_data));
     assert(stats_b.tx_time_codes == 1u);
 
+    /* No physical transport: exact clean-link frame accounting. */
+    assert(engine_a.diagnostics.tx_data_frames == 3u);
+    assert(engine_b.diagnostics.rx_data_frames == 3u);
+    assert(engine_b.diagnostics.tx_ack_frames >= 1u);
+    assert(engine_a.diagnostics.ack_matched == 1u);
+    assert(engine_a.diagnostics.retry_attempts == 0u);
+    assert(engine_a.diagnostics.staged_bytes == sizeof(tx_data));
+
+    /* Deterministic missing ACK and whole-message retry. */
+    assert(spw_vspw_engine_send(
+               &engine_a, &tx_packet, SPW_TIMEOUT_IMMEDIATE) == SPW_OK);
+    assert(spw_vspw_engine_receive(
+               &engine_b, &rx_packet, 1000u) == SPW_OK);
+    assert(rx_packet.length == sizeof(tx_data));
+    assert(memcmp(rx_data, tx_data, sizeof(tx_data)) == 0);
+    assert(link.inbox[0].count >= 1u);
+    link.inbox[0].head = 0u;
+    link.inbox[0].count = 0u; /* Deliberately discard pending ACK. */
+    runtime_state_a.now_us += 100001u;
+    {
+        spw_link_state_t state = SPW_LINK_ERROR_RESET;
+        assert(spw_vspw_engine_get_link_state(&engine_a, &state) == SPW_OK);
+        assert(engine_a.diagnostics.ack_timeouts == 1u);
+        assert(engine_a.diagnostics.retry_attempts == 1u);
+        assert(engine_a.diagnostics.retransmitted_frames == 3u);
+        assert(engine_a.diagnostics.tx_data_frames == 9u);
+        assert(spw_vspw_engine_get_link_state(&engine_b, &state) == SPW_OK);
+        assert(spw_vspw_engine_get_link_state(&engine_a, &state) == SPW_OK);
+        assert(engine_a.diagnostics.ack_matched >= 2u);
+        assert(engine_b.diagnostics.duplicate_messages >= 1u);
+    }
+
     assert(spw_vspw_engine_stop(&engine_a) == SPW_OK);
     assert(spw_vspw_engine_stop(&engine_b) == SPW_OK);
     return 0;
