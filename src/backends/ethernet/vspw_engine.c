@@ -293,9 +293,30 @@ static spw_result_t send_frame(spw_vspw_engine_t* engine,
                                const uint8_t* bytes,
                                size_t size,
                                spw_timeout_us_t timeout_us) {
-    return spw_transport_provider_send(&engine->transport,
-                                       &engine->remote_peer,
-                                       bytes, size, timeout_us);
+    const spw_result_t result = spw_transport_provider_send(
+        &engine->transport, &engine->remote_peer,
+        bytes, size, timeout_us);
+    if (result != SPW_OK) {
+        ++engine->diagnostics.provider_send_failures;
+        return result;
+    }
+    /* The encoded VSPW-TP v1 header stores message type at byte 6.
+     * Count only frames successfully submitted to the provider. */
+    if (size >= SPW_VSPW_TP_HEADER_SIZE) {
+        switch (bytes[6]) {
+        case SPW_VSPW_TP_DATA: ++engine->diagnostics.tx_data_frames; break;
+        case SPW_VSPW_TP_ACK: ++engine->diagnostics.tx_ack_frames; break;
+        case SPW_VSPW_TP_KEEPALIVE:
+            ++engine->diagnostics.tx_keepalive_frames; break;
+        case SPW_VSPW_TP_TIME_CODE:
+            ++engine->diagnostics.tx_time_code_frames; break;
+        default: break;
+        }
+    }
+    if (engine->diagnostic_retransmitting) {
+        ++engine->diagnostics.retransmitted_frames;
+    }
+    return SPW_OK;
 }
 
 static spw_result_t pump_one(spw_vspw_engine_t* engine,
@@ -485,6 +506,7 @@ static spw_result_t transmit_pending(spw_vspw_engine_t* engine,
         if (payload_size != 0u) {
             memcpy(engine->tx_frame + SPW_VSPW_TP_HEADER_SIZE,
                    engine->pending_tx_packet + offset, payload_size);
+            engine->diagnostics.fragmented_bytes += payload_size;
         }
         result = send_frame(engine, engine->tx_frame,
                             SPW_VSPW_TP_HEADER_SIZE + payload_size,
@@ -517,12 +539,22 @@ static spw_result_t service_pending_tx(spw_vspw_engine_t* engine) {
         if (!engine->pending_tx_failed) {
             engine->pending_tx_failed = true;
             ++engine->statistics.dropped_packets;
+            ++engine->diagnostics.retry_exhaustions;
+            if (engine->pending_tx_last_send_us != 0u) {
+                ++engine->diagnostics.ack_timeouts;
+            }
         }
         mark_peer_lost(engine);
         return SPW_ERR_LINK_UNAVAILABLE;
     }
 
+    if (engine->pending_tx_last_send_us != 0u) {
+        ++engine->diagnostics.ack_timeouts;
+    }
+    ++engine->diagnostics.retry_attempts;
+    engine->diagnostic_retransmitting = true;
     result = transmit_pending(engine, SPW_TIMEOUT_IMMEDIATE);
+    engine->diagnostic_retransmitting = false;
     if (result == SPW_OK) {
         ++engine->pending_tx_retries;
     }
@@ -539,11 +571,28 @@ static spw_result_t process_ack(spw_vspw_engine_t* engine,
         return SPW_OK;
     }
     if (acknowledged_session_id != engine->local_session_id) {
+        ++engine->diagnostics.ack_wrong_session;
         return SPW_OK;
     }
     if (engine->pending_tx_kind != SPW_VSPW_PENDING_NONE &&
         header->message_id == engine->pending_tx_message_id) {
+        const uint64_t now = now_us(engine);
+        const uint64_t last = engine->pending_tx_last_send_us;
+        const uint64_t age = last != 0u && now >= last ? now - last : 0u;
+        static const uint64_t limits[7] = {
+            100u, 1000u, 5000u, 10000u, 20000u, 50000u, 100000u
+        };
+        size_t bucket = 0u;
+        while (bucket < 7u && age > limits[bucket]) ++bucket;
+        ++engine->diagnostics.ack_matched;
+        engine->diagnostics.ack_age_us_sum += age;
+        if (age > engine->diagnostics.ack_age_us_max) {
+            engine->diagnostics.ack_age_us_max = age;
+        }
+        ++engine->diagnostics.ack_age_buckets[bucket];
         clear_pending_tx(engine);
+    } else {
+        ++engine->diagnostics.ack_unmatched;
     }
     return SPW_OK;
 }
@@ -565,6 +614,7 @@ static spw_result_t process_time_code(spw_vspw_engine_t* engine,
     if (ack_required &&
         recently_delivered(engine, SPW_VSPW_TP_TIME_CODE,
                            header->message_id)) {
+        ++engine->diagnostics.duplicate_messages;
         (void)send_ack(engine, header->message_id);
         return SPW_OK;
     }
@@ -604,6 +654,7 @@ static spw_result_t process_data(spw_vspw_engine_t* engine,
 
     if (ack_required &&
         recently_delivered(engine, SPW_VSPW_TP_DATA, header->message_id)) {
+        ++engine->diagnostics.duplicate_messages;
         (void)send_ack(engine, header->message_id);
         return SPW_OK;
     }
@@ -634,7 +685,15 @@ static spw_result_t process_data(spw_vspw_engine_t* engine,
         if (result == SPW_REASSEMBLY_INVALID ||
             result == SPW_REASSEMBLY_CONFLICT) {
             ++engine->statistics.dropped_packets;
+            if (result == SPW_REASSEMBLY_INVALID) {
+                ++engine->diagnostics.invalid_fragments;
+            } else {
+                ++engine->diagnostics.conflicting_fragments;
+            }
             return SPW_OK;
+        }
+        if (result == SPW_REASSEMBLY_DUPLICATE) {
+            ++engine->diagnostics.duplicate_fragments;
         }
         engine->reassembly_last_fragment_us = now_us(engine);
         if (result != SPW_REASSEMBLY_COMPLETE) {
@@ -649,6 +708,8 @@ static spw_result_t process_data(spw_vspw_engine_t* engine,
     if (engine->reassembly.total_size != 0u) {
         memcpy(engine->pending_packet, engine->reassembly.data,
                engine->reassembly.total_size);
+        engine->diagnostics.delivered_copy_bytes +=
+            engine->reassembly.total_size;
     }
     engine->pending_packet_size = engine->reassembly.total_size;
     engine->pending_packet_terminator =
@@ -715,6 +776,7 @@ static spw_result_t pump_one(spw_vspw_engine_t* engine,
             SPW_VSPW_TP_DECODE_OK ||
         received != SPW_VSPW_TP_HEADER_SIZE + header.payload_size) {
         ++engine->statistics.dropped_packets;
+        ++engine->diagnostics.invalid_frames;
         return SPW_OK;
     }
     if (header.link_id != engine->config.link_id) {
@@ -723,6 +785,7 @@ static spw_result_t pump_one(spw_vspw_engine_t* engine,
 
     payload = engine->rx_frame + SPW_VSPW_TP_HEADER_SIZE;
     if (header.type == SPW_VSPW_TP_KEEPALIVE) {
+        ++engine->diagnostics.rx_keepalive_frames;
         return process_keepalive(engine, &header);
     }
     if (engine->remote_session_id == 0u ||
@@ -733,14 +796,17 @@ static spw_result_t pump_one(spw_vspw_engine_t* engine,
 
     switch (header.type) {
     case SPW_VSPW_TP_DATA:
+        ++engine->diagnostics.rx_data_frames;
         if (header.total_size > SPW_VSPW_ENGINE_MAX_PACKET_SIZE) {
             ++engine->statistics.dropped_packets;
             return SPW_OK;
         }
         return process_data(engine, &header, payload);
     case SPW_VSPW_TP_TIME_CODE:
+        ++engine->diagnostics.rx_time_code_frames;
         return process_time_code(engine, &header, payload);
     case SPW_VSPW_TP_ACK:
+        ++engine->diagnostics.rx_ack_frames;
         return process_ack(engine, &header, payload);
     case SPW_VSPW_TP_KEEPALIVE:
     case SPW_VSPW_TP_LINK_CONTROL:
@@ -1012,6 +1078,7 @@ spw_result_t spw_vspw_engine_send(
         }
         if (packet->length != 0u) {
             memcpy(engine->pending_tx_packet, packet->data, packet->length);
+            engine->diagnostics.staged_bytes += packet->length;
         }
         engine->pending_tx_packet_size = packet->length;
         engine->pending_tx_terminator = effective_terminator;
@@ -1086,6 +1153,8 @@ spw_result_t spw_vspw_engine_receive(
     if (engine->pending_packet_size != 0u) {
         memcpy(packet->data, engine->pending_packet,
                engine->pending_packet_size);
+        engine->diagnostics.delivered_copy_bytes +=
+            engine->pending_packet_size;
     }
     engine->pending_packet_valid = false;
     SPW_PROFILE_RX_PROVIDER_RETURN();
