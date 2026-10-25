@@ -5,5 +5,7 @@ find_package(SpWKit CONFIG REQUIRED)
 
 add_executable(spwkit_das_host_peer peer.c)
 target_link_libraries(spwkit_das_host_peer PRIVATE spwkit::spwkit)
+target_include_directories(spwkit_das_host_peer PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../../src")
 target_compile_features(spwkit_das_host_peer PRIVATE c_std_11)
 target_compile_options(spwkit_das_host_peer PRIVATE -Wall -Wextra -Werror)

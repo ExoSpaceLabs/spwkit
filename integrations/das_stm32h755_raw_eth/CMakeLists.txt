@@ -36,7 +36,8 @@ target_link_libraries(spwkit_das_stm32h755_raw_eth PRIVATE
     spwkit::spwkit
     das::das)
 target_include_directories(spwkit_das_stm32h755_raw_eth PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}")
+    "${CMAKE_CURRENT_BINARY_DIR}"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src")
 target_compile_features(spwkit_das_stm32h755_raw_eth PRIVATE c_std_11)
 target_compile_definitions(spwkit_das_stm32h755_raw_eth PRIVATE
     SPWKIT_DAS_CORE_HZ=${SPWKIT_DAS_CORE_HZ}u)

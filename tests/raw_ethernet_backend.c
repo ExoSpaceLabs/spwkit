@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <spwkit/spwkit.h>
+#include "backends/ethernet/vspw_hil_diagnostics.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -350,6 +351,16 @@ int main(void) {
     assert(spw_port_receive_time_code(port_a, &rx_time, 1000u) == SPW_OK);
     assert(rx_time.time_count == tx_time.time_count);
     assert(rx_time.control_flags == tx_time.control_flags);
+
+    {
+        spw_vspw_diagnostics_t diagnostics;
+        assert(spwkit_private_vspw_diagnostics(port_a, &diagnostics)
+               == SPW_OK);
+        assert(diagnostics.tx_data_frames > 0u);
+        assert(diagnostics.ack_matched > 0u);
+        assert(spwkit_private_vspw_diagnostics(NULL, &diagnostics)
+               == SPW_ERR_INVALID_ARGUMENT);
+    }
 
     assert(spw_port_stop(port_a) == SPW_OK);
     assert(spw_port_stop(port_b) == SPW_OK);
