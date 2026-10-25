@@ -56,6 +56,78 @@ jobs:
           cmake --build build/transport-smoke --parallel \
             --target spwkit_udp_perf spwkit_raw_ethernet_perf
 
+      - name: Build private VSPW in-memory CPU profiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/vspw-cpu-layer \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPWKIT_BUILD_EXAMPLES=OFF \
+            -DSPWKIT_BUILD_CPP_TESTS=OFF
+          cmake --build build/vspw-cpu-layer --parallel 2 \
+            --target spwkit_vspw_engine_profile
+
+      - name: Measure VSPW CPU profile with controlled fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/vspw-cpu-profile
+          python3 - <<'PY'
+          import csv
+          import json
+          import statistics
+          import subprocess
+          from pathlib import Path
+
+          executable = "build/vspw-cpu-layer/tests/spwkit_vspw_engine_profile"
+          root = Path("build/vspw-cpu-profile")
+          payloads = (0, 64, 1400, 1401, 4096, 8192)
+          rows = []
+          for replica in range(1, 4):
+              for size in payloads:
+                  for mode in ("immediate", "deferred"):
+                      result = subprocess.run(
+                          [executable, "--payload", str(size),
+                           "--fragment", "1400", "--iterations", "1500",
+                           "--ack-pump", mode],
+                          check=True, capture_output=True, text=True)
+                      row = json.loads(result.stdout.strip())
+                      assert row["retries"] == 0 and row["ack_timeouts"] == 0
+                      assert row["iterations"] == 1500
+                      row["replica"] = replica
+                      rows.append(row)
+
+          with (root / "samples.jsonl").open("w", encoding="utf-8") as file:
+              for row in rows:
+                  file.write(json.dumps(row, sort_keys=True) + "\n")
+
+          lines = [
+              "# VSPW in-memory CPU profile",
+              "",
+              "Three repeated 1500-packet runs per payload and ACK mode.",
+              "Process CPU time includes two protocol engines and the memory fixture.",
+              "GitHub runner timing is diagnostic only; no hardware-speed claim.",
+              "",
+              "| Payload B | ACK pump | Median CPU ns/packet | Median DATA frames | TX-slot waits |",
+              "|---:|---|---:|---:|---:|",
+          ]
+          for size in payloads:
+              for mode in ("immediate", "deferred"):
+                  group = [r for r in rows if r["payload_bytes"] == size
+                           and r["ack_pump"] == mode]
+                  median = statistics.median(
+                      r["cpu_ns_per_packet"] for r in group)
+                  frames = statistics.median(r["data_frames"] for r in group)
+                  waits = statistics.median(
+                      r["tx_slot_wait_calls"] for r in group)
+                  lines.append(
+                      f"| {size} | {mode} | {median:.1f} | {frames:.0f} | {waits:.0f} |")
+          summary = "\n".join(lines) + "\n"
+          (root / "summary.md").write_text(summary, encoding="utf-8")
+          print(summary)
+          PY
+          cat build/vspw-cpu-profile/summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run host UDP correctness smoke
         shell: bash
         run: |
@@ -178,6 +250,7 @@ jobs:
         with:
           name: transport-performance-${{ github.run_id }}
           path: |
+            build/vspw-cpu-profile/
             build/host-udp-source.jsonl
             build/host-udp-sink.jsonl
             build/host-udp-source.log
