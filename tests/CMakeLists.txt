@@ -95,6 +95,11 @@ set_target_properties(spwkit_vspw_engine_profile PROPERTIES
 add_executable(spwkit_raw_ethernet_backend_test raw_ethernet_backend.c)
 target_link_libraries(spwkit_raw_ethernet_backend_test PRIVATE spwkit::spwkit)
 target_include_directories(spwkit_raw_ethernet_backend_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
+# Only static builds may link the intentionally non-exported HIL accessor.
+if(NOT BUILD_SHARED_LIBS)
+    target_compile_definitions(spwkit_raw_ethernet_backend_test
+        PRIVATE SPWKIT_VSPW_HIL_PRIVATE_TEST=1)
+endif()
 set_target_properties(spwkit_raw_ethernet_backend_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
 
 add_executable(spwkit_raw_ethernet_workspace_test raw_ethernet_workspace.c)

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <spwkit/spwkit.h>
+#if defined(SPWKIT_VSPW_HIL_PRIVATE_TEST)
 #include "backends/ethernet/vspw_hil_diagnostics.h"
+#endif
 
 #include <assert.h>
 #include <stdint.h>
@@ -352,6 +354,8 @@ int main(void) {
     assert(rx_time.time_count == tx_time.time_count);
     assert(rx_time.control_flags == tx_time.control_flags);
 
+    /* Private fixture diagnostics are deliberately hidden from shared ABI. */
+#if defined(SPWKIT_VSPW_HIL_PRIVATE_TEST)
     {
         spw_vspw_diagnostics_t diagnostics;
         assert(spwkit_private_vspw_diagnostics(port_a, &diagnostics)
@@ -361,6 +365,7 @@ int main(void) {
         assert(spwkit_private_vspw_diagnostics(NULL, &diagnostics)
                == SPW_ERR_INVALID_ARGUMENT);
     }
+#endif
 
     assert(spw_port_stop(port_a) == SPW_OK);
     assert(spw_port_stop(port_b) == SPW_OK);
