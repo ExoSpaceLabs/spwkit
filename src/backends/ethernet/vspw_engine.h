@@ -95,6 +95,10 @@ typedef struct spw_vspw_diagnostics {
     uint64_t invalid_fragments, conflicting_fragments;
     uint64_t invalid_frames;
     uint64_t staged_bytes, fragmented_bytes, delivered_copy_bytes;
+    uint64_t tx_slot_wait_calls, tx_slot_wait_us_total;
+    uint64_t tx_slot_wait_us_max, tx_slot_wait_timeouts;
+    uint64_t provider_receive_calls, provider_receive_timeouts;
+    uint64_t provider_receive_us_total;
 } spw_vspw_diagnostics_t;
 
 typedef struct spw_vspw_engine {

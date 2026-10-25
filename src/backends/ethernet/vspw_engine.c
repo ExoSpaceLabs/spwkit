@@ -753,9 +753,23 @@ static spw_result_t pump_one(spw_vspw_engine_t* engine,
     }
     wait_timeout = min_timeout(timeout_us, service_slice);
 
-    receive_result = spw_transport_provider_receive(
-        &engine->transport, engine->rx_frame, sizeof(engine->rx_frame),
-        &received, &source, wait_timeout);
+    {
+        const uint64_t started = now_us(engine);
+        uint64_t finished;
+        receive_result = spw_transport_provider_receive(
+            &engine->transport, engine->rx_frame, sizeof(engine->rx_frame),
+            &received, &source, wait_timeout);
+        /* Provider time includes blocking/wait. It is not CPU usage. */
+        finished = now_us(engine);
+        ++engine->diagnostics.provider_receive_calls;
+        if (finished >= started) {
+            engine->diagnostics.provider_receive_us_total +=
+                finished - started;
+        }
+        if (receive_result == SPW_ERR_TIMEOUT) {
+            ++engine->diagnostics.provider_receive_timeouts;
+        }
+    }
 
     if (receive_result == SPW_ERR_TIMEOUT) {
         maybe_send_keepalive(engine);
@@ -848,6 +862,20 @@ static spw_result_t ensure_peer(spw_vspw_engine_t* engine,
     }
 }
 
+static void note_tx_slot_wait(spw_vspw_engine_t* engine,
+                              uint64_t started,
+                              bool timed_out) {
+    const uint64_t now = now_us(engine);
+    const uint64_t elapsed = now >= started ? now - started : 0u;
+    engine->diagnostics.tx_slot_wait_us_total += elapsed;
+    if (elapsed > engine->diagnostics.tx_slot_wait_us_max) {
+        engine->diagnostics.tx_slot_wait_us_max = elapsed;
+    }
+    if (timed_out) {
+        ++engine->diagnostics.tx_slot_wait_timeouts;
+    }
+}
+
 static spw_result_t wait_for_tx_slot(spw_vspw_engine_t* engine,
                                      spw_timeout_us_t timeout_us) {
     spw_vspw_deadline_t deadline;
@@ -855,18 +883,23 @@ static spw_result_t wait_for_tx_slot(spw_vspw_engine_t* engine,
         return SPW_OK;
     }
 
+    const uint64_t started = now_us(engine);
+    ++engine->diagnostics.tx_slot_wait_calls;
     deadline = deadline_make(engine, timeout_us);
     for (;;) {
         spw_result_t service_result = service_pending_tx(engine);
         spw_result_t pump_result;
         spw_timeout_us_t retry_slice;
         if (engine->pending_tx_kind == SPW_VSPW_PENDING_NONE) {
+            note_tx_slot_wait(engine, started, false);
             return SPW_OK;
         }
         if (service_result == SPW_ERR_LINK_UNAVAILABLE) {
+            note_tx_slot_wait(engine, started, false);
             return service_result;
         }
         if (service_result != SPW_OK && service_result != SPW_ERR_TIMEOUT) {
+            note_tx_slot_wait(engine, started, false);
             return service_result;
         }
 
@@ -877,13 +910,16 @@ static spw_result_t wait_for_tx_slot(spw_vspw_engine_t* engine,
             min_timeout(deadline_remaining(engine, &deadline), retry_slice));
         if (pump_result != SPW_OK && pump_result != SPW_ERR_TIMEOUT &&
             pump_result != SPW_ERR_RESOURCE_EXHAUSTED) {
+            note_tx_slot_wait(engine, started, false);
             return pump_result;
         }
         if (engine->pending_tx_kind == SPW_VSPW_PENDING_NONE) {
+            note_tx_slot_wait(engine, started, false);
             return SPW_OK;
         }
         if (deadline_expired(engine, &deadline) ||
             timeout_us == SPW_TIMEOUT_IMMEDIATE) {
+            note_tx_slot_wait(engine, started, true);
             return SPW_ERR_TIMEOUT;
         }
     }
