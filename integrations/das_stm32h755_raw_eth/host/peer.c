@@ -3,6 +3,7 @@
 
 #include <spwkit/raw_ethernet.h>
 #include <spwkit/spwkit.h>
+#include "backends/ethernet/vspw_hil_diagnostics.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -703,6 +704,48 @@ int main(int argc, char** argv) {
             (void)spw_port_close(port);
             return 1;
         }
+    }
+
+    {
+        spw_vspw_diagnostics_t d;
+        if (spwkit_private_vspw_diagnostics(port, &d) != SPW_OK) {
+            fprintf(stderr, "private VSPW diagnostics failed\n");
+            (void)spw_port_close(port);
+            return 1;
+        }
+        /* Full campaign counters including RTT, bulk and completion. */
+        printf("{\"schema\":\"spwkit.embedded.vspw-diagnostics.v1\","
+               "\"endpoint\":\"host\","
+               "\"tx_data_frames\":%llu,\"rx_data_frames\":%llu,"
+               "\"tx_ack_frames\":%llu,\"rx_ack_frames\":%llu,"
+               "\"tx_keepalive_frames\":%llu,\"rx_keepalive_frames\":%llu,"
+               "\"retry_attempts\":%llu,\"retransmitted_frames\":%llu,"
+               "\"ack_timeouts\":%llu,\"retry_exhaustions\":%llu,"
+               "\"ack_matched\":%llu,\"ack_unmatched\":%llu,"
+               "\"duplicate_messages\":%llu,\"duplicate_fragments\":%llu,"
+               "\"provider_receive_us\":%llu,\"tx_slot_wait_us\":%llu,"
+               "\"tx_slot_wait_calls\":%llu,"
+               "\"staged_bytes\":%llu,\"fragmented_bytes\":%llu}\n",
+               (unsigned long long)d.tx_data_frames,
+               (unsigned long long)d.rx_data_frames,
+               (unsigned long long)d.tx_ack_frames,
+               (unsigned long long)d.rx_ack_frames,
+               (unsigned long long)d.tx_keepalive_frames,
+               (unsigned long long)d.rx_keepalive_frames,
+               (unsigned long long)d.retry_attempts,
+               (unsigned long long)d.retransmitted_frames,
+               (unsigned long long)d.ack_timeouts,
+               (unsigned long long)d.retry_exhaustions,
+               (unsigned long long)d.ack_matched,
+               (unsigned long long)d.ack_unmatched,
+               (unsigned long long)d.duplicate_messages,
+               (unsigned long long)d.duplicate_fragments,
+               (unsigned long long)d.provider_receive_us_total,
+               (unsigned long long)d.tx_slot_wait_us_total,
+               (unsigned long long)d.tx_slot_wait_calls,
+               (unsigned long long)d.staged_bytes,
+               (unsigned long long)d.fragmented_bytes);
+        fflush(stdout);
     }
 
     printf("HOST_RESULT: PASS\n");
