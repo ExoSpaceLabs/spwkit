@@ -479,7 +479,13 @@ static int run_bulk(spw_port_t* port,
     const uint64_t tx_bytes_before = io->tx_bytes;
     const uint64_t rx_frames_before = io->rx_frames;
     const uint64_t rx_bytes_before = io->rx_bytes;
-    const uint64_t start = monotonic_ns();
+    spw_vspw_diagnostics_t diag_before, diag_after;
+    uint64_t start;
+    if (spwkit_private_vspw_diagnostics(port, &diag_before) != SPW_OK) {
+        fprintf(stderr, "[host] bulk VSPW diagnostics baseline failed\n");
+        return 0;
+    }
+    start = monotonic_ns();
     uint64_t last_progress_ns = start;
     const uint64_t progress_interval_ns = UINT64_C(10000000000);
 
@@ -531,6 +537,10 @@ static int run_bulk(spw_port_t* port,
 
     {
         const uint64_t elapsed = monotonic_ns() - start;
+        if (spwkit_private_vspw_diagnostics(port, &diag_after) != SPW_OK) {
+            fprintf(stderr, "[host] bulk VSPW diagnostics final snapshot failed\n");
+            return 0;
+        }
         const long double seconds = (long double)elapsed / 1000000000.0L;
         const long double one_way_mbps =
             seconds > 0.0L
@@ -548,7 +558,18 @@ static int run_bulk(spw_port_t* port,
                ",\"tx_frames\":%llu"
                ",\"tx_frame_bytes\":%llu"
                ",\"rx_frames\":%llu"
-               ",\"rx_frame_bytes\":%llu}\n",
+               ",\"rx_frame_bytes\":%llu"
+               ",\"vspw_bulk_tx_data_frames\":%llu"
+               ",\"vspw_bulk_rx_data_frames\":%llu"
+               ",\"vspw_bulk_tx_ack_frames\":%llu"
+               ",\"vspw_bulk_rx_ack_frames\":%llu"
+               ",\"vspw_bulk_retry_attempts\":%llu"
+               ",\"vspw_bulk_retransmitted_frames\":%llu"
+               ",\"vspw_bulk_ack_timeouts\":%llu"
+               ",\"vspw_bulk_ack_matched\":%llu"
+               ",\"vspw_bulk_tx_slot_wait_calls\":%llu"
+               ",\"vspw_bulk_tx_slot_wait_us\":%llu"
+               ",\"vspw_bulk_provider_receive_us\":%llu}\n",
                payload_size,
                (unsigned long long)total_bytes,
                (unsigned long long)transferred,
@@ -559,7 +580,29 @@ static int run_bulk(spw_port_t* port,
                (unsigned long long)(io->tx_frames - tx_frames_before),
                (unsigned long long)(io->tx_bytes - tx_bytes_before),
                (unsigned long long)(io->rx_frames - rx_frames_before),
-               (unsigned long long)(io->rx_bytes - rx_bytes_before));
+               (unsigned long long)(io->rx_bytes - rx_bytes_before),
+               (unsigned long long)(diag_after.tx_data_frames -
+                                    diag_before.tx_data_frames),
+               (unsigned long long)(diag_after.rx_data_frames -
+                                    diag_before.rx_data_frames),
+               (unsigned long long)(diag_after.tx_ack_frames -
+                                    diag_before.tx_ack_frames),
+               (unsigned long long)(diag_after.rx_ack_frames -
+                                    diag_before.rx_ack_frames),
+               (unsigned long long)(diag_after.retry_attempts -
+                                    diag_before.retry_attempts),
+               (unsigned long long)(diag_after.retransmitted_frames -
+                                    diag_before.retransmitted_frames),
+               (unsigned long long)(diag_after.ack_timeouts -
+                                    diag_before.ack_timeouts),
+               (unsigned long long)(diag_after.ack_matched -
+                                    diag_before.ack_matched),
+               (unsigned long long)(diag_after.tx_slot_wait_calls -
+                                    diag_before.tx_slot_wait_calls),
+               (unsigned long long)(diag_after.tx_slot_wait_us_total -
+                                    diag_before.tx_slot_wait_us_total),
+               (unsigned long long)(diag_after.provider_receive_us_total -
+                                    diag_before.provider_receive_us_total));
         fflush(stdout);
     }
     return 1;

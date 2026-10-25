@@ -334,3 +334,20 @@ was fabricated by the instrumentation, compare the instrumentation's
 own overhead against an uninstrumented build, then repeat the short
 benchmark with a controlled timeout variation. Hardware runs must
 use DAS v0.1.0, not the old development SHA.
+
+
+### Bulk-only host diagnostics
+
+In addition to the full-run host and board VSPW snapshots, the
+`spwkit.embedded.raw-ethernet-bulk.v1` JSON record includes
+`vspw_bulk_*` **phase deltas**. These are read immediately before the
+measured bulk and immediately after it, excluding the previous RTT sweeps
+and subsequent DONE message. DATA, ACK, retries and deadline counters
+can therefore be compared directly against the verified bulk packet
+count and the already recorded host carrier frame counts. The report
+renders these deltas under "VSPW-TP host bulk-phase diagnostics".
+They are protocol-provider counters, not a network packet capture.
+
+Board `vspw_*` evidence remains cumulative because STM32 firmware
+does not receive the host's bulk-phase markers. It is useful as an
+independent lifetime cross-check but **not** a bulk-only denominator.

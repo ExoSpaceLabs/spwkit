@@ -120,6 +120,35 @@ def main() -> int:
                 f"| {float(row['aggregate_echo_mbps']):.3f} Mbit/s |"
             )
 
+    if any("vspw_bulk_tx_data_frames" in row for row in bulk):
+        lines += [
+            "",
+            "## VSPW-TP host bulk-phase diagnostics",
+            "",
+            "Host-side deltas for bulk only (RTT warm-up and startup excluded).",
+            "Provider elapsed time includes blocking/polling and is not CPU time.",
+            "",
+            "| Counter | Value |",
+            "|---|---:|",
+        ]
+        names = (
+            "vspw_bulk_tx_data_frames",
+            "vspw_bulk_rx_data_frames",
+            "vspw_bulk_tx_ack_frames",
+            "vspw_bulk_rx_ack_frames",
+            "vspw_bulk_retry_attempts",
+            "vspw_bulk_retransmitted_frames",
+            "vspw_bulk_ack_timeouts",
+            "vspw_bulk_ack_matched",
+            "vspw_bulk_tx_slot_wait_calls",
+            "vspw_bulk_tx_slot_wait_us",
+            "vspw_bulk_provider_receive_us",
+        )
+        for row in bulk:
+            for name in names:
+                if name in row:
+                    lines.append(f"| {name} | {int(row[name])} |")
+
     lines += [
         "",
         "## Board-side cycle decomposition",
