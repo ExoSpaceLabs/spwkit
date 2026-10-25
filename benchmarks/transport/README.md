@@ -351,3 +351,16 @@ They are protocol-provider counters, not a network packet capture.
 Board `vspw_*` evidence remains cumulative because STM32 firmware
 does not receive the host's bulk-phase markers. It is useful as an
 independent lifetime cross-check but **not** a bulk-only denominator.
+
+
+### Protocol-evidence acceptance gate
+
+`scripts/validate_vspw_hil_evidence.py` runs automatically after the
+board GDB PASS and before reporting a successful STM32 campaign. It
+rejects missing host/board diagnostic snapshots, incomplete bulk
+transfers, missing phase deltas, negative or inconsistent counters.
+The validator has a synthetic fixture test in GitHub HIL CI, and can
+be executed manually using `--host HOST_LOG --board GDB_LOG
+--bulk-bytes N`. Historical archives without the newly instrumented
+VSPW counters remain valid *historical functional evidence*, but they
+cannot pass the new VSPW diagnostic qualification gate.

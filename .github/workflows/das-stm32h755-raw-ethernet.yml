@@ -81,6 +81,8 @@ jobs:
           bash -n scripts/stm32h755_pi_peer_prepare.sh
           python3 -m py_compile scripts/physical_transport_campaign.py
           python3 -m unittest discover -s scripts -p test_physical_transport_campaign.py -v
+          python3 -m py_compile scripts/validate_vspw_hil_evidence.py
+          python3 -m unittest discover -s scripts -p test_validate_vspw_hil_evidence.py -v
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth.py
           python3 -m unittest discover -s scripts -p test_summarize_stm32h755_das_raw_eth.py -v
           python3 -m py_compile scripts/summarize_stm32h755_das_raw_eth_campaign.py

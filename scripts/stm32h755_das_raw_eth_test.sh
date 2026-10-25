@@ -535,6 +535,15 @@ if (( GDB_RC != 0 )) || ! grep -q '^RESULT: PASS$' "$GDB_LOG"; then
   exit 1
 fi
 
+# A PASS is not acceptable if the instrumented protocol evidence was lost.
+if ! python3 "$ROOT_DIR/scripts/validate_vspw_hil_evidence.py" \
+    --host "$HOST_LOG" --board "$GDB_LOG" --bulk-bytes "$BULK_BYTES"; then
+  echo "[HIL] FAIL: protocol diagnostics missing or inconsistent" >&2
+  echo "[HIL] inspect: $HOST_LOG" >&2
+  echo "[HIL] inspect: $GDB_LOG" >&2
+  exit 1
+fi
+
 host_label=pc
 if [[ -n "$REMOTE_PEER_SSH" ]]; then host_label=pi; fi
 python3 "$ROOT_DIR/scripts/summarize_stm32h755_das_raw_eth.py" \
